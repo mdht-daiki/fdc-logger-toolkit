@@ -1,0 +1,5 @@
+review:
+  auto_review: true
+  target_branches: ["main"]
+
+high_level_summary: "Short bullets. Mention risks and test gaps."

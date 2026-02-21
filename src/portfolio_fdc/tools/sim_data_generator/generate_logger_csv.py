@@ -91,7 +91,7 @@ def build_process_signal(
     return v1, v2, v3
 
 
-def add_noise(v: np.array, sigma: float, rng: np.random.Generator) -> np.ndarray:
+def add_noise(v: np.ndarray, sigma: float, rng: np.random.Generator) -> np.ndarray:
     return v + rng.normal(0.0, sigma, size=v.shape)
 
 
@@ -111,7 +111,7 @@ def generate_base_signals(
     apc_pressure = np.ones_like(t, dtype=float) * 28.0
 
     for i in range(0, seconds, 1800):
-        recipe = rng.choice(specs)
+        recipe = specs[rng.integers(0, len(specs))]
         p_dc_bias, p_cl2_flow, p_apc_pressure = build_process_signal(i + 5, t, recipe)
         dc_bias = np.where(p_dc_bias > 0, p_dc_bias, dc_bias)
         cl2_flow = np.where(p_cl2_flow > 0, p_cl2_flow, cl2_flow)

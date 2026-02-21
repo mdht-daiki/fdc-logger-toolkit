@@ -27,7 +27,7 @@ def test_build_process_signal_applies_all_steps() -> None:
     )
     t = np.arange(20, dtype=int)
 
-    v1, v2, v3 = glc.build_process_signal(start_idx=1, t=t, recipe=recipe)
+    v1, v2, v3, active = glc.build_process_signal(start_idx=1, t=t, recipe=recipe)
 
     assert np.count_nonzero(v1 == 1.0) == 2
     assert np.count_nonzero(v2 == 10.0) == 2
@@ -36,6 +36,7 @@ def test_build_process_signal_applies_all_steps() -> None:
     assert np.count_nonzero(v1 == 2.0) == 3
     assert np.count_nonzero(v2 == 20.0) == 3
     assert np.count_nonzero(v3 == 60.0) == 3
+    assert np.count_nonzero(active) == 5
 
 
 def test_get_apc_sensor_for_tool() -> None:

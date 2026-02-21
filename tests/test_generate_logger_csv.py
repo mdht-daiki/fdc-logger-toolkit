@@ -180,7 +180,6 @@ def test_main_parses_append_true(monkeypatch, tmp_path: Path) -> None:
             "--seed",
             "123",
             "--append",
-            "true",
         ],
     )
 

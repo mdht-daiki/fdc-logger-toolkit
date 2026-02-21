@@ -73,11 +73,12 @@ def recipe_specs() -> list[RecipeSpec]:
 
 def build_process_signal(
     start_idx: int, t: np.ndarray, recipe: RecipeSpec
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     # idle baseline
     v1 = np.zeros_like(t, dtype=float)
     v2 = np.zeros_like(t, dtype=float)
     v3 = np.ones_like(t, dtype=float) * 28.0  # baseline pressure
+    active = np.zeros_like(t, dtype=bool)
 
     cur = start_idx
     for s in recipe.steps:
@@ -86,9 +87,10 @@ def build_process_signal(
         v1[(t >= s_start) & (t <= s_end)] = s.v1
         v2[(t >= s_start) & (t <= s_end)] = s.v2
         v3[(t >= s_start) & (t <= s_end)] = s.v3
+        active[(t >= s_start) & (t <= s_end)] = True
         cur = s_end + 1 + 3
 
-    return v1, v2, v3
+    return v1, v2, v3, active
 
 
 def add_noise(v: np.ndarray, sigma: float, rng: np.random.Generator) -> np.ndarray:
@@ -112,10 +114,10 @@ def generate_base_signals(
 
     for i in range(0, seconds, 1800):
         recipe = specs[rng.integers(0, len(specs))]
-        p_dc_bias, p_cl2_flow, p_apc_pressure = build_process_signal(i + 5, t, recipe)
-        dc_bias = np.where(p_dc_bias > 0, p_dc_bias, dc_bias)
-        cl2_flow = np.where(p_cl2_flow > 0, p_cl2_flow, cl2_flow)
-        apc_pressure = np.where(p_apc_pressure != 28.0, p_apc_pressure, apc_pressure)
+        p_dc_bias, p_cl2_flow, p_apc_pressure, active = build_process_signal(i + 5, t, recipe)
+        dc_bias = np.where(active, p_dc_bias, dc_bias)
+        cl2_flow = np.where(active, p_cl2_flow, cl2_flow)
+        apc_pressure = np.where(active, p_apc_pressure, apc_pressure)
 
     channels = {
         "value01": np.zeros_like(t, dtype=float),

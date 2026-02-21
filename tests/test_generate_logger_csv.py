@@ -20,10 +20,10 @@ def test_recipe_specs_shape() -> None:
 def test_build_process_signal_applies_all_steps() -> None:
     recipe = glc.RecipeSpec(
         recipe_id="R",
-        steps=[
+        steps=(
             glc.StepSpec(2, 1.0, 10.0, 50.0),
             glc.StepSpec(3, 2.0, 20.0, 60.0),
-        ],
+        ),
     )
     t = np.arange(20, dtype=int)
 
@@ -161,6 +161,7 @@ def test_main_parses_append_true(monkeypatch, tmp_path: Path) -> None:
         captured["seconds"] = seconds
         captured["scenario"] = scenario
         captured["tool_id"] = tool_id
+        captured["seed"] = seed
 
     monkeypatch.setattr(glc, "write_logger_csv", fake_write_logger_csv)
     monkeypatch.setattr(
@@ -190,3 +191,4 @@ def test_main_parses_append_true(monkeypatch, tmp_path: Path) -> None:
     assert captured["seconds"] == 12
     assert captured["scenario"] == "warn"
     assert captured["tool_id"] == "TOOL_B"
+    assert captured["seed"] == 123

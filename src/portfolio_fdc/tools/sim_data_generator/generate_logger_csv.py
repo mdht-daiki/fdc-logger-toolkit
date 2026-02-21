@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import functools
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -28,6 +29,7 @@ class RecipeSpec:
     steps: tuple[StepSpec, ...]
 
 
+@functools.cache
 def get_tool_parameter_to_sensor_map(tool_id: str) -> dict[str, str]:
     sensor_map_path = Path(__file__).resolve().parents[2] / "configs" / "sensor_map.csv"
     mapping = pd.read_csv(sensor_map_path)
@@ -177,8 +179,9 @@ def inject_anomaly_monitored(
     else:
         return df
 
+    original_non_active = df.loc[~process_mask, apc_col].copy()
     out = inject_apc_anomaly(df, apc_col=apc_col, cfg=cfg)
-    out.loc[~process_mask, apc_col] = df.loc[~process_mask, apc_col]
+    out.loc[~process_mask, apc_col] = original_non_active
     return out
 
 

@@ -103,6 +103,8 @@ def generate_base_signals(
     seed: int,
     tool_id: str = "TOOL_A",
 ) -> pd.DataFrame:
+    if start_ts.tzinfo is not None:
+        raise ValueError("start_ts must be a naive datetime (no timezone info)")
     rng = np.random.default_rng(seed)
     specs = recipe_specs()
     sensor_map = get_tool_parameter_to_sensor_map(tool_id)

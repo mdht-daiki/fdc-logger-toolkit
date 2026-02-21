@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -9,6 +10,8 @@ import numpy as np
 import pandas as pd
 
 from portfolio_fdc.tools.sim_data_generator.anomaly import AnomalyConfig, inject_apc_anomaly
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -22,7 +25,7 @@ class StepSpec:
 @dataclass(frozen=True)
 class RecipeSpec:
     recipe_id: str
-    steps: list[StepSpec]
+    steps: tuple[StepSpec, ...]
 
 
 def get_tool_parameter_to_sensor_map(tool_id: str) -> dict[str, str]:
@@ -53,20 +56,20 @@ def recipe_specs() -> list[RecipeSpec]:
     return [
         RecipeSpec(
             "RECIPE_A",
-            [
+            (
                 StepSpec(20, 2.0, 15.0, 58.0),
                 StepSpec(30, 2.7, 20.0, 58.0),
                 StepSpec(25, 2.4, 18.0, 58.0),
                 StepSpec(15, 1.8, 12.0, 58.0),
-            ],
+            ),
         ),
         RecipeSpec(
             "RECIPE_3STEP_C",
-            [
+            (
                 StepSpec(20, 1.7, 14.0, 58.0),
                 StepSpec(30, 2.2, 18.0, 58.0),
                 StepSpec(20, 1.5, 13.0, 58.0),
-            ],
+            ),
         ),
     ]
 
@@ -84,10 +87,11 @@ def build_process_signal(
     for s in recipe.steps:
         s_start = cur
         s_end = cur + s.duration_sec - 1
-        v1[(t >= s_start) & (t <= s_end)] = s.v1
-        v2[(t >= s_start) & (t <= s_end)] = s.v2
-        v3[(t >= s_start) & (t <= s_end)] = s.v3
-        active[(t >= s_start) & (t <= s_end)] = True
+        mask = (t >= s_start) & (t <= s_end)
+        v1[mask] = s.v1
+        v2[mask] = s.v2
+        v3[mask] = s.v3
+        active[mask] = True
         cur = s_end + 1 + 3
 
     return v1, v2, v3, active
@@ -135,7 +139,7 @@ def generate_base_signals(
     for col in ("value01", "value02", "value03"):
         channels[col] = add_noise(channels[col], 0.03, rng)
 
-    ts = [(start_ts + timedelta(seconds=int(i))).replace(tzinfo=None).isoformat() for i in t]
+    ts = [(start_ts + timedelta(seconds=int(i))).isoformat() for i in t]
     return pd.DataFrame(
         {
             "timestamp": ts,
@@ -204,7 +208,7 @@ def write_logger_csv(
     else:
         # append only data rows (no header line)
         df.to_csv(path.as_posix(), mode="a", index=False, header=False, lineterminator="\n")
-    print(f"OK: wrote {len(df)} rows -> {path.as_posix()} (append={append})")
+    logger.info("wrote %d rows -> %s (append=%s)", len(df), path.as_posix(), append)
 
 
 def main():
@@ -215,16 +219,15 @@ def main():
     ap.add_argument("--scenario", choices=["normal", "warn", "crit", "mix"], default="mix")
     ap.add_argument("--tool-id", default="TOOL_A")
     ap.add_argument("--seed", type=int, default=42)
-    ap.add_argument("--append", type=str, default="false")
+    ap.add_argument("--append", action="store_true", default=False)
     args = ap.parse_args()
-    append = args.append.lower() == "true"
     write_logger_csv(
         Path(args.out),
         datetime.fromisoformat(args.start),
         args.seconds,
         args.scenario,
         args.seed,
-        append,
+        args.append,
         args.tool_id,
     )
 

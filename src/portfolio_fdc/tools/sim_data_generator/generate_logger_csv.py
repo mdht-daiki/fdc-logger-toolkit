@@ -192,10 +192,10 @@ def write_logger_csv(
             f.write("RANGE,value02,0,50\n")
             f.write("RANGE,value03,0,100\n")
             f.write("DATA\n")
-        df.to_csv(path.as_posix(), mode="a", index=False)
+        df.to_csv(path.as_posix(), mode="a", index=False, lineterminator="\n")
     else:
         # append only data rows (no header line)
-        df.to_csv(path.as_posix(), mode="a", index=False, header=False)
+        df.to_csv(path.as_posix(), mode="a", index=False, header=False, lineterminator="\n")
     print(f"OK: wrote {len(df)} rows -> {path.as_posix()} (append={append})")
 
 

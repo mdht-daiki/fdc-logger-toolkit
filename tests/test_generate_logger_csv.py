@@ -38,26 +38,46 @@ def test_build_process_signal_applies_all_steps() -> None:
     assert np.count_nonzero(v3 == 60.0) == 3
 
 
-def test_inject_scenario_warn_updates_positive_v1_only() -> None:
-    rng = np.random.default_rng(42)
-    v1 = np.array([0.0, 1.0, -1.0, 2.0])
-    v2 = np.array([0.0, 10.0, 20.0, 30.0])
-
-    glc.inject_scenario(glc.recipe_specs()[0], v1, v2, rng, "warn")
-
-    assert np.allclose(v1, np.array([0.0, 1.35, -1.0, 2.35]))
-    assert np.allclose(v2, np.array([0.0, 10.0, 20.0, 30.0]))
+def test_get_apc_sensor_for_tool() -> None:
+    assert glc.get_apc_sensor_for_tool("TOOL_A") == "value03"
+    assert glc.get_apc_sensor_for_tool("TOOL_B") == "value01"
 
 
-def test_inject_scenario_crit_updates_positive_v2_only() -> None:
-    rng = np.random.default_rng(42)
-    v1 = np.array([0.0, 1.0, 2.0])
-    v2 = np.array([0.0, 10.0, -5.0])
+def test_generate_base_signals_shape_and_columns() -> None:
+    df = glc.generate_base_signals(
+        start_ts=datetime.fromisoformat("2026-02-19T00:00:00"),
+        seconds=10,
+        seed=42,
+    )
+    assert list(df.columns) == ["timestamp", "value01", "value02", "value03"]
+    assert len(df) == 10
 
-    glc.inject_scenario(glc.recipe_specs()[0], v1, v2, rng, "crit")
 
-    assert np.allclose(v1, np.array([0.0, 1.0, 2.0]))
-    assert np.allclose(v2, np.array([0.0, 2.0, -5.0]))
+def test_inject_anomaly_monitored_warn_updates_only_apc_column_for_tool_a() -> None:
+    df = glc.generate_base_signals(
+        start_ts=datetime.fromisoformat("2026-02-19T00:00:00"),
+        seconds=200,
+        seed=42,
+    )
+    out = glc.inject_anomaly_monitored(df, scenario="warn", tool_id="TOOL_A", seed=42)
+
+    assert np.allclose(df["value01"].to_numpy(), out["value01"].to_numpy())
+    assert np.allclose(df["value02"].to_numpy(), out["value02"].to_numpy())
+    assert not np.allclose(df["value03"].to_numpy(), out["value03"].to_numpy())
+
+
+def test_inject_anomaly_monitored_warn_updates_only_apc_column_for_tool_b() -> None:
+    df = glc.generate_base_signals(
+        start_ts=datetime.fromisoformat("2026-02-19T00:00:00"),
+        seconds=200,
+        seed=42,
+        tool_id="TOOL_B",
+    )
+    out = glc.inject_anomaly_monitored(df, scenario="warn", tool_id="TOOL_B", seed=42)
+
+    assert not np.allclose(df["value01"].to_numpy(), out["value01"].to_numpy())
+    assert np.allclose(df["value02"].to_numpy(), out["value02"].to_numpy())
+    assert np.allclose(df["value03"].to_numpy(), out["value03"].to_numpy())
 
 
 def test_add_noise_is_reproducible_with_seed() -> None:
@@ -133,11 +153,13 @@ def test_main_parses_append_true(monkeypatch, tmp_path: Path) -> None:
         scenario: str,
         seed: int,
         append: bool,
+        tool_id: str,
     ) -> None:
         captured["path"] = path
         captured["append"] = append
         captured["seconds"] = seconds
         captured["scenario"] = scenario
+        captured["tool_id"] = tool_id
 
     monkeypatch.setattr(glc, "write_logger_csv", fake_write_logger_csv)
     monkeypatch.setattr(
@@ -152,6 +174,8 @@ def test_main_parses_append_true(monkeypatch, tmp_path: Path) -> None:
             "12",
             "--scenario",
             "warn",
+            "--tool-id",
+            "TOOL_B",
             "--seed",
             "123",
             "--append",
@@ -165,3 +189,4 @@ def test_main_parses_append_true(monkeypatch, tmp_path: Path) -> None:
     assert captured["append"] is True
     assert captured["seconds"] == 12
     assert captured["scenario"] == "warn"
+    assert captured["tool_id"] == "TOOL_B"

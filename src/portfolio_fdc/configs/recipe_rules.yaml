@@ -1,0 +1,17 @@
+recipes:
+  RECIPE_A:
+    steps:
+      - dc_bias_mean: [1.8, 2.2]
+        cl2_flow_mean: [10, 20]
+      - dc_bias_mean: [2.5, 3.0]
+        cl2_flow_mean: [15, 25]
+      - dc_bias_mean: [2.0, 2.8]
+        cl2_flow_mean: [12, 22]
+      - dc_bias_mean: [1.5, 2.0]
+        cl2_flow_mean: [8, 18]
+
+  RECIPE_3STEP_C:
+    steps:
+      - dc_bias_mean: [1.5, 2.0]
+      - dc_bias_mean: [2.0, 2.5]
+      - dc_bias_mean: [1.2, 1.8]

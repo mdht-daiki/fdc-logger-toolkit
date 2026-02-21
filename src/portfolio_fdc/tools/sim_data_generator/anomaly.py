@@ -98,7 +98,6 @@ def inject_apc_variance_increase(
 
 def inject_apc_step_specific(
     df: pd.DataFrame,
-    col: str,
     step_windows: Sequence[tuple[int, pd.Timestamp, pd.Timestamp]],
     target_step_no: int,
     injector: Callable[[pd.DataFrame, pd.Series], pd.DataFrame],
@@ -169,6 +168,6 @@ def inject_apc_anomaly(
         def _inj_offset(d: pd.DataFrame, m: pd.Series) -> pd.DataFrame:
             return inject_apc_offset(d, apc_col, m, delta=mag)
 
-        return inject_apc_step_specific(df, apc_col, step_windows, cfg.step_no, _inj_offset)
+        return inject_apc_step_specific(df, step_windows, cfg.step_no, _inj_offset)
 
     return df

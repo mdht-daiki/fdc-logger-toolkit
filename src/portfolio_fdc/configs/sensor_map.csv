@@ -1,0 +1,7 @@
+tool_id,sensor,parameter
+TOOL_A,value01,dc_bias
+TOOL_A,value02,cl2_flow
+TOOL_A,value03,apc_pressure
+TOOL_B,value01,apc_pressure
+TOOL_B,value02,cl2_flow
+TOOL_B,value03,dc_bias

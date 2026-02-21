@@ -1,0 +1,16 @@
+sampling:
+  interval_sec: 1
+
+channels:
+  dc_bias:
+    rise_threshold: 0.5
+    fall_threshold: 0.5
+    min_duration_sec: 5
+
+  cl2_flow:
+    rise_threshold: 1.0
+    fall_threshold: 1.0
+    min_duration_sec: 5
+
+post_process:
+  merge_gap_sec: 2

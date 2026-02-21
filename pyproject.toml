@@ -4,7 +4,10 @@ version = "0.1.0"
 description = "Portfolio-friendly FDC toolkit (logger stream → segmentation → features → SPC dashboard)"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+  "numpy>=2.4.2",
+  "pandas>=3.0.1"
+]
 
 [project.optional-dependencies]
 dev = [

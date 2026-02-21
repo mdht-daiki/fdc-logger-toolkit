@@ -113,6 +113,7 @@ def generate_base_signals(
     dc_bias = np.zeros_like(t, dtype=float)
     cl2_flow = np.zeros_like(t, dtype=float)
     apc_pressure = np.ones_like(t, dtype=float) * 28.0
+    process_active = np.zeros_like(t, dtype=bool)
 
     for i in range(0, seconds, 1800):
         recipe = specs[rng.integers(0, len(specs))]
@@ -120,6 +121,7 @@ def generate_base_signals(
         dc_bias = np.where(active, p_dc_bias, dc_bias)
         cl2_flow = np.where(active, p_cl2_flow, cl2_flow)
         apc_pressure = np.where(active, p_apc_pressure, apc_pressure)
+        process_active = process_active | active
 
     channels = {
         "value01": np.zeros_like(t, dtype=float),
@@ -140,6 +142,7 @@ def generate_base_signals(
             "value01": channels["value01"],
             "value02": channels["value02"],
             "value03": channels["value03"],
+            "process_active": process_active,
         }
     )
 
@@ -161,7 +164,7 @@ def inject_anomaly_monitored(
             return df
 
     apc_col = get_apc_sensor_for_tool(tool_id)
-    process_mask = pd.to_numeric(df[apc_col], errors="coerce") > 40.0
+    process_mask = df["process_active"].astype(bool)
 
     if pick == "warn":
         cfg = AnomalyConfig(mode="offset", level="warn", magnitude=0.35, seed=seed)
@@ -186,6 +189,7 @@ def write_logger_csv(
 ) -> None:
     df = generate_base_signals(start_ts=start_ts, seconds=seconds, seed=seed, tool_id=tool_id)
     df = inject_anomaly_monitored(df=df, scenario=scenario, tool_id=tool_id, seed=seed)
+    df = df.drop(columns=["process_active"], errors="ignore")
 
     path.parent.mkdir(parents=True, exist_ok=True)
     if not append or not path.exists():

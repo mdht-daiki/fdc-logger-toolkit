@@ -50,7 +50,7 @@ def test_generate_base_signals_shape_and_columns() -> None:
         seconds=10,
         seed=42,
     )
-    assert list(df.columns) == ["timestamp", "value01", "value02", "value03"]
+    assert list(df.columns) == ["timestamp", "value01", "value02", "value03", "process_active"]
     assert len(df) == 10
 
 

@@ -84,6 +84,7 @@ dashboard judge  (future: exporter)
 - Logger raw CSV:
   - huge 1-second sampling stream
   - contains only timestamp,value01,value02,...
+  - generation may use an internal process-active mask for anomaly targeting, but it is not written to CSV
   - includes a header section and a DATA marker line
 
 - scrape:

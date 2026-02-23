@@ -1,6 +1,6 @@
 param(
   [Parameter(Position=0)]
-  [ValidateSet("help","venv","install","precommit","fmt","lint","type","test","check","clean")]
+  [ValidateSet("help","venv","install","precommit","fmt","lint","type","test","test-fast","test-slow","check","clean")]
   [string]$Task = "help"
 )
 
@@ -33,6 +33,8 @@ switch ($Task) {
     Write-Host "  .\tasks.ps1 lint       - ruff check"
     Write-Host "  .\tasks.ps1 type       - mypy src"
     Write-Host "  .\tasks.ps1 test       - pytest"
+    Write-Host "  .\tasks.ps1 test-fast  - pytest excluding slow tests"
+    Write-Host "  .\tasks.ps1 test-slow  - pytest only slow tests"
     Write-Host "  .\tasks.ps1 check      - lint + type + test"
     Write-Host "  .\tasks.ps1 clean      - remove caches/build artifacts"
   }
@@ -69,6 +71,16 @@ switch ($Task) {
   "test" {
     Ensure-DevInstall
     & $Py -m pytest | Out-Host
+  }
+
+  "test-fast" {
+    Ensure-DevInstall
+    & $Py -m pytest -m "not slow" | Out-Host
+  }
+
+  "test-slow" {
+    Ensure-DevInstall
+    & $Py -m pytest -m slow | Out-Host
   }
 
   "check" {

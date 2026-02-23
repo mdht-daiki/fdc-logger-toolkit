@@ -1,4 +1,4 @@
-.PHONY: help venv install-dev pre-commit fmt lint type test check clean
+.PHONY: help venv install-dev pre-commit fmt lint type test test-fast test-slow check clean
 
 PYTHON ?= python
 VENV_DIR ?= .venv
@@ -15,6 +15,8 @@ help:
 	@echo "  make lint          Ruff check"
 	@echo "  make type          Mypy src"
 	@echo "  make test          Pytest"
+	@echo "  make test-fast     Pytest except slow tests"
+	@echo "  make test-slow     Pytest only slow tests"
 	@echo "  make check         lint + type + test"
 	@echo "  make clean         Remove caches/build artifacts"
 
@@ -39,6 +41,12 @@ type: install-dev
 
 test: install-dev
 	$(PY) -m pytest
+
+test-fast: install-dev
+	$(PY) -m pytest -m "not slow"
+
+test-slow: install-dev
+	$(PY) -m pytest -m slow
 
 check: lint type test
 

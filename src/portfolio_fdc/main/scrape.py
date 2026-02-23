@@ -9,7 +9,7 @@ import pandas as pd
 from portfolio_fdc.core.config import load_yaml
 from portfolio_fdc.core.sensor_map import SensorMap
 
-STATE_DIR = Path("state")
+STATE_DIR = Path(__file__).resolve().parents[1] / "state"
 SENSOR_MAP_CSV_PATH = Path(__file__).resolve().parents[1] / "configs" / "sensor_map.csv"
 
 # ------------------------------
@@ -23,7 +23,7 @@ def find_data_header_line_no(path: Path, max_scan_lines: int = 2000) -> int:
         for i, line in enumerate(f):
             if line.strip() == "DATA":
                 return i
-            if i >= max_scan_lines:
+            if i >= max_scan_lines - 1:
                 break
     raise RuntimeError("DATA marker not found within scan limit")
 
@@ -81,7 +81,7 @@ def filter_by_time_window(df: pd.DataFrame, start_ts: datetime, end_ts: datetime
     df = df.copy()
     if "timestamp" not in df.columns:
         raise ValueError("timestamp column is required")
-    df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+    df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce").dt.tz_localize(None)
     return df[(df["timestamp"] > start_ts) & (df["timestamp"] <= end_ts)].sort_values("timestamp")
 
 
@@ -110,7 +110,7 @@ def load_tool_channel_map(path: Path) -> dict:
 
 def resolve_channel_map(tool_id: str, tool_cfg: dict) -> dict[str, str]:
     channels = tool_cfg.get("channels")
-    if channels:
+    if channels is not None:
         return channels
 
     sensor_map = SensorMap.from_csv(SENSOR_MAP_CSV_PATH.as_posix())
@@ -129,8 +129,11 @@ def load_last_ts(tool_id: str) -> datetime | None:
     p = STATE_DIR / f"last_ts_{tool_id}.json"
     if not p.exists():
         return None
-    d = json.loads(p.read_text(encoding="utf-8"))
-    return datetime.fromisoformat(d["last_ts"])
+    try:
+        d = json.loads(p.read_text(encoding="utf-8"))
+        return datetime.fromisoformat(d["last_ts"])
+    except (KeyError, ValueError, json.JSONDecodeError):
+        return None
 
 
 def save_last_ts(tool_id: str, last_ts: datetime) -> None:

@@ -6,7 +6,8 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
   "numpy>=2.4.2",
-  "pandas>=3.0.1"
+  "pandas>=3.0.1",
+  "PyYAML>=6.0"
 ]
 
 [project.optional-dependencies]
@@ -15,6 +16,7 @@ dev = [
   "ruff>=0.6",
   "mypy>=1.10",
   "pre-commit>=3.7",
+  "types-PyYAML>=6.0.12",
 ]
 
 [tool.ruff]
@@ -32,6 +34,10 @@ strict = false
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+markers = [
+  "integration: end-to-end style tests combining generators and scraper",
+  "slow: heavy tests that generate large files or run longer",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

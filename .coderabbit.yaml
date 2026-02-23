@@ -1,5 +1,8 @@
-review:
-  auto_review: true
-  target_branches: ["main"]
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: "ja"
 
-high_level_summary: "Short bullets. Mention risks and test gaps."
+reviews:
+  high_level_summary: true
+  high_level_summary_instructions: "Short bullets. Mention risks and test gaps."
+  auto_review:
+    enabled: true

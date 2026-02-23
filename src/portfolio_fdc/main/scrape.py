@@ -33,7 +33,7 @@ def find_data_header_line_no(path: Path, max_scan_lines: int = 2000) -> int:
 # 上から読む
 def read_from_top(path: Path, data_line_no: int) -> pd.DataFrame:
     # DATA行の次が列ヘッダなので skiprows = data_line_no + 1
-    df = pd.read_csv(path.as_posix(), skiprows=data_line_no + 1)
+    df = pd.read_csv(path, skiprows=data_line_no + 1)
     return df
 
 
@@ -71,7 +71,6 @@ def read_recent_tail_as_df(path: Path, columns: list[str], n_lines: int) -> pd.D
     lines = tail_lines(path, n_lines)
     # drop empty and non-data lines
     rows = [ln for ln in lines if ln.strip() and ("," in ln)]
-    from io import StringIO
 
     csv_text = ",".join(columns) + "\n" + "\n".join(rows) + "\n"
     df = pd.read_csv(StringIO(csv_text))

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import csv
 import json
 from datetime import datetime, timedelta
+from io import StringIO
 from pathlib import Path
 
 import pandas as pd
@@ -62,7 +64,7 @@ def read_columns_after_data(path: Path, data_line_no: int) -> list[str]:
         for _ in range(data_line_no + 1):
             next(f)
         header = next(f).strip()
-    return header.split(",")
+    return next(csv.reader(StringIO(header)))
 
 
 def read_recent_tail_as_df(path: Path, columns: list[str], n_lines: int) -> pd.DataFrame:
@@ -168,7 +170,13 @@ def scrape_logger_csv(
         df = read_from_top(raw_csv_path, data_line_no)
     else:
         # grab tail lines enough to cover 30 minutes (1800 rows) + margin
-        df = read_recent_tail_as_df(raw_csv_path, columns, n_lines=10000)
+
+        # Assume a conservative upper bound of ~10 rows/s
+        # multiply by lookback seconds + 2x margin
+
+        ROWS_PER_SECOND_ESTIMATE = 10
+        tail_n = lookback_minutes * 60 * ROWS_PER_SECOND_ESTIMATE * 2
+        df = read_recent_tail_as_df(raw_csv_path, columns, n_lines=tail_n)
 
     df = filter_by_time_window(df, start_ts, end_ts)
 

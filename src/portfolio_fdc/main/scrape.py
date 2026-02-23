@@ -93,7 +93,8 @@ def apply_tool_mapping(
     out["tool_id"] = tool_id
     out["chamber_id"] = chamber_id
     # rename value01 -> DC Bias etc
-    out = out.rename(columns=channel_map)
+    safe_map = {k: v for k, v in channel_map.items() if k != "timestamp"}
+    out = out.rename(columns=safe_map)
     return out
 
 
@@ -153,10 +154,10 @@ def scrape_logger_csv(
 
     last = load_last_ts(tool_id)
     if last is None:
-        start_ts = now - timedelta(minutes=lookback_minutes)
+        start_ts = now.replace(tzinfo=None) - timedelta(minutes=lookback_minutes)
     else:
         start_ts = last
-    end_ts = now
+    end_ts = now.replace(tzinfo=None)
 
     size_mb = raw_csv_path.stat().st_size / (1024 * 1024)
 

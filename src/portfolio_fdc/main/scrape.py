@@ -5,9 +5,12 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
-import yaml
+
+from portfolio_fdc.core.config import load_yaml
+from portfolio_fdc.core.sensor_map import SensorMap
 
 STATE_DIR = Path("state")
+SENSOR_MAP_CSV_PATH = Path(__file__).resolve().parents[1] / "configs" / "sensor_map.csv"
 
 # ------------------------------
 # utilities
@@ -100,8 +103,25 @@ def apply_tool_mapping(
 
 
 def load_tool_channel_map(path: Path) -> dict:
-    doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    doc = load_yaml(path)
     return doc.get("tools", {})
+
+
+def resolve_channel_map(tool_id: str, tool_cfg: dict) -> dict[str, str]:
+    channels = tool_cfg.get("channels")
+    if channels:
+        return channels
+
+    sensor_map = SensorMap.from_csv(SENSOR_MAP_CSV_PATH.as_posix())
+    channel_map = {
+        sensor: parameter
+        for (mapped_tool_id, sensor), parameter in sensor_map.mapping.items()
+        if mapped_tool_id == tool_id
+    }
+
+    if not channel_map:
+        raise ValueError(f"channel mapping not found for tool_id={tool_id}")
+    return channel_map
 
 
 def load_last_ts(tool_id: str) -> datetime | None:
@@ -128,7 +148,7 @@ def scrape_logger_csv(
 ) -> pd.DataFrame:
     data_line_no = find_data_header_line_no(raw_csv_path)
     columns = read_columns_after_data(raw_csv_path, data_line_no)
-    channel_map = tool_cfg["channels"]  # {value01: "DC Bias", ...}
+    channel_map = resolve_channel_map(tool_id, tool_cfg)
     chamber_id = tool_cfg.get("chamber_id", "CH1")
 
     last = load_last_ts(tool_id)

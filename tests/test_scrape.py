@@ -95,6 +95,53 @@ def test_apply_tool_mapping_adds_ids_and_renames() -> None:
     assert "RF Power" in out.columns
 
 
+def test_resolve_channel_map_falls_back_to_sensor_map(tmp_path: Path, monkeypatch) -> None:
+    sensor_map_csv = tmp_path / "sensor_map.csv"
+    sensor_map_csv.write_text(
+        "\n".join(
+            [
+                "tool_id,sensor,parameter",
+                "TOOL_X,value01,dc_bias",
+                "TOOL_X,value02,cl2_flow",
+                "TOOL_X,value03,apc_pressure",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(scrape, "SENSOR_MAP_CSV_PATH", sensor_map_csv)
+
+    out = scrape.resolve_channel_map("TOOL_X", tool_cfg={})
+
+    assert out == {
+        "value01": "dc_bias",
+        "value02": "cl2_flow",
+        "value03": "apc_pressure",
+    }
+
+
+def test_resolve_channel_map_prefers_tool_cfg_channels(tmp_path: Path, monkeypatch) -> None:
+    sensor_map_csv = tmp_path / "sensor_map.csv"
+    sensor_map_csv.write_text(
+        "\n".join(
+            [
+                "tool_id,sensor,parameter",
+                "TOOL_X,value01,dc_bias",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(scrape, "SENSOR_MAP_CSV_PATH", sensor_map_csv)
+
+    out = scrape.resolve_channel_map(
+        "TOOL_X",
+        tool_cfg={"channels": {"value01": "custom_bias"}},
+    )
+
+    assert out == {"value01": "custom_bias"}
+
+
 def test_scrape_logger_csv_initial_run_saves_latest_state(tmp_path: Path, monkeypatch) -> None:
     raw = tmp_path / "logger_raw.csv"
     _write_logger_raw(

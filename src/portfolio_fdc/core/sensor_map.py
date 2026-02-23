@@ -12,6 +12,10 @@ class SensorMap:
     @staticmethod
     def from_csv(path: str) -> SensorMap:
         df = pd.read_csv(path)
+        required = {"tool_id", "sensor", "parameter"}
+        missing = required - set(df.columns)
+        if missing:
+            raise ValueError(f"Sensor map CSV '{path}' is missing columns: {missing}")
         m: dict[tuple[str, str], str] = {}
         for _, r in df.iterrows():
             m[(str(r["tool_id"]), str(r["sensor"]))] = str(r["parameter"])

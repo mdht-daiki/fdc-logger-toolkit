@@ -134,7 +134,7 @@ def load_last_ts(tool_id: str) -> datetime | None:
     try:
         d = json.loads(p.read_text(encoding="utf-8"))
         return datetime.fromisoformat(d["last_ts"])
-    except (KeyError, ValueError, json.JSONDecodeError):
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
         return None
 
 
@@ -161,7 +161,7 @@ def scrape_logger_csv(
     if last is None:
         start_ts = now.replace(tzinfo=None) - timedelta(minutes=lookback_minutes)
     else:
-        start_ts = last
+        start_ts = last.replace(tzinfo=None)
     end_ts = now.replace(tzinfo=None)
 
     size_mb = raw_csv_path.stat().st_size / (1024 * 1024)

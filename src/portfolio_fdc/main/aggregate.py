@@ -11,33 +11,39 @@ import yaml
 
 
 def load_yaml(path: Path) -> dict:
+    """YAMLファイルを読み込み、辞書として返す。空の場合は空辞書を返す。"""
     return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
 
 
 def api_post(db_api: str, path: str, payload: Any) -> dict:
+    """DB APIにPOSTリクエストを送り、JSONレスポンスを返す。"""
     r = requests.post(f"{db_api}{path}", json=payload, timeout=30)
     r.raise_for_status()
     return r.json()
 
 
 def api_get(db_api: str, path: str, params: dict | None = None) -> dict:
+    """DB APIにGETリクエストを送り、JSONレスポンスを返す。"""
     r = requests.get(f"{db_api}{path}", params=params, timeout=30)
     r.raise_for_status()
     return r.json()
 
 
 def to_dt(s: Any) -> pd.Timestamp:
+    """任意の値をPandasの日時型に変換する。失敗時はNaTになる。"""
     return pd.to_datetime(s, errors="coerce")
 
 
 def make_process_id(
     tool_id: str, chamber_id: str, start_ts: str, end_ts: str, cut_method: str
 ) -> str:
+    """装置・チャンバー・時間範囲・切り出し方式から一意なprocess_idを生成する。"""
     base = f"{tool_id}|{chamber_id}|{start_ts}|{end_ts}|{cut_method}"
     return hashlib.sha1(base.encode("utf-8")).hexdigest()
 
 
 def ensure_cols(df: pd.DataFrame, cols: list[str]) -> None:
+    """DataFrameに必須列が存在するか検証し、不足があれば例外を送出する。"""
     missing = [c for c in cols if c not in df.columns]
     if missing:
         raise RuntimeError(f"Missing required columns: {missing}")
@@ -50,6 +56,7 @@ def wide_to_long_detail(
     process_id: str,
     keep_cols: list[str] | None = None,
 ) -> pd.DataFrame:
+    """ワイド形式の時系列データを詳細保存用のロング形式に変換する。"""
     keep_cols = keep_cols or []
     base_cols = ["timestamp"] + keep_cols
     value_cols = [c for c in df_seg.columns if c not in base_cols]
@@ -65,6 +72,7 @@ def wide_to_long_detail(
 def save_detail_csv(
     df_long: pd.DataFrame, out_dir: Path, tool_id: str, chamber_id: str, process_id: str
 ) -> str:
+    """ロング形式データを詳細CSVとして保存し、保存パスを返す。"""
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"detail_{tool_id}_{chamber_id}_{process_id}.csv"
     df_long.to_csv(path.as_posix(), index=False)
@@ -77,6 +85,7 @@ def compute_features(
     parameters: list[str],
     feature_types: list[str],
 ) -> list[dict]:
+    """各ステップ区間・各パラメータに対して統計特徴量を計算する。"""
     feats: list[dict] = []
     for step_no, s, e in step_windows:
         seg = df_wide[(df_wide["timestamp"] >= s) & (df_wide["timestamp"] <= e)]
@@ -113,6 +122,7 @@ def compute_features(
 def detect_edge_windows(
     series: pd.Series, on_th: float, off_th: float, min_on_sec: int, merge_gap_sec: int
 ) -> list[tuple[pd.Timestamp, pd.Timestamp]]:
+    """閾値ヒステリシスでON区間を検出し、短区間除外と近接区間マージを行う。"""
     # series index must be timestamp (sorted), values numeric
     s = series.dropna()
     if s.empty:
@@ -164,6 +174,7 @@ def detect_steppeaks(
     cl2_on: float,
     cl2_off: float,
 ) -> list[tuple[pd.Timestamp, pd.Timestamp]]:
+    """dc_biasのON区間候補を抽出し、cl2_flowが有効な区間のみをsteppeakとして返す。"""
     # minimal: detect "on" windows by dc_bias, but also ensure cl2 is active in window
     ensure_cols(df, ["timestamp", dc_key, cl2_key])
     d = df.copy()
@@ -186,6 +197,7 @@ def detect_steppeaks(
 def classify_recipe_from_peaks(
     steppeak_queue: list[tuple[pd.Timestamp, pd.Timestamp]], df: pd.DataFrame
 ) -> str:
+    """検出したピーク列からレシピIDを判定する（現状はプレースホルダ）。"""
     # Placeholder
     # your real logic uses dc_bias/cl2_flow levels within each peak, plus conditional rules.
     # For now, return a fixed recipe.
@@ -195,6 +207,7 @@ def classify_recipe_from_peaks(
 def split_one_peak_into_two(
     peak: tuple[pd.Timestamp, pd.Timestamp], ratio: float
 ) -> list[tuple[pd.Timestamp, pd.Timestamp]]:
+    """1つのピーク区間を指定比率で2分割し、2つの区間として返す。"""
     a, b = peak
     total = (b - a).total_seconds()
     if total <= 1:
@@ -204,6 +217,7 @@ def split_one_peak_into_two(
 
 
 def build_processes_edge(df: pd.DataFrame, tool_id: str, chamber_id: str, cfg: dict) -> list[dict]:
+    """edge方式でプロセス区間を作成し、1区間を1ステップとして返す。"""
     df2 = df.copy()
     df2["timestamp"] = pd.to_datetime(df2["timestamp"], errors="coerce")
     df2 = df2.dropna(subset=["timestamp"]).sort_values("timestamp")
@@ -232,6 +246,7 @@ def build_processes_edge(df: pd.DataFrame, tool_id: str, chamber_id: str, cfg: d
 def build_processes_steppeak(
     df: pd.DataFrame, tool_id: str, chamber_id: str, cfg: dict
 ) -> list[dict]:
+    """steppeak方式でピーク列から4ステップ単位のプロセスを構築する。"""
     df2 = df.copy()
     df2["timestamp"] = pd.to_datetime(df2["timestamp"], errors="coerce")
     df2 = df2.dropna(subset=["timestamp"]).sort_values("timestamp")
@@ -286,6 +301,7 @@ def post_one_process(
     end_ts: pd.Timestamp,
     raw_csv_path: str,
 ) -> None:
+    """1プロセス分のメタ情報をDB APIに登録する。"""
     payload = {
         "process_id": process_id,
         "tool_id": tool_id,
@@ -304,6 +320,7 @@ def post_step_windows(
     step_windows: list[tuple[int, pd.Timestamp, pd.Timestamp]],
     source_channel: str,
 ) -> None:
+    """プロセスの各ステップ時間窓をDB APIへ一括登録する。"""
     payload = [
         {
             "process_id": process_id,
@@ -318,6 +335,7 @@ def post_step_windows(
 
 
 def post_features(db_api: str, process_id: str, feats: list[dict]) -> None:
+    """計算済み特徴量をDB APIへ一括登録する。"""
     payload = [
         {
             "process_id": process_id,
@@ -333,7 +351,8 @@ def post_features(db_api: str, process_id: str, feats: list[dict]) -> None:
 
 
 def main():
-    ap = argparse.ArgumentParse()
+    """入力CSVを集約し、プロセス切り出し・詳細保存・特徴量計算・DB登録を実行する。"""
+    ap = argparse.ArgumentParser()
     ap.add_argument(
         "--input", required=True, help="scrape output CSV (wide, includes tool_id/chamber_id)"
     )
@@ -342,6 +361,11 @@ def main():
     ap.add_argument("--detail-out", default="data/detail")
     ap.add_argument("--feature-types", default="mean,max,min,std")
     ap.add_argument("--parameters", default="dc_bias,cl2_flow,apc_pressure")
+    ap.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="DB APIへはPOSTせず、ローカル処理（切り出し/CSV保存/特徴量計算）のみ実行する",
+    )
     args = ap.parse_args()
     cfg = load_yaml(Path(args.config)).get("tools", {})
     df = pd.read_csv(args.input)
@@ -401,28 +425,36 @@ def main():
             seg_wide = seg_wide[["timestamp"] + cols_param]
             long_df = wide_to_long_detail(seg_wide, tool_id, chamber_id, process_id, keep_cols=[])
             raw_csv_path = save_detail_csv(long_df, detail_out, tool_id, chamber_id, process_id)
-            # write to DB
-            post_one_process(
-                args.db_api,
-                tool_id,
-                chamber_id,
-                recipe_id,
-                process_id,
-                start_ts,
-                end_ts,
-                raw_csv_path,
-            )
-            post_step_windows(args.db_api, process_id, p["step_windows"], source_ch)
             # features computed on ORIGINAL wide with parameters
             base = g2.copy()
             base["timestamp"] = pd.to_datetime(base["timestamp"], errors="coerce")
             base = base.dropna(subset=["timestamp"]).sort_values("timestamp")
             feats = compute_features(base, p["step_windows"], cols_param, feature_types)
-            post_features(args.db_api, process_id, feats)
-            print(
-                f"OK: tool={tool_id} chamber={chamber_id} mode={mode} process_id={process_id} "
-                f"recipe={recipe_id} steps={len(p['step_windows'])} features={len(feats)}"
-            )
+            if args.dry_run:
+                print(
+                    f"DRY-RUN: tool={tool_id} chamber={chamber_id} mode={mode} "
+                    f"process_id={process_id} recipe={recipe_id} "
+                    f"steps={len(p['step_windows'])} features={len(feats)} "
+                    f"detail={raw_csv_path}"
+                )
+            else:
+                # write to DB
+                post_one_process(
+                    args.db_api,
+                    tool_id,
+                    chamber_id,
+                    recipe_id,
+                    process_id,
+                    start_ts,
+                    end_ts,
+                    raw_csv_path,
+                )
+                post_step_windows(args.db_api, process_id, p["step_windows"], source_ch)
+                post_features(args.db_api, process_id, feats)
+                print(
+                    f"OK: tool={tool_id} chamber={chamber_id} mode={mode} process_id={process_id} "
+                    f"recipe={recipe_id} steps={len(p['step_windows'])} features={len(feats)}"
+                )
 
 
 if __name__ == "__main__":

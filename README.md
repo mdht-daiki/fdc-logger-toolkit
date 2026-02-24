@@ -136,6 +136,32 @@ python -m portfolio_fdc.tools.generate_logger_csv --out data/raw/logger_raw.csv 
 python -m portfolio_fdc.main.run_once --tool TOOL_A --raw data/raw/logger_raw.csv --db-api http://localhost:8000
 ```
 
+If DB API is not implemented yet, you can run aggregate in dry-run mode (local processing only, no POST):
+
+```bash
+python -m portfolio_fdc.main.aggregate \
+  --input data/scrape/scrape_TOOL_A.csv \
+  --config src/portfolio_fdc/configs/aggregate_tools.yaml \
+  --detail-out data/detail \
+  --dry-run
+```
+
+Makefile version (Mac/Linux):
+
+```bash
+make aggregate-dry-run
+# optional override
+make aggregate-dry-run AGG_INPUT=data/scrape/scrape_TOOL_B.csv AGG_DETAIL_OUT=data/detail_tmp
+```
+
+PowerShell task version (Windows):
+
+```powershell
+.\tasks.ps1 aggregate-dry-run
+# optional override
+.\tasks.ps1 aggregate-dry-run -AggInput data/scrape/scrape_TOOL_B.csv -AggDetailOut data/detail_tmp
+```
+
 ## 4) Start dashboard
 
 ```bash

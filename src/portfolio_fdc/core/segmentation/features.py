@@ -41,7 +41,7 @@ class FeatureExtractor:
                     & (df_process["timestamp"] >= s)
                     & (df_process["timestamp"] <= e)
                 ]
-                vals = sub["value"].astype(float).to_numpy()
+                vals = pd.to_numeric(sub["value"], errors="coerce").dropna().to_numpy(dtype=float)
                 if len(vals) == 0:
                     vals = np.array([0.0], dtype=float)
 

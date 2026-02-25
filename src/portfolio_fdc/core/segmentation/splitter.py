@@ -70,7 +70,7 @@ class StepSplitter:
             & (df["timestamp"] >= start_ts)
             & (df["timestamp"] <= end_ts)
         ]
-        vals = sub["value"].astype(float).to_numpy()
+        vals = pd.to_numeric(sub["value"], errors="coerce").dropna().to_numpy(dtype=float)
         dur = (end_ts - start_ts).total_seconds()
         return StepPeak(
             channel=parameter,

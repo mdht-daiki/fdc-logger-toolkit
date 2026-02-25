@@ -1,4 +1,6 @@
-.PHONY: help venv install-dev pre-commit fmt lint type test test-fast test-slow check aggregate-dry-run clean
+.PHONY: all help venv install-dev pre-commit fmt lint type test test-fast test-slow check aggregate-dry-run clean
+
+all: help
 
 PYTHON ?= python
 VENV_DIR ?= .venv

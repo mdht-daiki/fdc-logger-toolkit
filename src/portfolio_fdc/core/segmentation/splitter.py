@@ -42,11 +42,14 @@ class StepSplitter:
         s = target.dc_bias.start_ts
         e = target.dc_bias.end_ts
         total = (e - s).total_seconds()
+        if total <= 0 or not (0.0 < self.cfg.main_ratio < 1.0):
+            return bundles3
         main_end = s + pd.Timedelta(seconds=total * self.cfg.main_ratio)
 
         # create 2 new dc_bias peaks based on recompute
-        dc_main = self._recompute_peak(df_process, "dc_bias", s, main_end.to_pydatetime())
-        dc_over = self._recompute_peak(df_process, "dc_bias", main_end.to_pydatetime(), e)
+        cut = main_end.to_pydatetime()
+        dc_main = self._recompute_peak(df_process, "dc_bias", s, cut, include_end=False)
+        dc_over = self._recompute_peak(df_process, "dc_bias", cut, e, include_end=True)
 
         # cl2_flow: simplest approach keeps same attachment (or recompute similarly)
         cl = target.cl2_flow
@@ -64,12 +67,13 @@ class StepSplitter:
                 step_no += 1
         return out
 
-    def _recompute_peak(self, df: pd.DataFrame, parameter: str, start_ts, end_ts) -> StepPeak:
-        sub = df[
-            (df["parameter"] == parameter)
-            & (df["timestamp"] >= start_ts)
-            & (df["timestamp"] <= end_ts)
-        ]
+    def _recompute_peak(
+        self, df: pd.DataFrame, parameter: str, start_ts, end_ts, include_end: bool = True
+    ) -> StepPeak:
+        time_mask = (df["timestamp"] >= start_ts) & (df["timestamp"] <= end_ts)
+        if not include_end:
+            time_mask = (df["timestamp"] >= start_ts) & (df["timestamp"] < end_ts)
+        sub = df[(df["parameter"] == parameter) & time_mask]
         vals = pd.to_numeric(sub["value"], errors="coerce").dropna().to_numpy(dtype=float)
         dur = (end_ts - start_ts).total_seconds()
         return StepPeak(

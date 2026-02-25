@@ -172,7 +172,6 @@ def detect_steppeaks(
     dc_on: float,
     dc_off: float,
     cl2_on: float,
-    cl2_off: float,
 ) -> list[tuple[pd.Timestamp, pd.Timestamp]]:
     """dc_biasのON区間候補を抽出し、cl2_flowが有効な区間のみをsteppeakとして返す。"""
     # minimal: detect "on" windows by dc_bias, but also ensure cl2 is active in window
@@ -260,7 +259,6 @@ def build_processes_steppeak(
         float(sp["dc_bias_on"]),
         float(sp["dc_bias_off"]),
         float(sp["cl2_flow_on"]),
-        float(sp["cl2_flow_off"]),
     )
     # make queue of latest 4 peaks -> build a process per 4 peaks in sequence
     out: list[dict] = []
@@ -357,7 +355,7 @@ def main():
         "--input", required=True, help="scrape output CSV (wide, includes tool_id/chamber_id)"
     )
     ap.add_argument("--db-api", default="http://localhost:8000")
-    ap.add_argument("--config", default="configs/aggregate_tools.yaml")
+    ap.add_argument("--config", default="src/portfolio_fdc/configs/aggregate_tools.yaml")
     ap.add_argument("--detail-out", default="data/detail")
     ap.add_argument("--feature-types", default="mean,max,min,std")
     ap.add_argument("--parameters", default="dc_bias,cl2_flow,apc_pressure")

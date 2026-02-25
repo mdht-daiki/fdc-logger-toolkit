@@ -31,12 +31,13 @@ class RecipeClassifier:
     def _match(self, recipe_id: str, spec: dict[str, Any], bundles: list[StepBundle]) -> bool:
         steps = spec.get("steps", [])
         if len(steps) != len(bundles):
-            # allow 3-step recipes to be matched before splitting (optional)
-            if len(steps) != 3:
+            # 3-step recipe を 4-bundle に暫定一致させるケースのみ許可
+            allow_presplit = len(steps) == 3 and len(bundles) == 4
+            if not allow_presplit:
                 return False
 
         # compare up to min length
-        n = min(len(steps), len(bundles))
+        n = len(steps)
         for i in range(n):
             cond = steps[i]
             b = bundles[i]

@@ -36,7 +36,7 @@ class StepPeakDetector:
         values = sub["value"].to_numpy(dtype=float)
 
         segments = self._find_segments(ts, values)
-        segments = self._merge_close_segments(segments)
+        segments = self._merge_close_segments(ts, segments)
 
         peaks: list[StepPeak] = []
         for i0, i1 in segments:
@@ -81,15 +81,16 @@ class StepPeakDetector:
 
         return segs
 
-    def _merge_close_segments(self, segs: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    def _merge_close_segments(
+        self, ts: np.ndarray, segs: list[tuple[int, int]]
+    ) -> list[tuple[int, int]]:
         if not segs:
             return segs
         merged = [segs[0]]
         for s, e in segs[1:]:
             ps, pe = merged[-1]
-            # merge if gap (in indices) corresponds to <= merge_gap_sec
-            gap = s - pe - 1
-            if gap <= self.cfg.merge_gap_sec:
+            gap_sec = (pd.Timestamp(ts[s]) - pd.Timestamp(ts[pe])).total_seconds()
+            if gap_sec <= self.cfg.merge_gap_sec:
                 merged[-1] = (ps, e)
             else:
                 merged.append((s, e))

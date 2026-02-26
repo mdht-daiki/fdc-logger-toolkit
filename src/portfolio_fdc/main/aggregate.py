@@ -289,6 +289,14 @@ def build_processes_steppeak(
     return out
 
 
+def _to_iso_naive_utc(ts: pd.Timestamp) -> str:
+    """タイムゾーンをUTCに変換し、ISOフォーマットの文字列を返す。"""
+    t = pd.Timestamp(ts)
+    if t.tz is not None:
+        t = t.tz_convert("UTC").tz_localize(None)
+    return t.isoformat()
+
+
 def post_one_process(
     db_api: str,
     tool_id: str,
@@ -305,8 +313,8 @@ def post_one_process(
         "tool_id": tool_id,
         "chamber_id": chamber_id,
         "recipe_id": recipe_id,
-        "start_ts": start_ts.to_pydatetime().replace(tzinfo=None).isoformat(),
-        "end_ts": end_ts.to_pydatetime().replace(tzinfo=None).isoformat(),
+        "start_ts": _to_iso_naive_utc(start_ts),
+        "end_ts": _to_iso_naive_utc(end_ts),
         "raw_csv_path": raw_csv_path,
     }
     api_post(db_api, "/processes", payload)
@@ -323,8 +331,8 @@ def post_step_windows(
         {
             "process_id": process_id,
             "step_no": int(no),
-            "start_ts": s.to_pydatetime().replace(tzinfo=None).isoformat(),
-            "end_ts": e.to_pydatetime().replace(tzinfo=None).isoformat(),
+            "start_ts": _to_iso_naive_utc(s),
+            "end_ts": _to_iso_naive_utc(e),
             "source_channel": source_channel,
         }
         for (no, s, e) in step_windows
@@ -405,8 +413,8 @@ def main():
             process_id = make_process_id(
                 tool_id,
                 chamber_id,
-                start_ts.to_pydatetime().replace(tzinfo=None).isoformat(),
-                end_ts.to_pydatetime().replace(tzinfo=None).isoformat(),
+                _to_iso_naive_utc(start_ts),
+                _to_iso_naive_utc(end_ts),
                 cut_method,
             )
             # extract segment (process range)

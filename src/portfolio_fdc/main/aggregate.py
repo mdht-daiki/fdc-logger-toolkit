@@ -399,12 +399,20 @@ def main():
             local = cfg[tool_id]
         mode = local.get("mode", "edge")
         g2 = g.copy()
+        key_channels = local.get("key_channels", {})
+        required = [key_channels.get("dc_bias")]
+        if mode == "steppeak":
+            required.append(key_channels.get("cl2_flow"))
+        missing = [c for c in required if not c or c not in g2.columns]
+        if missing:
+            print(f"SKIP tool={tool_id} chamber={chamber_id} missing_channels={missing}")
+            continue
         if mode == "steppeak":
             procs = build_processes_steppeak(g2, tool_id, chamber_id, local)
-            source_ch = local["key_channels"]["dc_bias"]
+            source_ch = key_channels["dc_bias"]
         else:
             procs = build_processes_edge(g2, tool_id, chamber_id, local)
-            source_ch = local["key_channels"]["dc_bias"]
+            source_ch = key_channels["dc_bias"]
         for p in procs:
             start_ts = p["process_start"]
             end_ts = p["process_end"]

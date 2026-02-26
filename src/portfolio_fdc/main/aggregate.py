@@ -22,6 +22,13 @@ def api_post(db_api: str, path: str, payload: Any) -> dict:
     return r.json()
 
 
+def api_delete(db_api: str, path: str, payload: Any) -> dict:
+    """DB APIにDELETEリクエストを送り、JSONレスポンスを返す。"""
+    r = requests.delete(f"{db_api}{path}", json=payload, timeout=30)
+    r.raise_for_status()
+    return r.json()
+
+
 def api_get(db_api: str, path: str, params: dict | None = None) -> dict:
     """DB APIにGETリクエストを送り、JSONレスポンスを返す。"""
     r = requests.get(f"{db_api}{path}", params=params, timeout=30)
@@ -356,6 +363,11 @@ def post_features(db_api: str, process_id: str, feats: list[dict]) -> None:
         api_post(db_api, "/parameters/bulk", payload)
 
 
+def delete_process(db_api: str, process_id: str) -> None:
+    """指定したprocess_idのプロセスと関連データをDBから削除する。"""
+    api_delete(db_api, "/processes", {"process_id": process_id})
+
+
 def main():
     """入力CSVを集約し、プロセス切り出し・詳細保存・特徴量計算・DB登録を実行する。"""
     ap = argparse.ArgumentParser()
@@ -453,22 +465,35 @@ def main():
                 )
             else:
                 # write to DB
-                post_one_process(
-                    args.db_api,
-                    tool_id,
-                    chamber_id,
-                    recipe_id,
-                    process_id,
-                    start_ts,
-                    end_ts,
-                    raw_csv_path,
-                )
-                post_step_windows(args.db_api, process_id, p["step_windows"], source_ch)
-                post_features(args.db_api, process_id, feats)
-                print(
-                    f"OK: tool={tool_id} chamber={chamber_id} mode={mode} process_id={process_id} "
-                    f"recipe={recipe_id} steps={len(p['step_windows'])} features={len(feats)}"
-                )
+                try:
+                    post_one_process(
+                        args.db_api,
+                        tool_id,
+                        chamber_id,
+                        recipe_id,
+                        process_id,
+                        start_ts,
+                        end_ts,
+                        raw_csv_path,
+                    )
+                    post_step_windows(args.db_api, process_id, p["step_windows"], source_ch)
+                    post_features(args.db_api, process_id, feats)
+                    print(
+                        f"OK: tool={tool_id} chamber={chamber_id} mode={mode} "
+                        f"process_id={process_id} recipe={recipe_id} "
+                        f"steps={len(p['step_windows'])} features={len(feats)}"
+                    )
+                except Exception as e:
+                    print(
+                        f"ERROR posting process_id={process_id} "
+                        f"tool={tool_id} chamber={chamber_id} "
+                        f"error={e}"
+                    )
+                    # attempt cleanup if process was partially created
+                    try:
+                        delete_process(args.db_api, process_id)
+                    except Exception as e2:
+                        print(f"ERROR during cleanup of process_id={process_id} error={e2}")
 
 
 if __name__ == "__main__":

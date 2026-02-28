@@ -214,6 +214,8 @@ def split_one_peak_into_two(
     peak: tuple[pd.Timestamp, pd.Timestamp], ratio: float
 ) -> list[tuple[pd.Timestamp, pd.Timestamp]]:
     """1つのピーク区間を指定比率で2分割し、2つの区間として返す。"""
+    if not (0 < ratio < 1):
+        raise ValueError("Ratio must be between 0 and 1")
     a, b = peak
     total = (b - a).total_seconds()
     if total <= 1:

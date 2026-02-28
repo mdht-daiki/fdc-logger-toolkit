@@ -421,12 +421,21 @@ def main():
         if missing:
             print(f"SKIP tool={tool_id} chamber={chamber_id} missing_channels={missing}")
             continue
-        if mode == "steppeak":
-            procs = build_processes_steppeak(g2, tool_id, chamber_id, local)
-            source_ch = key_channels["dc_bias"]
-        else:
-            procs = build_processes_edge(g2, tool_id, chamber_id, local)
-            source_ch = key_channels["dc_bias"]
+        try:
+            if mode == "steppeak":
+                _ = local["steppeak"]["dc_bias_on"]
+                _ = local["steppeak"]["dc_bias_off"]
+                _ = local["steppeak"]["cl2_flow_on"]
+                procs = build_processes_steppeak(g2, tool_id, chamber_id, local)
+                source_ch = key_channels["dc_bias"]
+            else:
+                _ = local["edge"]["on_threshold"]
+                _ = local["edge"]["off_threshold"]
+                procs = build_processes_edge(g2, tool_id, chamber_id, local)
+                source_ch = key_channels["dc_bias"]
+        except KeyError as e:
+            print(f"SKIP tool={tool_id} chamber={chamber_id} invalid_config_missing={e}")
+            continue
         for p in procs:
             start_ts = p["process_start"]
             end_ts = p["process_end"]

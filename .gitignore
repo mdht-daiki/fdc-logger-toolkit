@@ -36,3 +36,6 @@ data/
 *.db
 *.sqlite
 *.log
+
+# db_api temporary backup files (for staged feature rollout)
+src/portfolio_fdc/db_api/app.py.backup*

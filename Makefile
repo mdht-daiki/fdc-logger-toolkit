@@ -1,10 +1,15 @@
-.PHONY: help venv install-dev pre-commit fmt lint type test test-fast test-slow check clean
+.PHONY: all help venv install-dev pre-commit fmt lint type test test-fast test-slow check aggregate-dry-run clean
+
+all: help
 
 PYTHON ?= python
 VENV_DIR ?= .venv
 PIP := $(VENV_DIR)/bin/pip
 PY := $(VENV_DIR)/bin/python
 PRECOMMIT := $(VENV_DIR)/bin/pre-commit
+AGG_INPUT ?= data/scrape/scrape_TOOL_A.csv
+AGG_CONFIG ?= src/portfolio_fdc/configs/aggregate_tools.yaml
+AGG_DETAIL_OUT ?= data/detail
 
 help:
 	@echo "Targets:"
@@ -18,6 +23,7 @@ help:
 	@echo "  make test-fast     Pytest except slow tests"
 	@echo "  make test-slow     Pytest only slow tests"
 	@echo "  make check         lint + type + test"
+	@echo "  make aggregate-dry-run  Run aggregate without DB POST"
 	@echo "  make clean         Remove caches/build artifacts"
 
 venv:
@@ -49,6 +55,9 @@ test-slow: install-dev
 	$(PY) -m pytest -m slow
 
 check: lint type test
+
+aggregate-dry-run: install-dev
+	$(PY) -m portfolio_fdc.main.aggregate --input $(AGG_INPUT) --config $(AGG_CONFIG) --detail-out $(AGG_DETAIL_OUT) --dry-run
 
 clean:
 	rm -rf .pytest_cache .mypy_cache .ruff_cache build dist *.egg-info htmlcov .coverage

@@ -1,0 +1,31 @@
+tools:
+  TOOL_A:
+    chamber_id: CH1
+    mode: steppeak
+    key_channels:
+      dc_bias: dc_bias
+      cl2_flow: cl2_flow
+    extra_channels:
+      - apc_pressure
+    steppeak:
+      # StepPeak検出時のしきい値（例）
+      dc_bias_on: 0.8
+      dc_bias_off: 0.4
+      cl2_flow_on: 5.0
+      cl2_flow_off: 2.0
+      # 3step→4stepへ分割する場合のルール（例）
+      split_step_no: 2
+      split_ratio: 0.7
+  TOOL_B:
+    chamber_id: CH1
+    mode: edge
+    key_channels:
+      dc_bias: dc_bias
+    extra_channels:
+      - cl2_flow
+      - apc_pressure
+    edge:
+      on_threshold: 0.8
+      off_threshold: 0.4
+      min_on_sec: 5
+      merge_gap_sec: 3

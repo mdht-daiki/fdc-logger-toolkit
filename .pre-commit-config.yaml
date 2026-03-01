@@ -22,3 +22,4 @@ repos:
         additional_dependencies:
           - PyYAML>=6.0
           - types-PyYAML>=6.0.12
+          - types-requests>=2.32.0

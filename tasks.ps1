@@ -1,7 +1,13 @@
 param(
   [Parameter(Position=0)]
-  [ValidateSet("help","venv","install","precommit","fmt","lint","type","test","test-fast","test-slow","check","clean")]
+  [ValidateSet("help","venv","install","precommit","fmt","lint","type","test","test-fast","test-slow","check","aggregate-dry-run","clean")]
   [string]$Task = "help"
+  ,
+  [string]$AggInput = "data/scrape/scrape_TOOL_A.csv"
+  ,
+  [string]$AggConfig = "src/portfolio_fdc/configs/aggregate_tools.yaml"
+  ,
+  [string]$AggDetailOut = "data/detail"
 )
 
 $VenvDir = ".venv"
@@ -36,6 +42,7 @@ switch ($Task) {
     Write-Host "  .\tasks.ps1 test-fast  - pytest excluding slow tests"
     Write-Host "  .\tasks.ps1 test-slow  - pytest only slow tests"
     Write-Host "  .\tasks.ps1 check      - lint + type + test"
+    Write-Host "  .\tasks.ps1 aggregate-dry-run - run aggregate without DB POST"
     Write-Host "  .\tasks.ps1 clean      - remove caches/build artifacts"
   }
 
@@ -88,6 +95,11 @@ switch ($Task) {
     & $Py -m ruff check . | Out-Host
     & $Py -m mypy src | Out-Host
     & $Py -m pytest | Out-Host
+  }
+
+  "aggregate-dry-run" {
+    Ensure-DevInstall
+    & $Py -m portfolio_fdc.main.aggregate --input $AggInput --config $AggConfig --detail-out $AggDetailOut --dry-run | Out-Host
   }
 
   "clean" {

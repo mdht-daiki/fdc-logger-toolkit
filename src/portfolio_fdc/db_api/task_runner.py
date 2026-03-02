@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -43,8 +44,14 @@ class DBTaskRunner:
             raise RuntimeError("DBTaskRunner is stopped")
         task = Task(kind=kind, fn=fn, done=threading.Event())
         self.q.put(task)
-        if not task.done.wait(timeout=timeout):
-            raise TimeoutError(f"task timed out: {kind}")
+        deadline = None if timeout is None else time.monotonic() + timeout
+        while True:
+            if task.done.wait(timeout=0.1):
+                break
+            if self._stop.is_set() or not self._thread.is_alive():
+                raise RuntimeError("DBTaskRunner stopped before task completion")
+            if deadline is not None and time.monotonic() >= deadline:
+                raise TimeoutError(f"task timed out: {kind}")
         if task.error is not None:
             raise task.error
         return task.result

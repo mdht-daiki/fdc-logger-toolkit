@@ -38,10 +38,13 @@ class DBTaskRunner:
         self._stop.set()
         self._thread.join(timeout=2)
 
-    def submit(self, kind: str, fn: Callable[[], Any]) -> Any:
+    def submit(self, kind: str, fn: Callable[[], Any], timeout: float | None = None) -> Any:
+        if self._stop.is_set() or not self._thread.is_alive():
+            raise RuntimeError("DBTaskRunner is stopped")
         task = Task(kind=kind, fn=fn, done=threading.Event())
         self.q.put(task)
-        task.done.wait()
+        if not task.done.wait(timeout=timeout):
+            raise TimeoutError(f"task timed out: {kind}")
         if task.error is not None:
             raise task.error
         return task.result

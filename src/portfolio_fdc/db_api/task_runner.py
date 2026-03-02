@@ -75,9 +75,11 @@ class DBTaskRunner:
             try:
                 if task.kind == "write":
                     self._write_in_progress = True
-                    self._ensure_temp_snapshot()
-                    task.result = task.fn()
-                    self._write_in_progress = False
+                    try:
+                        self._ensure_temp_snapshot()
+                        task.result = task.fn()
+                    finally:
+                        self._write_in_progress = False
                     if self.q.empty():
                         self.q.put(
                             Task(

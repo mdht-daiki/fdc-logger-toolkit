@@ -23,7 +23,7 @@ def _init_schema(db_path: Path) -> None:
     try:
         con.execute(
             """
-            CREATE TABLE IF NOT EXISTS processInfo (
+            CREATE TABLE IF NOT EXISTS ProcessInfo (
                 process_id TEXT PRIMARY KEY,
                 tool_id TEXT NOT NULL,
                 chamber_id TEXT NOT NULL,
@@ -43,7 +43,7 @@ def _init_schema(db_path: Path) -> None:
                 start_ts TEXT NOT NULL,
                 end_ts TEXT NOT NULL,
                 source_channel TEXT NOT NULL,
-                FOREIGN KEY (process_id) REFERENCES processInfo (process_id)
+                FOREIGN KEY (process_id) REFERENCES ProcessInfo (process_id)
             );
             """
         )
@@ -62,7 +62,7 @@ def _init_schema(db_path: Path) -> None:
                 step_no INTEGER NOT NULL,
                 feature_type TEXT NOT NULL,
                 feature_value REAL NOT NULL,
-                FOREIGN KEY (process_id) REFERENCES processInfo (process_id)
+                FOREIGN KEY (process_id) REFERENCES ProcessInfo (process_id)
             );
             """
         )

@@ -9,9 +9,16 @@ def write_process(p: ProcessInfoIn) -> None:
     try:
         con.execute(
             """
-            INSERT OR REPLACE INTO ProcessInfo
+            INSERT INTO ProcessInfo
             (process_id, tool_id, chamber_id, recipe_id, start_ts, end_ts, raw_csv_path)
-            VALUES (?, ?, ?, ?, ?, ?, ?);
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(process_id) DO UPDATE SET
+                tool_id=excluded.tool_id,
+                chamber_id=excluded.chamber_id,
+                recipe_id=excluded.recipe_id,
+                start_ts=excluded.start_ts,
+                end_ts=excluded.end_ts,
+                raw_csv_path=excluded.raw_csv_path;
             """,
             (
                 p.process_id,

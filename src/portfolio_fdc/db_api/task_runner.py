@@ -30,7 +30,6 @@ class DBTaskRunner:
 
         self._write_in_progress = False
         self._temp_exists = False
-        self._pending_reads = 0
 
         _init_schema(self.main_db)
         self._thread.start()
@@ -76,7 +75,7 @@ class DBTaskRunner:
                     self._ensure_temp_snapshot()
                     task.result = task.fn()
                     self._write_in_progress = False
-                    if self._pending_reads == 0 and self.q.empty():
+                    if self.q.empty():
                         self.q.put(
                             Task(
                                 kind="delete_temp",
@@ -84,28 +83,8 @@ class DBTaskRunner:
                                 done=threading.Event(),
                             )
                         )
-                elif task.kind == "read":
-                    self._pending_reads += 1
-                    try:
-                        if self._write_in_progress:
-                            self._ensure_temp_snapshot()
-                        task.result = task.fn()
-                    finally:
-                        self._pending_reads = max(0, self._pending_reads - 1)
-                        if (
-                            (not self._write_in_progress)
-                            and self._pending_reads == 0
-                            and self.q.empty()
-                        ):
-                            self.q.put(
-                                Task(
-                                    kind="delete_temp",
-                                    fn=lambda: self._delete_temp(),
-                                    done=threading.Event(),
-                                )
-                            )
                 elif task.kind == "delete_temp":
-                    if (not self._write_in_progress) and self._pending_reads == 0:
+                    if not self._write_in_progress:
                         task.result = task.fn()
                 else:
                     raise RuntimeError(f"unknown task kind: {task.kind}")

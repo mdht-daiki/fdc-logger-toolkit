@@ -5,6 +5,10 @@ from datetime import datetime
 from pydantic import BaseModel, model_validator
 
 
+def _parse_iso8601(ts: str) -> datetime:
+    return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+
+
 class ProcessInfoIn(BaseModel):
     process_id: str
     tool_id: str
@@ -16,8 +20,10 @@ class ProcessInfoIn(BaseModel):
 
     @model_validator(mode="after")
     def validate_time_range(self) -> ProcessInfoIn:
-        start = datetime.fromisoformat(self.start_ts.replace("Z", "+00:00"))
-        end = datetime.fromisoformat(self.end_ts.replace("Z", "+00:00"))
+        start = _parse_iso8601(self.start_ts)
+        end = _parse_iso8601(self.end_ts)
+        if (start.tzinfo is None) != (end.tzinfo is None):
+            raise ValueError("start_ts and end_ts must use the same timezone format")
         if end < start:
             raise ValueError("end_ts must be greater than or equal to start_ts")
         return self
@@ -36,8 +42,10 @@ class StepWindowIn(BaseModel):
 
     @model_validator(mode="after")
     def validate_time_range(self) -> StepWindowIn:
-        start = datetime.fromisoformat(self.start_ts.replace("Z", "+00:00"))
-        end = datetime.fromisoformat(self.end_ts.replace("Z", "+00:00"))
+        start = _parse_iso8601(self.start_ts)
+        end = _parse_iso8601(self.end_ts)
+        if (start.tzinfo is None) != (end.tzinfo is None):
+            raise ValueError("start_ts and end_ts must use the same timezone format")
         if end < start:
             raise ValueError("end_ts must be greater than or equal to start_ts")
         return self

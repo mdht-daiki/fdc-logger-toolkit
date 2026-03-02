@@ -1,6 +1,6 @@
 param(
   [Parameter(Position=0)]
-  [ValidateSet("help","venv","install","precommit","fmt","lint","type","test","test-fast","test-slow","check","aggregate-dry-run","clean")]
+  [ValidateSet("help","venv","install","precommit","fmt","lint","type","test","test-fast","test-slow","test-db-api-aggregate","check","aggregate-dry-run","clean")]
   [string]$Task = "help"
   ,
   [string]$AggInput = "data/scrape/scrape_TOOL_A.csv"
@@ -41,6 +41,7 @@ switch ($Task) {
     Write-Host "  .\tasks.ps1 test       - pytest"
     Write-Host "  .\tasks.ps1 test-fast  - pytest excluding slow tests"
     Write-Host "  .\tasks.ps1 test-slow  - pytest only slow tests"
+    Write-Host "  .\tasks.ps1 test-db-api-aggregate - pytest for db_api + aggregate connection"
     Write-Host "  .\tasks.ps1 check      - lint + type + test"
     Write-Host "  .\tasks.ps1 aggregate-dry-run - run aggregate without DB POST"
     Write-Host "  .\tasks.ps1 clean      - remove caches/build artifacts"
@@ -88,6 +89,11 @@ switch ($Task) {
   "test-slow" {
     Ensure-DevInstall
     & $Py -m pytest -m slow | Out-Host
+  }
+
+  "test-db-api-aggregate" {
+    Ensure-DevInstall
+    & $Py -m pytest tests/test_db_api_integration.py tests/test_aggregate_db_api_integration.py | Out-Host
   }
 
   "check" {

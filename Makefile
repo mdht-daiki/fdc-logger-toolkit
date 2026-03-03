@@ -1,4 +1,4 @@
-.PHONY: all help venv install-dev pre-commit fmt lint type test test-fast test-slow check aggregate-dry-run clean
+.PHONY: all help venv install-dev pre-commit fmt lint type test test-fast test-slow test-db-api-aggregate check aggregate-dry-run clean
 
 all: help
 
@@ -22,6 +22,7 @@ help:
 	@echo "  make test          Pytest"
 	@echo "  make test-fast     Pytest except slow tests"
 	@echo "  make test-slow     Pytest only slow tests"
+	@echo "  make test-db-api-aggregate  Pytest for db_api + aggregate connection"
 	@echo "  make check         lint + type + test"
 	@echo "  make aggregate-dry-run  Run aggregate without DB POST"
 	@echo "  make clean         Remove caches/build artifacts"
@@ -53,6 +54,9 @@ test-fast: install-dev
 
 test-slow: install-dev
 	$(PY) -m pytest -m slow
+
+test-db-api-aggregate: install-dev
+	$(PY) -m pytest tests/test_db_api_integration.py tests/test_aggregate_db_api_integration.py
 
 check: lint type test
 

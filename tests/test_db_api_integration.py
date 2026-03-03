@@ -1,0 +1,164 @@
+from __future__ import annotations
+
+import sqlite3
+from datetime import datetime
+from uuid import uuid4
+
+import pytest
+from fastapi.testclient import TestClient
+
+from portfolio_fdc.db_api import app as db_app
+from portfolio_fdc.db_api.db import MAIN_DB
+
+pytestmark = pytest.mark.integration
+
+
+def _count_rows(process_id: str) -> tuple[int, int, int]:
+    con = sqlite3.connect(MAIN_DB.as_posix())
+    try:
+        p = con.execute(
+            "SELECT COUNT(*) FROM processInfo WHERE process_id = ?",
+            (process_id,),
+        ).fetchone()[0]
+        s = con.execute(
+            "SELECT COUNT(*) FROM StepWindows WHERE process_id = ?",
+            (process_id,),
+        ).fetchone()[0]
+        f = con.execute(
+            "SELECT COUNT(*) FROM Parameters WHERE process_id = ?",
+            (process_id,),
+        ).fetchone()[0]
+        return int(p), int(s), int(f)
+    finally:
+        con.close()
+
+
+def test_db_api_minimum_flow_for_aggregate_contract() -> None:
+    client = TestClient(db_app.app)
+    process_id = f"it_{uuid4().hex}"
+
+    process_payload = {
+        "process_id": process_id,
+        "tool_id": "TOOL_A",
+        "chamber_id": "CH1",
+        "recipe_id": "UNKNOWN",
+        "start_ts": datetime.now().isoformat(),
+        "end_ts": datetime.now().isoformat(),
+        "raw_csv_path": f"data/detail/detail_TOOL_A_CH1_{process_id}.csv",
+    }
+
+    try:
+        created = client.post("/processes", json=process_payload)
+        assert created.status_code == 200
+        assert created.json()["ok"] is True
+
+        steps_payload = [
+            {
+                "process_id": process_id,
+                "step_no": 1,
+                "start_ts": process_payload["start_ts"],
+                "end_ts": process_payload["end_ts"],
+                "source_channel": "dc_bias",
+            }
+        ]
+        step_res = client.post("/step_windows/bulk", json=steps_payload)
+        assert step_res.status_code == 200
+        assert step_res.json() == {"ok": True, "inserted": 1}
+
+        features_payload = [
+            {
+                "process_id": process_id,
+                "parameter": "dc_bias",
+                "step_no": 1,
+                "feature_type": "mean",
+                "feature_value": 1.23,
+            }
+        ]
+        feature_res = client.post("/parameters/bulk", json=features_payload)
+        assert feature_res.status_code == 200
+        assert feature_res.json() == {"ok": True, "inserted": 1}
+
+        process_count, step_count, feature_count = _count_rows(process_id)
+        assert process_count == 1
+        assert step_count == 1
+        assert feature_count == 1
+
+    finally:
+        deleted = client.request("DELETE", "/processes", json={"process_id": process_id})
+        assert deleted.status_code == 200
+        assert deleted.json()["ok"] is True
+
+    process_count, step_count, feature_count = _count_rows(process_id)
+    assert process_count == 0
+    assert step_count == 0
+    assert feature_count == 0
+
+
+def test_db_api_bulk_empty_and_delete_missing() -> None:
+    client = TestClient(db_app.app)
+    missing_process_id = f"missing_{uuid4().hex}"
+
+    step_res = client.post("/step_windows/bulk", json=[])
+    assert step_res.status_code == 200
+    assert step_res.json() == {"ok": True, "inserted": 0}
+
+    feature_res = client.post("/parameters/bulk", json=[])
+    assert feature_res.status_code == 200
+    assert feature_res.json() == {"ok": True, "inserted": 0}
+
+    deleted = client.request("DELETE", "/processes", json={"process_id": missing_process_id})
+    assert deleted.status_code == 200
+    assert deleted.json() == {"ok": True, "deleted": 0}
+
+
+def test_db_api_process_upsert_on_same_process_id() -> None:
+    client = TestClient(db_app.app)
+    process_id = f"upsert_{uuid4().hex}"
+
+    first = {
+        "process_id": process_id,
+        "tool_id": "TOOL_A",
+        "chamber_id": "CH1",
+        "recipe_id": "RCP_OLD",
+        "start_ts": datetime.now().isoformat(),
+        "end_ts": datetime.now().isoformat(),
+        "raw_csv_path": f"data/detail/detail_old_{process_id}.csv",
+    }
+    second = {
+        "process_id": process_id,
+        "tool_id": "TOOL_A",
+        "chamber_id": "CH1",
+        "recipe_id": "RCP_NEW",
+        "start_ts": datetime.now().isoformat(),
+        "end_ts": datetime.now().isoformat(),
+        "raw_csv_path": f"data/detail/detail_new_{process_id}.csv",
+    }
+
+    try:
+        r1 = client.post("/processes", json=first)
+        assert r1.status_code == 200
+        assert r1.json()["ok"] is True
+
+        r2 = client.post("/processes", json=second)
+        assert r2.status_code == 200
+        assert r2.json()["ok"] is True
+
+        con = sqlite3.connect(MAIN_DB.as_posix())
+        try:
+            cnt = con.execute(
+                "SELECT COUNT(*) FROM processInfo WHERE process_id = ?",
+                (process_id,),
+            ).fetchone()[0]
+            row = con.execute(
+                "SELECT recipe_id, raw_csv_path FROM processInfo WHERE process_id = ?",
+                (process_id,),
+            ).fetchone()
+        finally:
+            con.close()
+
+        assert int(cnt) == 1
+        assert row is not None
+        assert row[0] == "RCP_NEW"
+        assert row[1] == second["raw_csv_path"]
+    finally:
+        client.request("DELETE", "/processes", json={"process_id": process_id})

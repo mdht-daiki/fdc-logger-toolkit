@@ -124,6 +124,18 @@ python -m portfolio_fdc.db_api.app
 # or uvicorn portfolio_fdc.db_api.app:app --host 0.0.0.0 --port 8000
 ```
 
+Current implementation scope (for clean PR review):
+
+- `aggregate` integration endpoints only:
+  - `POST /processes`
+  - `DELETE /processes`
+  - `POST /step_windows/bulk`
+  - `POST /parameters/bulk`
+- Deferred endpoints (charts/judge/chart_sets/charts_v2) are parked in
+  `src/portfolio_fdc/db_api/app.py.backup_non_aggregate_endpoints.py`
+  with copy-back notes per feature.
+- The backup file is intentionally excluded from staging/review via `.gitignore`.
+
 ## 2) Generate synthetic logger CSV
 
 ```bash

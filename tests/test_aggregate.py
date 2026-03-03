@@ -186,3 +186,73 @@ def test_main_dry_run_skips_db_posts(tmp_path: Path, monkeypatch) -> None:
 
     out_files = list(detail_dir.glob("detail_*.csv"))
     assert out_files
+
+
+def test_main_non_dry_run_cleans_up_on_post_error(tmp_path: Path, monkeypatch) -> None:
+    input_csv = tmp_path / "scrape_out.csv"
+    cfg_yaml = tmp_path / "aggregate_tools.yaml"
+    detail_dir = tmp_path / "detail"
+
+    ts = pd.date_range("2026-02-19T00:00:00", periods=8, freq="s")
+    df = pd.DataFrame(
+        {
+            "timestamp": ts,
+            "tool_id": ["TOOL_X"] * len(ts),
+            "chamber_id": ["CH1"] * len(ts),
+            "dc_bias": [0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0],
+            "cl2_flow": [0.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 0.0],
+            "apc_pressure": [100.0, 101.0, 102.0, 103.0, 104.0, 105.0, 106.0, 107.0],
+        }
+    )
+    df.to_csv(input_csv, index=False)
+    cfg_yaml.write_text(yaml.safe_dump({"tools": {}}), encoding="utf-8")
+
+    called: dict[str, str | None] = {"created": None, "deleted": None}
+
+    def fake_post_one_process(
+        db_api: str,
+        tool_id: str,
+        chamber_id: str,
+        recipe_id: str,
+        process_id: str,
+        start_ts: pd.Timestamp,
+        end_ts: pd.Timestamp,
+        raw_csv_path: str,
+    ) -> None:
+        called["created"] = process_id
+
+    def fail_step_windows(
+        db_api: str,
+        process_id: str,
+        step_windows: list[tuple[int, pd.Timestamp, pd.Timestamp]],
+        source_channel: str,
+    ) -> None:
+        raise RuntimeError("forced step window failure")
+
+    def fake_delete_process(db_api: str, process_id: str) -> None:
+        called["deleted"] = process_id
+
+    monkeypatch.setattr(aggregate, "post_one_process", fake_post_one_process)
+    monkeypatch.setattr(aggregate, "post_step_windows", fail_step_windows)
+    monkeypatch.setattr(aggregate, "delete_process", fake_delete_process)
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "aggregate.py",
+            "--input",
+            str(input_csv),
+            "--config",
+            str(cfg_yaml),
+            "--detail-out",
+            str(detail_dir),
+            "--db-api",
+            "http://dummy",
+        ],
+    )
+
+    aggregate.main()
+
+    assert called["created"] is not None
+    assert called["deleted"] == called["created"]

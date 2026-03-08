@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from queue import Queue
 
@@ -80,5 +81,68 @@ def test_stop_raises_when_worker_does_not_terminate(tmp_path: Path) -> None:
     runner._stop = threading.Event()
     runner._thread = _NeverStopThread()  # type: ignore[assignment]
 
-    with pytest.raises(RuntimeError, match="failed to stop"):
+    with pytest.raises(RuntimeError, match="DBTaskRunner failed to stop within timeout"):
         runner.stop()
+
+
+def test_submit_returns_before_timeout(tmp_path: Path) -> None:
+    # timeout 指定ありでも、処理が期限内なら正常に結果を返すことを確認する。
+    runner = DBTaskRunner(main_db=tmp_path / "main.db", temp_db=tmp_path / "temp.db")
+    try:
+        result = runner.submit("write", lambda: "ok", timeout=1.0)
+        assert result == "ok"
+    finally:
+        runner.stop()
+
+
+def test_submit_supports_concurrent_callers(tmp_path: Path) -> None:
+    # 複数スレッドから同時に submit() しても全タスクが処理されることを確認する。
+    runner = DBTaskRunner(main_db=tmp_path / "main.db", temp_db=tmp_path / "temp.db")
+    counter = 0
+    lock = threading.Lock()
+
+    def _submit(i: int) -> int:
+        def _task() -> int:
+            nonlocal counter
+            with lock:
+                counter += 1
+            return i * 2
+
+        return runner.submit("write", _task, timeout=2.0)
+
+    try:
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            results = list(executor.map(_submit, range(20)))
+        assert sorted(results) == [i * 2 for i in range(20)]
+        assert counter == 20
+    finally:
+        runner.stop()
+
+
+def test_write_task_eventually_deletes_temp_db(tmp_path: Path) -> None:
+    # write 完了後に自動投入される delete_temp で temp DB が最終的に消えることを確認する。
+    runner = DBTaskRunner(main_db=tmp_path / "main.db", temp_db=tmp_path / "temp.db")
+    try:
+        runner.submit("write", lambda: "ok", timeout=2.0)
+
+        deadline = time.monotonic() + 1.0
+        while runner.temp_db.exists() and time.monotonic() < deadline:
+            time.sleep(0.02)
+
+        assert not runner.temp_db.exists()
+    finally:
+        runner.stop()
+
+
+def test_stop_can_be_called_multiple_times(tmp_path: Path) -> None:
+    # stop() を複数回呼んでも安全に終了できることを確認する。
+    runner = DBTaskRunner(main_db=tmp_path / "main.db", temp_db=tmp_path / "temp.db")
+    runner.stop()
+    runner.stop()
+
+
+def test_stop_terminates_worker_thread(tmp_path: Path) -> None:
+    # stop() 実行後にワーカースレッドが停止していることを確認する。
+    runner = DBTaskRunner(main_db=tmp_path / "main.db", temp_db=tmp_path / "temp.db")
+    runner.stop()
+    assert not runner._thread.is_alive()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -22,6 +23,7 @@ from .schemas import (
 )
 from .task_runner import DBTaskRunner
 
+logger = logging.getLogger(__name__)
 runner = DBTaskRunner(main_db=MAIN_DB, temp_db=TEMP_DB)
 
 
@@ -30,10 +32,13 @@ async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
     try:
         yield
     finally:
-        stop_callable: Any = runner.stop
-        stop_result = stop_callable()
-        if inspect.isawaitable(stop_result):
-            await stop_result
+        try:
+            stop_callable: Any = runner.stop
+            stop_result = stop_callable()
+            if inspect.isawaitable(stop_result):
+                await stop_result
+        except RuntimeError:
+            logger.exception("Failed to stop DBTaskRunner during shutdown")
 
 
 app = FastAPI(title="db_api", version="0.1.0", lifespan=lifespan)

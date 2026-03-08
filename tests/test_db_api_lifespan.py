@@ -2,59 +2,58 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
 
 from portfolio_fdc.db_api import app as db_app
 
 
-class _SyncStopRunner:
-    def __init__(self) -> None:
+class _RecordingRunner:
+    instances: list[_RecordingRunner] = []
+
+    def __init__(self, main_db: Path, temp_db: Path) -> None:
+        self.main_db = main_db
+        self.temp_db = temp_db
         self.stopped = False
+        self.__class__.instances.append(self)
 
     def stop(self) -> None:
         self.stopped = True
 
 
-class _AsyncStopRunner:
-    def __init__(self) -> None:
-        self.stopped = False
+class _ErrorRunner:
+    def __init__(self, main_db: Path, temp_db: Path) -> None:
+        self.main_db = main_db
+        self.temp_db = temp_db
 
-    async def stop(self) -> None:
-        self.stopped = True
-
-
-class _ErrorStopRunner:
     def stop(self) -> None:
         raise RuntimeError("stop failed")
 
 
-async def _run_lifespan_once() -> None:
+async def _run_lifespan_once() -> int:
     async with db_app.lifespan(db_app.app):
-        return
+        return id(db_app.app.state.runner)
 
 
-def test_lifespan_calls_sync_runner_stop(monkeypatch) -> None:
-    fake_runner = _SyncStopRunner()
-    monkeypatch.setattr(db_app, "runner", fake_runner)
+def test_lifespan_creates_fresh_runner_per_entry(monkeypatch) -> None:
+    _RecordingRunner.instances.clear()
+    monkeypatch.setattr(db_app, "DBTaskRunner", _RecordingRunner)
 
-    asyncio.run(_run_lifespan_once())
+    first_runner_id = asyncio.run(_run_lifespan_once())
+    assert not hasattr(db_app.app.state, "runner")
 
-    assert fake_runner.stopped is True
+    second_runner_id = asyncio.run(_run_lifespan_once())
+    assert not hasattr(db_app.app.state, "runner")
 
-
-def test_lifespan_awaits_async_runner_stop(monkeypatch) -> None:
-    fake_runner = _AsyncStopRunner()
-    monkeypatch.setattr(db_app, "runner", fake_runner)
-
-    asyncio.run(_run_lifespan_once())
-
-    assert fake_runner.stopped is True
+    assert len(_RecordingRunner.instances) == 2
+    assert first_runner_id != second_runner_id
+    assert all(instance.stopped for instance in _RecordingRunner.instances)
 
 
 def test_lifespan_handles_stop_runtime_error(monkeypatch, caplog) -> None:
-    fake_runner = _ErrorStopRunner()
-    monkeypatch.setattr(db_app, "runner", fake_runner)
+    monkeypatch.setattr(db_app, "DBTaskRunner", _ErrorRunner)
 
     with caplog.at_level(logging.ERROR):
         asyncio.run(_run_lifespan_once())
 
     assert "Failed to stop DBTaskRunner during shutdown" in caplog.text
+    assert not hasattr(db_app.app.state, "runner")

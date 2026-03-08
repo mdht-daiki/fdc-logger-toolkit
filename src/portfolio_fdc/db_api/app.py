@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from threading import Lock
 from typing import cast
 
 from fastapi import FastAPI, HTTPException, Request
@@ -23,31 +24,50 @@ from .schemas import (
 from .task_runner import DBTaskRunner
 
 logger = logging.getLogger(__name__)
+_runner_lock = Lock()
+
+
+def _get_or_create_runner(app: FastAPI) -> DBTaskRunner:
+    with _runner_lock:
+        existing_runner = getattr(app.state, "runner", None)
+        if isinstance(existing_runner, DBTaskRunner):
+            return existing_runner
+
+        if existing_runner is not None and hasattr(existing_runner, "stop"):
+            try:
+                existing_runner.stop()
+            except RuntimeError:
+                logger.exception("Failed to stop existing DBTaskRunner before replacement")
+
+        runner = DBTaskRunner(main_db=MAIN_DB, temp_db=TEMP_DB)
+        app.state.runner = runner
+        return runner
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    app.state.runner = DBTaskRunner(main_db=MAIN_DB, temp_db=TEMP_DB)
+    _get_or_create_runner(app)
     try:
         yield
     finally:
         try:
-            runner = cast(DBTaskRunner, app.state.runner)
-            runner.stop()
+            with _runner_lock:
+                if hasattr(app.state, "runner"):
+                    runner = cast(DBTaskRunner, app.state.runner)
+                    runner.stop()
         except RuntimeError:
             logger.exception("Failed to stop DBTaskRunner during shutdown")
         finally:
-            if hasattr(app.state, "runner"):
-                del app.state.runner
+            with _runner_lock:
+                if hasattr(app.state, "runner"):
+                    del app.state.runner
 
 
 app = FastAPI(title="db_api", version="0.1.0", lifespan=lifespan)
 
 
 def _runner_from_request(request: Request) -> DBTaskRunner:
-    if not hasattr(request.app.state, "runner"):
-        request.app.state.runner = DBTaskRunner(main_db=MAIN_DB, temp_db=TEMP_DB)
-    return cast(DBTaskRunner, request.app.state.runner)
+    return _get_or_create_runner(request.app)
 
 
 @app.post("/processes")

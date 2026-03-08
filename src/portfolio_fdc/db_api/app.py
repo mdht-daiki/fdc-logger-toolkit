@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import Generator
-from contextlib import contextmanager
+import inspect
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI, HTTPException
 
@@ -23,12 +25,15 @@ from .task_runner import DBTaskRunner
 runner = DBTaskRunner(main_db=MAIN_DB, temp_db=TEMP_DB)
 
 
-@contextmanager
-def lifespan(_: FastAPI) -> Generator[None, None, None]:
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
     try:
         yield
     finally:
-        runner.stop()
+        stop_callable: Any = runner.stop
+        stop_result = stop_callable()
+        if inspect.isawaitable(stop_result):
+            await stop_result
 
 
 app = FastAPI(title="db_api", version="0.1.0", lifespan=lifespan)

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Generator
+from contextlib import contextmanager
+
 from fastapi import FastAPI, HTTPException
 
 from .aggregate_repository import (
@@ -18,7 +21,17 @@ from .schemas import (
 from .task_runner import DBTaskRunner
 
 runner = DBTaskRunner(main_db=MAIN_DB, temp_db=TEMP_DB)
-app = FastAPI(title="db_api", version="0.1.0")
+
+
+@contextmanager
+def lifespan(_: FastAPI) -> Generator[None, None, None]:
+    try:
+        yield
+    finally:
+        runner.stop()
+
+
+app = FastAPI(title="db_api", version="0.1.0", lifespan=lifespan)
 
 
 @app.post("/processes")

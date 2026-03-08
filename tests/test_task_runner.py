@@ -95,6 +95,43 @@ def test_submit_returns_before_timeout(tmp_path: Path) -> None:
         runner.stop()
 
 
+def test_submit_times_out_with_zero_timeout(tmp_path: Path) -> None:
+    # timeout=0 では未完了タスクが即時タイムアウトすることを確認する。
+    runner = DBTaskRunner(main_db=tmp_path / "main.db", temp_db=tmp_path / "temp.db")
+    try:
+        with pytest.raises(TimeoutError, match="task timed out"):
+            runner.submit("write", lambda: time.sleep(0.2), timeout=0)
+    finally:
+        runner.stop()
+
+
+def test_submit_times_out_with_very_short_timeout(tmp_path: Path) -> None:
+    # 極短 timeout で長いタスクを投げると TimeoutError になることを確認する。
+    runner = DBTaskRunner(main_db=tmp_path / "main.db", temp_db=tmp_path / "temp.db")
+    start = time.monotonic()
+    try:
+        with pytest.raises(TimeoutError, match="task timed out"):
+            runner.submit("write", lambda: time.sleep(0.2), timeout=0.01)
+        assert time.monotonic() - start < 0.5
+    finally:
+        runner.stop()
+
+
+def test_submit_succeeds_with_short_timeout_when_task_finishes(tmp_path: Path) -> None:
+    # 短い timeout でもタスクが期限内完了なら正常に返ることを確認する。
+    runner = DBTaskRunner(main_db=tmp_path / "main.db", temp_db=tmp_path / "temp.db")
+
+    def _quick_task() -> str:
+        time.sleep(0.01)
+        return "ok"
+
+    try:
+        result = runner.submit("write", _quick_task, timeout=0.2)
+        assert result == "ok"
+    finally:
+        runner.stop()
+
+
 def test_submit_supports_concurrent_callers(tmp_path: Path) -> None:
     # 複数スレッドから同時に submit() しても全タスクが処理されることを確認する。
     runner = DBTaskRunner(main_db=tmp_path / "main.db", temp_db=tmp_path / "temp.db")

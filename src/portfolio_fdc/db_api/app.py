@@ -62,7 +62,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 logger.exception("Failed to stop DBTaskRunner during shutdown")
             else:
                 with _runner_lock:
-                    if hasattr(app.state, "runner"):
+                    if getattr(app.state, "runner", None) is runner:
                         del app.state.runner
 
 

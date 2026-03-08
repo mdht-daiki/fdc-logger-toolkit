@@ -29,6 +29,15 @@ class _ErrorRunner:
         raise RuntimeError("stop failed")
 
 
+class _SwapOnStopRunner:
+    def __init__(self, main_db: Path, temp_db: Path) -> None:
+        self.main_db = main_db
+        self.temp_db = temp_db
+
+    def stop(self) -> None:
+        db_app.app.state.runner = object()
+
+
 async def _run_lifespan_once() -> int:
     async with db_app.lifespan(db_app.app):
         return id(db_app.app.state.runner)
@@ -75,3 +84,12 @@ def test_lifespan_reuses_existing_runner(monkeypatch) -> None:
     assert len(_RecordingRunner.instances) == 1
     assert existing_runner.stopped is True
     assert not hasattr(db_app.app.state, "runner")
+
+
+def test_lifespan_does_not_delete_replaced_runner_after_stop(monkeypatch) -> None:
+    monkeypatch.setattr(db_app, "DBTaskRunner", _SwapOnStopRunner)
+
+    asyncio.run(_run_lifespan_once())
+
+    assert hasattr(db_app.app.state, "runner")
+    del db_app.app.state.runner

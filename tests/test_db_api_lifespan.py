@@ -56,7 +56,8 @@ def test_lifespan_handles_stop_runtime_error(monkeypatch, caplog) -> None:
         asyncio.run(_run_lifespan_once())
 
     assert "Failed to stop DBTaskRunner during shutdown" in caplog.text
-    assert not hasattr(db_app.app.state, "runner")
+    assert hasattr(db_app.app.state, "runner")
+    del db_app.app.state.runner
 
 
 def test_lifespan_reuses_existing_runner(monkeypatch) -> None:

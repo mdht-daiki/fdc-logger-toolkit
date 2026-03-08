@@ -50,17 +50,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     try:
         yield
     finally:
-        try:
-            with _runner_lock:
-                if hasattr(app.state, "runner"):
-                    runner = cast(DBTaskRunner, app.state.runner)
-                    runner.stop()
-        except RuntimeError:
-            logger.exception("Failed to stop DBTaskRunner during shutdown")
-        finally:
-            with _runner_lock:
-                if hasattr(app.state, "runner"):
-                    del app.state.runner
+        runner: DBTaskRunner | None = None
+        with _runner_lock:
+            if hasattr(app.state, "runner"):
+                runner = cast(DBTaskRunner, app.state.runner)
+
+        if runner is not None:
+            try:
+                runner.stop()
+            except RuntimeError:
+                logger.exception("Failed to stop DBTaskRunner during shutdown")
+            else:
+                with _runner_lock:
+                    if hasattr(app.state, "runner"):
+                        del app.state.runner
 
 
 app = FastAPI(title="db_api", version="0.1.0", lifespan=lifespan)

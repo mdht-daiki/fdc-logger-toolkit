@@ -13,6 +13,14 @@ from ..core.segmentation.classifier import RecipeClassifier
 from ..core.segmentation.models import StepBundle, StepPeak
 
 RECIPE_RULES_PATH = Path(__file__).resolve().parents[1] / "configs" / "recipe_rules.yaml"
+_RECIPE_CLASSIFIER_CACHE: dict[Path, RecipeClassifier] = {}
+
+
+def get_recipe_classifier(path: Path) -> RecipeClassifier:
+    cache_key = path.resolve()
+    if cache_key not in _RECIPE_CLASSIFIER_CACHE:
+        _RECIPE_CLASSIFIER_CACHE[cache_key] = RecipeClassifier(load_yaml(cache_key))
+    return _RECIPE_CLASSIFIER_CACHE[cache_key]
 
 
 def load_yaml(path: Path) -> dict:
@@ -206,7 +214,10 @@ def detect_steppeaks(
 
 
 def classify_recipe_from_peaks(
-    steppeak_queue: list[tuple[pd.Timestamp, pd.Timestamp]], df: pd.DataFrame
+    steppeak_queue: list[tuple[pd.Timestamp, pd.Timestamp]],
+    df: pd.DataFrame,
+    dc_key: str = "dc_bias",
+    cl2_key: str = "cl2_flow",
 ) -> str:
     """検出したピーク列をStepBundle化し、RecipeClassifierでレシピIDを判定する。"""
     if not steppeak_queue:
@@ -214,7 +225,7 @@ def classify_recipe_from_peaks(
     if "timestamp" not in df.columns:
         return "UNKNOWN"
 
-    classifier = RecipeClassifier(load_yaml(RECIPE_RULES_PATH))
+    classifier = get_recipe_classifier(RECIPE_RULES_PATH)
 
     d = df.copy()
     d["timestamp"] = pd.to_datetime(d["timestamp"], errors="coerce")
@@ -248,8 +259,8 @@ def classify_recipe_from_peaks(
         bundles.append(
             StepBundle(
                 step_no=step_no,
-                dc_bias=_peak_in_window("dc_bias", a, b),
-                cl2_flow=_peak_in_window("cl2_flow", a, b),
+                dc_bias=_peak_in_window(dc_key, a, b),
+                cl2_flow=_peak_in_window(cl2_key, a, b),
             )
         )
 
@@ -320,7 +331,7 @@ def build_processes_steppeak(
     i = 0
     while i + 3 < len(peaks):
         q = peaks[i : i + 4]
-        recipe = classify_recipe_from_peaks(q, df2)
+        recipe = classify_recipe_from_peaks(q, df2, dc_key=dc_key, cl2_key=cl2_key)
         a = q[0][0]
         b = q[3][1]
         step_windows = [

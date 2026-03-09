@@ -9,6 +9,14 @@ import yaml
 
 from portfolio_fdc.main import aggregate
 
+DUMMY_RULES_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "src"
+    / "portfolio_fdc"
+    / "configs"
+    / "recipe_rules_dummy.yaml"
+)
+
 
 def _base_df() -> pd.DataFrame:
     ts = pd.date_range("2026-02-19T00:00:00", periods=8, freq="s")
@@ -106,7 +114,7 @@ def test_classify_recipe_from_peaks_matches_dummy_rules(monkeypatch) -> None:
     monkeypatch.setattr(
         aggregate,
         "RECIPE_RULES_PATH",
-        Path("src/portfolio_fdc/configs/recipe_rules_dummy.yaml"),
+        DUMMY_RULES_PATH,
     )
 
     recipe = aggregate.classify_recipe_from_peaks(queue, df)
@@ -120,7 +128,7 @@ def test_classify_recipe_from_peaks_returns_unknown_on_out_of_range(monkeypatch)
     monkeypatch.setattr(
         aggregate,
         "RECIPE_RULES_PATH",
-        Path("src/portfolio_fdc/configs/recipe_rules_dummy.yaml"),
+        DUMMY_RULES_PATH,
     )
 
     recipe = aggregate.classify_recipe_from_peaks(queue, df)
@@ -133,7 +141,7 @@ def test_classify_recipe_from_peaks_matches_dummy_3step_rule(monkeypatch) -> Non
     monkeypatch.setattr(
         aggregate,
         "RECIPE_RULES_PATH",
-        Path("src/portfolio_fdc/configs/recipe_rules_dummy.yaml"),
+        DUMMY_RULES_PATH,
     )
 
     recipe = aggregate.classify_recipe_from_peaks(queue, df)

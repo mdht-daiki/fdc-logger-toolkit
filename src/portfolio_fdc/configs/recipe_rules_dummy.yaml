@@ -1,0 +1,47 @@
+recipes:
+  RECIPE_A:
+    steps:
+      - dc_bias: [1.8, 2.2]
+        cl2_flow: [10.0, 14.0]
+      - dc_bias: [2.6, 3.0]
+        cl2_flow: [18.0, 22.0]
+      - dc_bias: [2.2, 2.6]
+        cl2_flow: [15.0, 19.0]
+      - dc_bias: [1.5, 1.9]
+        cl2_flow: [11.0, 15.0]
+
+  RECIPE_B:
+    steps:
+      - dc_bias: [1.4, 1.8]
+        cl2_flow: [8.0, 12.0]
+      - dc_bias: [3.0, 3.4]
+        cl2_flow: [20.0, 24.0]
+      - dc_bias: [2.3, 2.7]
+        cl2_flow: [14.0, 18.0]
+      - dc_bias: [1.2, 1.6]
+        cl2_flow: [9.0, 13.0]
+
+  RECIPE_C:
+    steps:
+      - dc_bias: [2.1, 2.5]
+        cl2_flow: [13.0, 17.0]
+      - dc_bias: [2.3, 2.7]
+        cl2_flow: [16.0, 20.0]
+      - dc_bias: [2.7, 3.1]
+        cl2_flow: [19.0, 23.0]
+      - dc_bias: [1.8, 2.2]
+        cl2_flow: [12.0, 16.0]
+
+  RECIPE_D_3STEP:
+    steps:
+      - dc_bias: [1.6, 2.0]
+        cl2_flow: [10.0, 14.0]
+      - dc_bias: [2.4, 2.8]
+        cl2_flow: [17.0, 21.0]
+      - dc_bias: [1.9, 2.3]
+        cl2_flow: [13.0, 17.0]
+    split:
+      original_step: 3
+      method: time_ratio
+      main_ratio: 0.7
+      over_ratio: 0.3

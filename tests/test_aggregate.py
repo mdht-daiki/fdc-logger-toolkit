@@ -24,6 +24,123 @@ def _base_df() -> pd.DataFrame:
     )
 
 
+def _recipe_classify_df() -> tuple[pd.DataFrame, list[tuple[pd.Timestamp, pd.Timestamp]]]:
+    ts = pd.date_range("2026-02-19T00:00:00", periods=18, freq="s")
+    df = pd.DataFrame(
+        {
+            "timestamp": ts,
+            "tool_id": ["TOOL_A"] * len(ts),
+            "chamber_id": ["CH1"] * len(ts),
+            "dc_bias": [
+                2.0,
+                2.0,
+                0.0,
+                0.01,
+                2.8,
+                2.8,
+                0.0,
+                0.01,
+                2.4,
+                2.4,
+                0.0,
+                0.01,
+                1.7,
+                1.7,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+            ],
+            "cl2_flow": [
+                12.0,
+                12.0,
+                0.0,
+                0.0,
+                20.0,
+                20.0,
+                0.0,
+                0.0,
+                17.0,
+                17.0,
+                0.0,
+                0.0,
+                13.0,
+                13.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+            ],
+        }
+    )
+    queue = [
+        (pd.Timestamp("2026-02-19T00:00:00"), pd.Timestamp("2026-02-19T00:00:01")),
+        (pd.Timestamp("2026-02-19T00:00:04"), pd.Timestamp("2026-02-19T00:00:05")),
+        (pd.Timestamp("2026-02-19T00:00:08"), pd.Timestamp("2026-02-19T00:00:09")),
+        (pd.Timestamp("2026-02-19T00:00:12"), pd.Timestamp("2026-02-19T00:00:13")),
+    ]
+    return df, queue
+
+
+def _recipe_d_3step_df() -> tuple[pd.DataFrame, list[tuple[pd.Timestamp, pd.Timestamp]]]:
+    ts = pd.date_range("2026-02-19T01:00:00", periods=12, freq="s")
+    df = pd.DataFrame(
+        {
+            "timestamp": ts,
+            "tool_id": ["TOOL_A"] * len(ts),
+            "chamber_id": ["CH1"] * len(ts),
+            "dc_bias": [1.8, 1.8, 0.0, 2.6, 2.6, 0.0, 2.1, 2.1, 0.0, 0.0, 0.0, 0.0],
+            "cl2_flow": [12.0, 12.0, 0.0, 19.0, 19.0, 0.0, 15.0, 15.0, 0.0, 0.0, 0.0, 0.0],
+        }
+    )
+    queue = [
+        (pd.Timestamp("2026-02-19T01:00:00"), pd.Timestamp("2026-02-19T01:00:01")),
+        (pd.Timestamp("2026-02-19T01:00:03"), pd.Timestamp("2026-02-19T01:00:04")),
+        (pd.Timestamp("2026-02-19T01:00:06"), pd.Timestamp("2026-02-19T01:00:07")),
+    ]
+    return df, queue
+
+
+def test_classify_recipe_from_peaks_matches_dummy_rules(monkeypatch) -> None:
+    df, queue = _recipe_classify_df()
+    monkeypatch.setattr(
+        aggregate,
+        "RECIPE_RULES_PATH",
+        Path("src/portfolio_fdc/configs/recipe_rules_dummy.yaml"),
+    )
+
+    recipe = aggregate.classify_recipe_from_peaks(queue, df)
+
+    assert recipe == "RECIPE_A"
+
+
+def test_classify_recipe_from_peaks_returns_unknown_on_out_of_range(monkeypatch) -> None:
+    df, queue = _recipe_classify_df()
+    df.loc[(df["timestamp"] >= queue[1][0]) & (df["timestamp"] <= queue[1][1]), "dc_bias"] = 9.9
+    monkeypatch.setattr(
+        aggregate,
+        "RECIPE_RULES_PATH",
+        Path("src/portfolio_fdc/configs/recipe_rules_dummy.yaml"),
+    )
+
+    recipe = aggregate.classify_recipe_from_peaks(queue, df)
+
+    assert recipe == "UNKNOWN"
+
+
+def test_classify_recipe_from_peaks_matches_dummy_3step_rule(monkeypatch) -> None:
+    df, queue = _recipe_d_3step_df()
+    monkeypatch.setattr(
+        aggregate,
+        "RECIPE_RULES_PATH",
+        Path("src/portfolio_fdc/configs/recipe_rules_dummy.yaml"),
+    )
+
+    recipe = aggregate.classify_recipe_from_peaks(queue, df)
+
+    assert recipe == "RECIPE_D_3STEP"
+
+
 def test_build_processes_edge_detects_one_window() -> None:
     df = _base_df()
     cfg = {

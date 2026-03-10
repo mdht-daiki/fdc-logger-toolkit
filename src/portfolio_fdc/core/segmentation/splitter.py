@@ -1,3 +1,5 @@
+"""ステップ束を時間比率で再分割する補助ロジック。"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -9,6 +11,8 @@ from .models import StepBundle, StepPeak
 
 @dataclass(frozen=True)
 class SplitConfig:
+    """再分割対象ステップと分割比率設定。"""
+
     split_step_index: int
     main_ratio: float
     over_ratio: float
@@ -21,6 +25,7 @@ class StepSplitter:
     """
 
     def __init__(self, cfg: SplitConfig):
+        """分割設定を保持して分割器を初期化する。"""
         self.cfg = cfg
 
     def split_3_to_4(
@@ -28,6 +33,7 @@ class StepSplitter:
         bundles3: list[StepBundle],
         df_process: pd.DataFrame,
     ) -> list[StepBundle]:
+        """3ステップ束を指定位置で2分割し、4ステップ束に変換する。"""
         if len(bundles3) != 3:
             return bundles3
 
@@ -70,6 +76,7 @@ class StepSplitter:
     def _recompute_peak(
         self, df: pd.DataFrame, parameter: str, start_ts, end_ts, include_end: bool = True
     ) -> StepPeak:
+        """指定時間範囲の時系列から `StepPeak` 統計値を再計算する。"""
         time_mask = (df["timestamp"] >= start_ts) & (df["timestamp"] <= end_ts)
         if not include_end:
             time_mask = (df["timestamp"] >= start_ts) & (df["timestamp"] < end_ts)

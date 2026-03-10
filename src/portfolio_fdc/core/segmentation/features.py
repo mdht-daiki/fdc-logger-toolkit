@@ -1,3 +1,5 @@
+"""ステップ区間ごとの特徴量抽出ロジック。"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -8,6 +10,8 @@ import pandas as pd
 
 @dataclass(frozen=True)
 class FeatureRecord:
+    """1つの特徴量レコード。"""
+
     process_id: str
     parameter: str
     step_no: int
@@ -16,12 +20,7 @@ class FeatureRecord:
 
 
 class FeatureExtractor:
-    """
-    Extract features for each (parameter, step) window.
-    In the minimal version:
-      - Use dc_bias step windows as the segmentation windows.
-      - Extract features for dc_bias, cl2_flow, apc_pressure in each step window.
-    """
+    """指定パラメータ群に対するステップ別特徴量を抽出する。"""
 
     def extract(
         self,
@@ -31,6 +30,7 @@ class FeatureExtractor:
         parameters: list[str],
         feature_types: list[str] | None = None,
     ) -> list[FeatureRecord]:
+        """各ステップ区間で `mean/max/min/std` を計算して返す。"""
         if feature_types is None:
             feature_types = ["mean", "max", "min", "std"]
         out: list[FeatureRecord] = []

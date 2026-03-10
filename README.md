@@ -97,6 +97,47 @@ dashboard judge  (future: exporter)
 
 ---
 
+## segmentation モジュール概要
+
+`src/portfolio_fdc/core/segmentation` には、区間切り出しと特徴抽出に必要な中核ロジックがあります。
+
+- `peak_detector.py`: チャネルごとのピーク区間検出
+- `aligner.py`: `dc_bias` を基準に複数チャネルのピークを整列
+- `queue.py`: 最新ステップ束の固定長キュー管理
+- `classifier.py`: ルールベースで recipe 判定
+- `splitter.py`: 3ステップを4ステップへ再分割する補助
+- `features.py`: ステップ区間ごとの統計特徴量抽出
+- `models.py`: `StepPeak` / `StepBundle` / `ProcessSegment` などのデータモデル
+
+---
+
+## 設定ファイルスキーマ（概要）
+
+- `src/portfolio_fdc/configs/aggregate_tools.yaml`
+  - `tools.<tool_id>.channels`（生ログチャネル名→論理名の対応）
+  - `tools.<tool_id>.chamber_id`（装置チャンバー識別子）
+- `src/portfolio_fdc/configs/recipe_rules.yaml`
+  - `recipes.<recipe_id>.steps[]`（各ステップの判定レンジ定義）
+  - 例: `dc_bias_mean`, `cl2_flow_mean` の許容レンジ
+- `src/portfolio_fdc/configs/sensor_map.csv`
+  - 必須列: `tool_id`, `sensor`, `parameter`
+  - 役割: ツール別にセンサ名を論理パラメータ名へマッピング
+
+---
+
+## DBスキーマ（概要）
+
+主要テーブルの役割は以下です。
+
+- `ProcessInfo`: プロセス単位メタ情報（開始/終了時刻、detail CSVパス）
+- `StepWindows`: ステップ境界情報（`process_id`, `step_no`, `start_ts`, `end_ts`）
+- `Parameters`: 特徴量（`parameter`, `feature_type`, `feature_value`）
+- `Charts` / `ChartsV2`: 監視しきい値定義
+- `JudgementResults`: 判定結果履歴
+- `ChartSet` / `ActiveChartSet` / `ChartsHistory`: しきい値セット管理と変更履歴
+
+---
+
 ## セットアップ
 
 ```bash

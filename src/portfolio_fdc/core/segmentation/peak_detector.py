@@ -1,3 +1,5 @@
+"""しきい値ベースでピーク区間を検出するロジック。"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -11,6 +13,8 @@ from .models import StepPeak
 
 @dataclass(frozen=True)
 class PeakDetectorConfig:
+    """ピーク検出のしきい値・最小長・マージ条件。"""
+
     rise_threshold: float
     fall_threshold: float
     min_duration_sec: float
@@ -19,15 +23,11 @@ class PeakDetectorConfig:
 
 class StepPeakDetector:
     def __init__(self, cfg: PeakDetectorConfig):
+        """ピーク検出設定を受け取り検出器を初期化する。"""
         self.cfg = cfg
 
     def detect(self, df: pd.DataFrame, parameter: str) -> list[StepPeak]:
-        """
-        df columns:
-          - timestamp (datetime)
-          - parameter (str)
-          - value (float)
-        """
+        """対象チャネルの時系列からピーク区間リストを抽出する。"""
         sub = df[df["parameter"] == parameter].sort_values("timestamp")
         if sub.empty:
             return []
@@ -63,6 +63,7 @@ class StepPeakDetector:
         return peaks
 
     def _find_segments(self, ts: np.ndarray, v: np.ndarray) -> list[tuple[int, int]]:
+        """上昇/下降しきい値でピーク候補インデックス区間を抽出する。"""
         segs: list[tuple[int, int]] = []
         in_peak = False
         start = 0
@@ -84,6 +85,7 @@ class StepPeakDetector:
     def _merge_close_segments(
         self, ts: np.ndarray, segs: list[tuple[int, int]]
     ) -> list[tuple[int, int]]:
+        """近接するピーク候補区間をギャップ秒数条件で結合する。"""
         if not segs:
             return segs
         merged = [segs[0]]

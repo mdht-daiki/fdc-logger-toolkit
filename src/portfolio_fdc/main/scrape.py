@@ -1,3 +1,5 @@
+"""Logger 生データ CSV から増分区間を抽出するスクレイプ処理。"""
+
 from __future__ import annotations
 
 import csv
@@ -19,8 +21,8 @@ SENSOR_MAP_CSV_PATH = Path(__file__).resolve().parents[1] / "configs" / "sensor_
 # ------------------------------
 
 
-# DATA行の位置を探す
 def find_data_header_line_no(path: Path, max_scan_lines: int = 2000) -> int:
+    """`DATA` マーカー行の行番号を返す。"""
     with path.open("r", encoding="utf-8", errors="ignore") as f:
         for i, line in enumerate(f):
             if line.strip() == "DATA":
@@ -30,15 +32,15 @@ def find_data_header_line_no(path: Path, max_scan_lines: int = 2000) -> int:
     raise RuntimeError("DATA marker not found within scan limit")
 
 
-# 上から読む
 def read_from_top(path: Path, data_line_no: int) -> pd.DataFrame:
+    """`DATA` セクションのヘッダー以降を先頭から読み込む。"""
     # DATA行の次が列ヘッダなので skiprows = data_line_no + 1
     df = pd.read_csv(path, skiprows=data_line_no + 1)
     return df
 
 
-# 末尾から読む
 def tail_lines(path: Path, n_lines: int) -> list[str]:
+    """ファイル末尾から指定行数をテキストとして取得する。"""
     # returns last n_lines lines as text (without header)
     # NOTE: this assumes '\n' newline
     chunk_size = 1024 * 1024
@@ -60,6 +62,7 @@ def tail_lines(path: Path, n_lines: int) -> list[str]:
 
 
 def read_columns_after_data(path: Path, data_line_no: int) -> list[str]:
+    """`DATA` 行直後の CSV ヘッダーを列名リストとして返す。"""
     with path.open("r", encoding="utf-8", errors="ignore") as f:
         for _ in range(data_line_no + 1):
             next(f)
@@ -68,6 +71,7 @@ def read_columns_after_data(path: Path, data_line_no: int) -> list[str]:
 
 
 def read_recent_tail_as_df(path: Path, columns: list[str], n_lines: int) -> pd.DataFrame:
+    """末尾行を指定列で DataFrame 化し、簡易な増分読み取りに使う。"""
     lines = tail_lines(path, n_lines)
     # drop empty and non-data lines
     rows = [ln for ln in lines if ln.strip() and ("," in ln)]
@@ -77,8 +81,8 @@ def read_recent_tail_as_df(path: Path, columns: list[str], n_lines: int) -> pd.D
     return df
 
 
-# 前回以降30分だけ取り出す
 def filter_by_time_window(df: pd.DataFrame, start_ts: datetime, end_ts: datetime) -> pd.DataFrame:
+    """`(start_ts, end_ts]` の範囲に時刻フィルタして時系列順に返す。"""
     df = df.copy()
     if "timestamp" not in df.columns:
         raise ValueError("timestamp column is required")
@@ -86,10 +90,10 @@ def filter_by_time_window(df: pd.DataFrame, start_ts: datetime, end_ts: datetime
     return df[(df["timestamp"] > start_ts) & (df["timestamp"] <= end_ts)].sort_values("timestamp")
 
 
-# tool_id / chamber_id付与・列名置換
 def apply_tool_mapping(
     df: pd.DataFrame, tool_id: str, chamber_id: str, channel_map: dict
 ) -> pd.DataFrame:
+    """tool/chamber 列を付与し、チャンネル列を論理名にリネームする。"""
     out = df.copy()
     out["tool_id"] = tool_id
     out["chamber_id"] = chamber_id
@@ -105,11 +109,13 @@ def apply_tool_mapping(
 
 
 def load_tool_channel_map(path: Path) -> dict:
+    """ツール設定 YAML から `tools` セクションを取得する。"""
     doc = load_yaml(path)
     return doc.get("tools", {})
 
 
 def resolve_channel_map(tool_id: str, tool_cfg: dict) -> dict[str, str]:
+    """ツール設定または `sensor_map.csv` からチャンネル対応表を解決する。"""
     channels = tool_cfg.get("channels")
     if channels is not None:
         return channels
@@ -127,6 +133,7 @@ def resolve_channel_map(tool_id: str, tool_cfg: dict) -> dict[str, str]:
 
 
 def load_last_ts(tool_id: str) -> datetime | None:
+    """前回処理時刻を state ファイルから読み込む。失敗時は `None` を返す。"""
     p = STATE_DIR / f"last_ts_{tool_id}.json"
     if not p.exists():
         return None
@@ -138,6 +145,7 @@ def load_last_ts(tool_id: str) -> datetime | None:
 
 
 def save_last_ts(tool_id: str, last_ts: datetime) -> None:
+    """前回処理時刻を state ファイルに保存する。"""
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     p = STATE_DIR / f"last_ts_{tool_id}.json"
     p.write_text(json.dumps({"last_ts": last_ts.isoformat()}, ensure_ascii=False), encoding="utf-8")
@@ -151,6 +159,7 @@ def scrape_logger_csv(
     lookback_minutes: int = 30,
     huge_threshold_mb: int = 500,
 ) -> pd.DataFrame:
+    """logger CSV から対象期間の増分データを抽出して正規化する。"""
     data_line_no = find_data_header_line_no(raw_csv_path)
     columns = read_columns_after_data(raw_csv_path, data_line_no)
     channel_map = resolve_channel_map(tool_id, tool_cfg)

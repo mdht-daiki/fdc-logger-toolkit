@@ -1,3 +1,5 @@
+"""aggregate 用の永続化処理をまとめたリポジトリ層。"""
+
 from __future__ import annotations
 
 from .db import MAIN_DB, _connect
@@ -5,6 +7,7 @@ from .schemas import ParameterIn, ProcessInfoIn, StepWindowIn
 
 
 def write_process(p: ProcessInfoIn) -> None:
+    """`ProcessInfo` を upsert で 1 件保存する。"""
     con = _connect(MAIN_DB)
     try:
         con.execute(
@@ -36,6 +39,7 @@ def write_process(p: ProcessInfoIn) -> None:
 
 
 def write_step_windows_bulk(items: list[StepWindowIn]) -> int:
+    """`StepWindows` を一括挿入し、投入件数を返す。"""
     if not items:
         return 0
     con = _connect(MAIN_DB)
@@ -55,6 +59,7 @@ def write_step_windows_bulk(items: list[StepWindowIn]) -> int:
 
 
 def write_parameters_bulk(params: list[ParameterIn]) -> int:
+    """`Parameters` を一括挿入し、投入件数を返す。"""
     if not params:
         return 0
     con = _connect(MAIN_DB)
@@ -77,6 +82,7 @@ def write_parameters_bulk(params: list[ParameterIn]) -> int:
 
 
 def delete_process(process_id: str) -> int:
+    """関連テーブルを含めて `process_id` を削除し、削除件数を返す。"""
     con = _connect(MAIN_DB)
     try:
         con.execute("BEGIN")

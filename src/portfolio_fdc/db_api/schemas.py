@@ -1,3 +1,5 @@
+"""db_api 入力スキーマ（Pydantic モデル）定義。"""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -6,10 +8,13 @@ from pydantic import BaseModel, model_validator
 
 
 def _parse_iso8601(ts: str) -> datetime:
+    """ISO8601 文字列を `datetime` に変換する。`Z` は UTC として扱う。"""
     return datetime.fromisoformat(ts.replace("Z", "+00:00"))
 
 
 class ProcessInfoIn(BaseModel):
+    """`/processes` に投入するプロセス情報。"""
+
     process_id: str
     tool_id: str
     chamber_id: str
@@ -30,10 +35,14 @@ class ProcessInfoIn(BaseModel):
 
 
 class ProcessDeleteIn(BaseModel):
+    """削除対象の `process_id` を受け取る入力モデル。"""
+
     process_id: str
 
 
 class StepWindowIn(BaseModel):
+    """`/step_windows/bulk` 用のステップ区間入力。"""
+
     process_id: str
     step_no: int
     start_ts: str
@@ -52,6 +61,8 @@ class StepWindowIn(BaseModel):
 
 
 class ParameterIn(BaseModel):
+    """`/parameters/bulk` 用の特徴量入力。"""
+
     process_id: str
     parameter: str
     step_no: int

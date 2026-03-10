@@ -1,3 +1,9 @@
+"""FastAPI ベースの DB API エントリポイント。
+
+集約結果の書き込み系エンドポイントを提供し、アプリ単位で
+`DBTaskRunner` を初期化・再利用・停止する。
+"""
+
 from __future__ import annotations
 
 import logging
@@ -28,6 +34,7 @@ _runner_lock = Lock()
 
 
 def _get_or_create_runner(app: FastAPI) -> DBTaskRunner:
+    """`app.state.runner` から実行中ランナーを取得し、未作成なら生成する。"""
     with _runner_lock:
         existing_runner = getattr(app.state, "runner", None)
         if isinstance(existing_runner, DBTaskRunner):
@@ -46,6 +53,7 @@ def _get_or_create_runner(app: FastAPI) -> DBTaskRunner:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    """FastAPI の起動/終了時に DBTaskRunner のライフサイクルを管理する。"""
     _get_or_create_runner(app)
     try:
         yield
@@ -70,11 +78,13 @@ app = FastAPI(title="db_api", version="0.1.0", lifespan=lifespan)
 
 
 def _runner_from_request(request: Request) -> DBTaskRunner:
+    """リクエストコンテキストから DBTaskRunner を取得する。"""
     return _get_or_create_runner(request.app)
 
 
 @app.post("/processes")
 def create_process(request: Request, p: ProcessInfoIn):
+    """1 件の ProcessInfo をキュー経由で保存する。"""
     try:
         _runner_from_request(request).submit("write", lambda: write_process(p))
         return {"ok": True}
@@ -84,6 +94,7 @@ def create_process(request: Request, p: ProcessInfoIn):
 
 @app.delete("/processes")
 def remove_process(request: Request, req: ProcessDeleteIn):
+    """指定 process_id の ProcessInfo を削除する。"""
     try:
         deleted = _runner_from_request(request).submit(
             "write", lambda: delete_process(req.process_id)
@@ -95,6 +106,7 @@ def remove_process(request: Request, req: ProcessDeleteIn):
 
 @app.post("/step_windows/bulk")
 def create_step_windows_bulk(request: Request, items: list[StepWindowIn]):
+    """StepWindow レコードをまとめて保存する。"""
     try:
         inserted = _runner_from_request(request).submit(
             "write", lambda: write_step_windows_bulk(items)
@@ -106,6 +118,7 @@ def create_step_windows_bulk(request: Request, items: list[StepWindowIn]):
 
 @app.post("/parameters/bulk")
 def create_parameters_bulk(request: Request, params: list[ParameterIn]):
+    """Parameter レコードをまとめて保存する。"""
     try:
         n = _runner_from_request(request).submit("write", lambda: write_parameters_bulk(params))
         return {"ok": True, "inserted": n}

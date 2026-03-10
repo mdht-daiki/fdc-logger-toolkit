@@ -1,69 +1,64 @@
 # FDC Logger Toolkit (Portfolio Edition)
 
-A portfolio-friendly Fault Detection & Classification (FDC) toolkit for manufacturing equipment data.
+製造装置ログを対象にした、ポートフォリオ向け FDC (Fault Detection & Classification) ツールキットです。
 
-This project is a rebuilt version of an internal monitoring tool.
-All sensitive information and proprietary logic are removed and replaced with:
+このプロジェクトは社内監視ツールを再構成した公開版で、機密情報や固有ロジックは削除し、以下に置き換えています。
 
-- a synthetic logger data generator
-- configurable mappings and rules
-- a local SQLite-based pipeline
-
----
-
-## What this project demonstrates
-
-- Handling “messy” equipment data formats (large CSV logger streams)
-- Incremental ingestion (run every 30 minutes)
-- Process segmentation (edge-based / step-peak-based)
-- Feature extraction (mean / max / min / std per step)
-- SPC-style threshold monitoring (warn/crit)
-- Interactive dashboard for:
-  - selecting filters
-  - plotting SPC charts
-  - editing thresholds
-  - drilling down into raw waveforms (click a point → show waveform, step-colored)
-- Concurrency control with SQLite via a dedicated API process
+- 疑似 logger データ生成機能
+- 設定ファイルベースのマッピング/ルール
+- ローカル SQLite パイプライン
 
 ---
 
-## Components
+## このプロジェクトで示していること
 
-This repository consists of four programs:
+- 大規模 CSV ログ（1秒サンプリング）への対応
+- 30分間隔の増分取り込み
+- プロセス区間切り出し（edge-based / step-peak-based）
+- ステップ単位特徴量（mean / max / min / std）抽出
+- SPC 風しきい値監視（warn / crit）
+- ダッシュボードでの可視化としきい値編集
+- DB API 経由の SQLite 同時実行制御
+
+---
+
+## 構成コンポーネント
+
+本リポジトリは主に 4 つのプログラムで構成されます。
 
 1. **main**
 
-- `scrape`: read logger/device logs incrementally
-- `aggregate`: segment processes, compute features, store results
-- stores:
-  - `ProcessInfo` (process metadata + raw detail CSV path)
-  - `Parameters` (features)
-  - `StepWindows` (step boundaries for visualization)
-  - `ChartsV2` (thresholds via dashboard)
+- `scrape`: logger/device ログの増分読み取り
+- `aggregate`: 区間切り出しと特徴量計算、DB への保存
+- 主な保存先:
+  - `ProcessInfo`（プロセス情報 + detail CSV パス）
+  - `Parameters`（特徴量）
+  - `StepWindows`（可視化用ステップ境界）
+  - `ChartsV2`（ダッシュボードしきい値）
 
-2. **dashboard** (Plotly Dash)
+2. **dashboard**（Plotly Dash）
 
-- filter conditions (tool/chamber/recipe/parameter/step/feature-type)
-- SPC chart + threshold lines
-- click a point → raw waveform viewer (step-colored)
-- threshold editing UI → persisted into DB (ChartsV2)
+- 条件フィルタ（tool/chamber/recipe/parameter/step/feature-type）
+- SPC チャート + しきい値表示
+- 点クリックで生波形ドリルダウン（ステップ色分け）
+- しきい値編集結果を DB に保存（ChartsV2）
 
 3. **judge**
 
-- fetch latest features and thresholds
-- evaluate warn/crit
-- alert (email)
-- optional: equipment stop command interface (stub in portfolio edition)
+- 最新特徴量としきい値の取得
+- warn/crit 判定
+- アラート送信（メール）
+- （公開版では stub）装置停止コマンド連携
 
-4. **db_api** (FastAPI)
+4. **db_api**（FastAPI）
 
-- SQLite read/write gateway with serialized write queue
-- provides REST endpoints for main/dashboard/judge
-- optional “Temp.db swap” strategy for read-during-write
+- SQLite 読み書きゲートウェイ（シリアライズ write queue）
+- main/dashboard/judge 向け REST エンドポイント
+- 読み取り中書き込み向け `Temp.db` スワップ戦略（任意）
 
 ---
 
-## Architecture Overview
+## アーキテクチャ概要
 
 ```text
 Synthetic Logger CSV / Equipment Logs
@@ -79,31 +74,30 @@ dashboard judge  (future: exporter)
 
 ---
 
-# Data flow (high level)
+## データフロー（概要）
 
 - Logger raw CSV:
-  - huge 1-second sampling stream
-  - contains only timestamp,value01,value02,...
-  - generation may use an internal process-active mask for anomaly targeting, but it is not written to CSV
-  - includes a header section and a DATA marker line
+  - 1秒サンプリングの大容量ストリーム
+  - `timestamp,value01,value02,...` 形式
+  - 異常注入用の内部マスクを使う場合があるが CSV には出力しない
+  - ヘッダー部と `DATA` マーカー行を含む
 
 - scrape:
-  - extracts only new rows since the previous run (~30 min)
-  - does not load the entire huge CSV (tail reading supported)
-  - adds tool_id / chamber_id
-  - keeps wide format and renames channels using a mapping file
+  - 前回実行以降の新規行のみ抽出（約30分）
+  - 巨大 CSV 全体は読まず、必要に応じて末尾読み取り
+  - `tool_id` / `chamber_id` 付与
+  - マッピングファイルでチャンネル名を論理名へ変換
 
 - aggregate:
-  - segments process windows:
-    - edge-based: detect “on” window(s) of a key channel
-    - step-peak-based: detect multiple step windows and bundle into a single process
-  - saves “detail” raw waveform as long CSV for dashboard drill-down
-  - writes:
-    - ProcessInfo, Parameters, StepWindows
+  - プロセス区間切り出し
+    - edge-based: キーチャンネルの ON 区間検出
+    - step-peak-based: 複数ステップを 1 プロセスとして束ねる
+  - ダッシュボード用 detail 波形を長形式 CSV で保存
+  - `ProcessInfo` / `Parameters` / `StepWindows` を書き込み
 
 ---
 
-# Setup
+## セットアップ
 
 ```bash
 python -m venv .venv
@@ -115,40 +109,39 @@ pre-commit install
 
 ---
 
-# Quickstart (local)
+## クイックスタート（ローカル）
 
-## 1) Start db_api
+### 1) db_api を起動
 
 ```bash
 python -m portfolio_fdc.db_api.app
 # or uvicorn portfolio_fdc.db_api.app:app --host 0.0.0.0 --port 8000
 ```
 
-Current implementation scope (for clean PR review):
+現時点の実装スコープ（PR を小さく保つため）:
 
-- `aggregate` integration endpoints only:
+- `aggregate` 連携エンドポイントのみ実装
   - `POST /processes`
   - `DELETE /processes`
   - `POST /step_windows/bulk`
   - `POST /parameters/bulk`
-- Deferred endpoints (charts/judge/chart_sets/charts_v2) are parked in
-  `src/portfolio_fdc/db_api/app.py.backup_non_aggregate_endpoints.py`
-  with copy-back notes per feature.
-- The backup file is intentionally excluded from staging/review via `.gitignore`.
+- 先送りしたエンドポイント（charts/judge/chart_sets/charts_v2）は
+  `src/portfolio_fdc/db_api/app.py.backup_non_aggregate_endpoints.py` に退避
+- 退避ファイルは `.gitignore` でレビュー対象外
 
-## 2) Generate synthetic logger CSV
+### 2) 疑似 logger CSV を生成
 
 ```bash
 python -m portfolio_fdc.tools.generate_logger_csv --out data/raw/logger_raw.csv --seconds 86400 --scenario mix
 ```
 
-## 3) Run main pipeline (scrape + aggregate)
+### 3) main パイプラインを実行（scrape + aggregate）
 
 ```bash
 python -m portfolio_fdc.main.run_once --tool TOOL_A --raw data/raw/logger_raw.csv --db-api http://localhost:8000
 ```
 
-If DB API is not implemented yet, you can run aggregate in dry-run mode (local processing only, no POST):
+DB API 未起動時は `aggregate` の dry-run（ローカル処理のみ、POST なし）も可能です。
 
 ```bash
 python -m portfolio_fdc.main.aggregate \
@@ -158,7 +151,7 @@ python -m portfolio_fdc.main.aggregate \
   --dry-run
 ```
 
-Makefile version (Mac/Linux):
+Makefile 版（Mac/Linux）:
 
 ```bash
 make aggregate-dry-run
@@ -166,7 +159,7 @@ make aggregate-dry-run
 make aggregate-dry-run AGG_INPUT=data/scrape/scrape_TOOL_B.csv AGG_DETAIL_OUT=data/detail_tmp
 ```
 
-PowerShell task version (Windows):
+PowerShell タスク版（Windows）:
 
 ```powershell
 .\tasks.ps1 aggregate-dry-run
@@ -174,14 +167,14 @@ PowerShell task version (Windows):
 .\tasks.ps1 aggregate-dry-run -AggInput data/scrape/scrape_TOOL_B.csv -AggDetailOut data/detail_tmp
 ```
 
-## 4) Start dashboard
+### 4) dashboard を起動
 
 ```bash
 python -m portfolio_fdc.dashboard.app
 # open http://localhost:8050
 ```
 
-## 5) Run judge (manual)
+### 5) judge を手動実行
 
 ```bash
 python -m portfolio_fdc.judge.run_once --db-api http://localhost:8000
@@ -189,7 +182,7 @@ python -m portfolio_fdc.judge.run_once --db-api http://localhost:8000
 
 ---
 
-# Development Commands
+## 開発コマンド
 
 ```bash
 make fmt
@@ -201,18 +194,18 @@ make all
 
 ---
 
-# Quality Gate (CI)
+## CI 品質ゲート
 
-All pull requests must pass:
+Pull Request では以下の通過が必要です。
 
-- Ruff (lint + format)
-- MyPy (type checking)
+- Ruff（lint + format）
+- MyPy（型チェック）
 - Pytest
-- (Optional) CodeRabbit review
+- （任意）CodeRabbit review
 
 ---
 
-# Disclaimer
+## 免責
 
-This repository is a simplified portfolio version.
-It does not include proprietary production logic, confidencial process conditions, or internal infrastructure details.
+本リポジトリはポートフォリオ向け簡易版です。
+本番向けの機密ロジック、固有プロセス条件、社内インフラ詳細は含みません。

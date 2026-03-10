@@ -1,3 +1,5 @@
+"""DB 書き込みタスクを直列実行するワーカースレッド実装。"""
+
 from __future__ import annotations
 
 import shutil
@@ -14,6 +16,8 @@ from .db import _init_schema
 
 @dataclass
 class Task:
+    """キューで受け渡す実行タスク。"""
+
     kind: str
     fn: Callable[[], Any]
     done: threading.Event
@@ -22,7 +26,10 @@ class Task:
 
 
 class DBTaskRunner:
+    """SQLite 書き込みを直列化し、実行結果を同期的に返すランナー。"""
+
     def __init__(self, main_db: Path, temp_db: Path):
+        """メイン DB とテンポラリ DB を受け取り、ワーカーを起動する。"""
         self.main_db = main_db
         self.temp_db = temp_db
         self.q: Queue[Task] = Queue()
@@ -36,12 +43,14 @@ class DBTaskRunner:
         self._thread.start()
 
     def stop(self) -> None:
+        """ワーカー停止を要求し、一定時間内にスレッド終了を待機する。"""
         self._stop.set()
         self._thread.join(timeout=2)
         if self._thread.is_alive():
             raise RuntimeError("DBTaskRunner failed to stop within timeout")
 
     def submit(self, kind: str, fn: Callable[[], Any], timeout: float | None = None) -> Any:
+        """タスクを投入し、完了まで待機して結果または例外を返す。"""
         if self._stop.is_set() or not self._thread.is_alive():
             raise RuntimeError("DBTaskRunner is stopped")
         task = Task(kind=kind, fn=fn, done=threading.Event())
@@ -59,6 +68,7 @@ class DBTaskRunner:
         return task.result
 
     def _ensure_temp_snapshot(self) -> None:
+        """必要時のみメイン DB からテンポラリ DB スナップショットを作成する。"""
         if self._temp_exists:
             return
         if not self.main_db.exists():
@@ -67,6 +77,7 @@ class DBTaskRunner:
         self._temp_exists = True
 
     def _delete_temp(self) -> None:
+        """テンポラリ DB を削除して内部状態をリセットする。"""
         if self.temp_db.exists():
             try:
                 self.temp_db.unlink()
@@ -75,6 +86,7 @@ class DBTaskRunner:
         self._temp_exists = False
 
     def _loop(self) -> None:
+        """タスクキューを監視し、`write` と `delete_temp` を順次処理する。"""
         while not self._stop.is_set():
             try:
                 task = self.q.get(timeout=0.2)

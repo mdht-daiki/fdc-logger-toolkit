@@ -162,9 +162,9 @@ def test_db_api_process_upsert_on_same_process_id() -> None:
         assert row[1] == second["raw_csv_path"]
     finally:
         resp = client.request("DELETE", "/processes", json={"process_id": process_id})
-        assert (
-            resp.status_code == 200
-        ), f"cleanup failed: status={resp.status_code}, body={resp.text}"
+        assert resp.status_code == 200, (
+            f"cleanup failed: status={resp.status_code}, body={resp.text}"
+        )
 
 
 def test_db_api_aggregate_write_accepts_empty_lists() -> None:
@@ -197,9 +197,9 @@ def test_db_api_aggregate_write_accepts_empty_lists() -> None:
         assert feature_count == 0
     finally:
         resp = client.request("DELETE", "/processes", json={"process_id": process_id})
-        assert (
-            resp.status_code == 200
-        ), f"cleanup failed: status={resp.status_code}, body={resp.text}"
+        assert resp.status_code == 200, (
+            f"cleanup failed: status={resp.status_code}, body={resp.text}"
+        )
 
 
 def test_db_api_aggregate_write_rejects_mismatched_process_id() -> None:

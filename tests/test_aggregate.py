@@ -20,7 +20,23 @@ DUMMY_RULES_PATH = (
 )
 
 
+def _make_step_peak(channel: str, value: float) -> StepPeak:
+    """分類テスト用に固定時刻の `StepPeak` を生成する。"""
+    ts = pd.Timestamp("2026-02-19T00:00:00").to_pydatetime()
+    return StepPeak(
+        channel=channel,
+        start_ts=ts,
+        end_ts=ts,
+        duration_sec=0.0,
+        mean=value,
+        max=value,
+        min=value,
+        std=0.0,
+    )
+
+
 def _base_df() -> pd.DataFrame:
+    """エッジ検出の基本入力として使う小さな時系列を返す。"""
     ts = pd.date_range("2026-02-19T00:00:00", periods=8, freq="s")
     return pd.DataFrame(
         {
@@ -35,6 +51,7 @@ def _base_df() -> pd.DataFrame:
 
 
 def _recipe_classify_df() -> tuple[pd.DataFrame, list[tuple[pd.Timestamp, pd.Timestamp]]]:
+    """4ステップ分類用のダミー時系列とキューを返す。"""
     ts = pd.date_range("2026-02-19T00:00:00", periods=18, freq="s")
     df = pd.DataFrame(
         {
@@ -93,6 +110,7 @@ def _recipe_classify_df() -> tuple[pd.DataFrame, list[tuple[pd.Timestamp, pd.Tim
 
 
 def _recipe_d_3step_df() -> tuple[pd.DataFrame, list[tuple[pd.Timestamp, pd.Timestamp]]]:
+    """3ステップ（分割対象）分類用の入力データを返す。"""
     ts = pd.date_range("2026-02-19T01:00:00", periods=12, freq="s")
     df = pd.DataFrame(
         {
@@ -112,6 +130,7 @@ def _recipe_d_3step_df() -> tuple[pd.DataFrame, list[tuple[pd.Timestamp, pd.Time
 
 
 def _recipe_b_df() -> tuple[pd.DataFrame, list[tuple[pd.Timestamp, pd.Timestamp]]]:
+    """RECIPE_B に一致する入力データを返す。"""
     ts = pd.date_range("2026-02-19T02:00:00", periods=18, freq="s")
     df = pd.DataFrame(
         {
@@ -170,6 +189,7 @@ def _recipe_b_df() -> tuple[pd.DataFrame, list[tuple[pd.Timestamp, pd.Timestamp]
 
 
 def _recipe_c_df() -> tuple[pd.DataFrame, list[tuple[pd.Timestamp, pd.Timestamp]]]:
+    """RECIPE_C に一致する入力データを返す。"""
     ts = pd.date_range("2026-02-19T03:00:00", periods=18, freq="s")
     df = pd.DataFrame(
         {
@@ -228,6 +248,7 @@ def _recipe_c_df() -> tuple[pd.DataFrame, list[tuple[pd.Timestamp, pd.Timestamp]
 
 
 def test_classify_recipe_from_peaks_matches_dummy_rules(monkeypatch) -> None:
+    """標準ダミーデータが RECIPE_A に分類されることを確認する。"""
     df, queue = _recipe_classify_df()
     monkeypatch.setattr(
         aggregate,
@@ -241,6 +262,7 @@ def test_classify_recipe_from_peaks_matches_dummy_rules(monkeypatch) -> None:
 
 
 def test_classify_recipe_from_peaks_returns_unknown_on_out_of_range(monkeypatch) -> None:
+    """範囲外値を含む場合は UNKNOWN となることを確認する。"""
     df, queue = _recipe_classify_df()
     df.loc[(df["timestamp"] >= queue[1][0]) & (df["timestamp"] <= queue[1][1]), "dc_bias"] = 9.9
     monkeypatch.setattr(
@@ -255,6 +277,7 @@ def test_classify_recipe_from_peaks_returns_unknown_on_out_of_range(monkeypatch)
 
 
 def test_classify_recipe_from_peaks_matches_dummy_3step_rule(monkeypatch) -> None:
+    """3ステップルールが正しく分類されることを確認する。"""
     df, queue = _recipe_d_3step_df()
     monkeypatch.setattr(
         aggregate,
@@ -268,6 +291,7 @@ def test_classify_recipe_from_peaks_matches_dummy_3step_rule(monkeypatch) -> Non
 
 
 def test_classify_recipe_from_peaks_matches_dummy_recipe_b(monkeypatch) -> None:
+    """RECIPE_B 相当データが RECIPE_B に分類されることを確認する。"""
     df, queue = _recipe_b_df()
     monkeypatch.setattr(aggregate, "RECIPE_RULES_PATH", DUMMY_RULES_PATH)
 
@@ -277,6 +301,7 @@ def test_classify_recipe_from_peaks_matches_dummy_recipe_b(monkeypatch) -> None:
 
 
 def test_classify_recipe_from_peaks_matches_dummy_recipe_c(monkeypatch) -> None:
+    """RECIPE_C 相当データが RECIPE_C に分類されることを確認する。"""
     df, queue = _recipe_c_df()
     monkeypatch.setattr(aggregate, "RECIPE_RULES_PATH", DUMMY_RULES_PATH)
 
@@ -286,6 +311,7 @@ def test_classify_recipe_from_peaks_matches_dummy_recipe_c(monkeypatch) -> None:
 
 
 def test_classify_recipe_from_peaks_matches_on_rule_boundaries(monkeypatch) -> None:
+    """閾値境界値でも一致判定されることを確認する。"""
     df, queue = _recipe_classify_df()
     df.loc[
         (df["timestamp"] >= queue[0][0]) & (df["timestamp"] <= queue[0][1]), ["dc_bias", "cl2_flow"]
@@ -307,6 +333,7 @@ def test_classify_recipe_from_peaks_matches_on_rule_boundaries(monkeypatch) -> N
 
 
 def test_classify_recipe_from_peaks_returns_unknown_on_empty_queue(monkeypatch) -> None:
+    """キューが空なら UNKNOWN を返すことを確認する。"""
     df, _ = _recipe_classify_df()
     monkeypatch.setattr(aggregate, "RECIPE_RULES_PATH", DUMMY_RULES_PATH)
 
@@ -316,6 +343,7 @@ def test_classify_recipe_from_peaks_returns_unknown_on_empty_queue(monkeypatch) 
 
 
 def test_classify_recipe_from_peaks_returns_unknown_without_timestamp(monkeypatch) -> None:
+    """timestamp 列が欠落した入力で UNKNOWN となることを確認する。"""
     df, queue = _recipe_classify_df()
     monkeypatch.setattr(aggregate, "RECIPE_RULES_PATH", DUMMY_RULES_PATH)
 
@@ -325,26 +353,26 @@ def test_classify_recipe_from_peaks_returns_unknown_without_timestamp(monkeypatc
 
 
 def test_recipe_classifier_returns_unknown_when_channels_missing() -> None:
+    """必須チャネルが欠損する bundle で UNKNOWN になることを確認する。"""
     classifier = RecipeClassifier(aggregate.load_yaml(DUMMY_RULES_PATH))
 
-    def _peak(channel: str, value: float) -> StepPeak:
-        ts = pd.Timestamp("2026-02-19T00:00:00").to_pydatetime()
-        return StepPeak(
-            channel=channel,
-            start_ts=ts,
-            end_ts=ts,
-            duration_sec=0.0,
-            mean=value,
-            max=value,
-            min=value,
-            std=0.0,
-        )
-
     bundles = [
-        StepBundle(step_no=1, dc_bias=_peak("dc_bias", 2.0), cl2_flow=_peak("cl2_flow", 12.0)),
-        StepBundle(step_no=2, dc_bias=None, cl2_flow=_peak("cl2_flow", 20.0)),
-        StepBundle(step_no=3, dc_bias=_peak("dc_bias", 2.4), cl2_flow=_peak("cl2_flow", 17.0)),
-        StepBundle(step_no=4, dc_bias=_peak("dc_bias", 1.7), cl2_flow=_peak("cl2_flow", 13.0)),
+        StepBundle(
+            step_no=1,
+            dc_bias=_make_step_peak("dc_bias", 2.0),
+            cl2_flow=_make_step_peak("cl2_flow", 12.0),
+        ),
+        StepBundle(step_no=2, dc_bias=None, cl2_flow=_make_step_peak("cl2_flow", 20.0)),
+        StepBundle(
+            step_no=3,
+            dc_bias=_make_step_peak("dc_bias", 2.4),
+            cl2_flow=_make_step_peak("cl2_flow", 17.0),
+        ),
+        StepBundle(
+            step_no=4,
+            dc_bias=_make_step_peak("dc_bias", 1.7),
+            cl2_flow=_make_step_peak("cl2_flow", 13.0),
+        ),
     ]
 
     recipe = classifier.classify(bundles)
@@ -352,7 +380,67 @@ def test_recipe_classifier_returns_unknown_when_channels_missing() -> None:
     assert recipe == "UNKNOWN"
 
 
+def test_recipe_classifier_presplit_validates_fourth_bundle() -> None:
+    """presplit 4本目の負例/正例が正しく判定されることを確認する。"""
+    classifier = RecipeClassifier(aggregate.load_yaml(DUMMY_RULES_PATH))
+
+    bundles = [
+        StepBundle(
+            step_no=1,
+            dc_bias=_make_step_peak("dc_bias", 1.8),
+            cl2_flow=_make_step_peak("cl2_flow", 12.0),
+        ),
+        StepBundle(
+            step_no=2,
+            dc_bias=_make_step_peak("dc_bias", 2.6),
+            cl2_flow=_make_step_peak("cl2_flow", 19.0),
+        ),
+        StepBundle(
+            step_no=3,
+            dc_bias=_make_step_peak("dc_bias", 2.1),
+            cl2_flow=_make_step_peak("cl2_flow", 15.0),
+        ),
+        StepBundle(
+            step_no=4,
+            dc_bias=_make_step_peak("dc_bias", 9.9),
+            cl2_flow=_make_step_peak("cl2_flow", 15.0),
+        ),
+    ]
+
+    recipe = classifier.classify(bundles)
+
+    assert recipe == "UNKNOWN"
+
+    valid_bundles = [
+        StepBundle(
+            step_no=1,
+            dc_bias=_make_step_peak("dc_bias", 1.8),
+            cl2_flow=_make_step_peak("cl2_flow", 12.0),
+        ),
+        StepBundle(
+            step_no=2,
+            dc_bias=_make_step_peak("dc_bias", 2.6),
+            cl2_flow=_make_step_peak("cl2_flow", 19.0),
+        ),
+        StepBundle(
+            step_no=3,
+            dc_bias=_make_step_peak("dc_bias", 2.1),
+            cl2_flow=_make_step_peak("cl2_flow", 15.0),
+        ),
+        StepBundle(
+            step_no=4,
+            dc_bias=_make_step_peak("dc_bias", 2.0),
+            cl2_flow=_make_step_peak("cl2_flow", 14.0),
+        ),
+    ]
+
+    valid_recipe = classifier.classify(valid_bundles)
+
+    assert valid_recipe == "RECIPE_D_3STEP"
+
+
 def test_build_processes_edge_detects_one_window() -> None:
+    """エッジ法で1つのプロセス窓が検出されることを確認する。"""
     df = _base_df()
     cfg = {
         "key_channels": {"dc_bias": "dc_bias"},
@@ -382,6 +470,7 @@ def test_build_processes_edge_detects_one_window() -> None:
 
 
 def test_detail_csv_and_features_and_post_payloads(tmp_path: Path, monkeypatch) -> None:
+    """detail保存・特徴量生成・POST payload 生成の一連処理を確認する。"""
     df = _base_df()
     step_windows = [
         (
@@ -422,6 +511,7 @@ def test_detail_csv_and_features_and_post_payloads(tmp_path: Path, monkeypatch) 
     calls: list[tuple[str, Any]] = []
 
     def fake_api_post(db_api: str, path: str, payload: Any) -> dict[str, bool]:
+        """API 呼び出しを記録するテストダブル。"""
         calls.append((path, payload))
         return {"ok": True}
 
@@ -456,9 +546,11 @@ def test_detail_csv_and_features_and_post_payloads(tmp_path: Path, monkeypatch) 
 
 
 def test_post_features_skips_empty_payload(monkeypatch) -> None:
+    """空特徴量入力時に API 呼び出しを行わないことを確認する。"""
     calls: list[tuple[str, Any]] = []
 
     def fake_api_post(db_api: str, path: str, payload: Any) -> dict[str, bool]:
+        """API 呼び出しを記録するテストダブル。"""
         calls.append((path, payload))
         return {"ok": True}
 
@@ -470,6 +562,7 @@ def test_post_features_skips_empty_payload(monkeypatch) -> None:
 
 
 def test_main_dry_run_skips_db_posts(tmp_path: Path, monkeypatch) -> None:
+    """dry-run モードでは DB POST が呼ばれないことを確認する。"""
     input_csv = tmp_path / "scrape_out.csv"
     cfg_yaml = tmp_path / "aggregate_tools.yaml"
     detail_dir = tmp_path / "detail"
@@ -489,6 +582,7 @@ def test_main_dry_run_skips_db_posts(tmp_path: Path, monkeypatch) -> None:
     cfg_yaml.write_text(yaml.safe_dump({"tools": {}}), encoding="utf-8")
 
     def _raise_if_called(*args, **kwargs):
+        """呼ばれたら失敗させるガード。"""
         raise AssertionError("DB POST should not be called in dry-run mode")
 
     monkeypatch.setattr(aggregate, "post_one_process", _raise_if_called)
@@ -517,6 +611,7 @@ def test_main_dry_run_skips_db_posts(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_main_non_dry_run_cleans_up_on_post_error(tmp_path: Path, monkeypatch) -> None:
+    """POST 途中失敗時に作成済みプロセスを削除することを確認する。"""
     input_csv = tmp_path / "scrape_out.csv"
     cfg_yaml = tmp_path / "aggregate_tools.yaml"
     detail_dir = tmp_path / "detail"
@@ -547,6 +642,7 @@ def test_main_non_dry_run_cleans_up_on_post_error(tmp_path: Path, monkeypatch) -
         end_ts: pd.Timestamp,
         raw_csv_path: str,
     ) -> None:
+        """process 作成成功を記録するテストダブル。"""
         called["created"] = process_id
 
     def fail_step_windows(
@@ -555,9 +651,11 @@ def test_main_non_dry_run_cleans_up_on_post_error(tmp_path: Path, monkeypatch) -
         step_windows: list[tuple[int, pd.Timestamp, pd.Timestamp]],
         source_channel: str,
     ) -> None:
+        """step window 投稿失敗を模擬するテストダブル。"""
         raise RuntimeError("forced step window failure")
 
     def fake_delete_process(db_api: str, process_id: str) -> None:
+        """削除呼び出しを記録するテストダブル。"""
         called["deleted"] = process_id
 
     monkeypatch.setattr(aggregate, "post_one_process", fake_post_one_process)

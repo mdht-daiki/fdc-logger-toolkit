@@ -10,14 +10,19 @@ from portfolio_fdc.db_api.schemas import AggregateWriteIn, ProcessInfoIn
 
 @dataclass
 class _FakeConnection:
-    fail_on_delete_steps: bool = True
+    fail_on_execute_at: int | None = None
+    execute_call_count: int = 0
     rollback_called: bool = False
     commit_called: bool = False
     close_called: bool = False
 
     def execute(self, sql: str, params=None):
-        _ = params
-        if self.fail_on_delete_steps and "DELETE FROM StepWindows" in sql:
+        _ = sql, params
+        self.execute_call_count += 1
+        if (
+            self.fail_on_execute_at is not None
+            and self.execute_call_count == self.fail_on_execute_at
+        ):
             raise RuntimeError("forced db failure")
         return self
 
@@ -37,7 +42,7 @@ class _FakeConnection:
 
 def test_write_aggregate_atomic_rolls_back_on_failure(monkeypatch) -> None:
     """write_aggregate_atomic の途中失敗時に rollback が呼ばれることを確認する。"""
-    fake = _FakeConnection(fail_on_delete_steps=True)
+    fake = _FakeConnection(fail_on_execute_at=3)
     monkeypatch.setattr(repo, "_connect", lambda _path: fake)
 
     payload = AggregateWriteIn(

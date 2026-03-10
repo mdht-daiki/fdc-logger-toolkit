@@ -226,6 +226,10 @@ def test_db_api_aggregate_write_rejects_mismatched_process_id() -> None:
     res = client.post("/aggregate/write", json=payload)
 
     assert res.status_code == 422
+    details = res.json()["detail"]
+    assert any(
+        "process_id must match process.process_id" in item.get("msg", "") for item in details
+    )
 
 
 def test_db_api_aggregate_write_returns_500_on_runner_error(monkeypatch) -> None:

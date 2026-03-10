@@ -238,7 +238,9 @@ def test_db_api_aggregate_write_rejects_mismatched_process_id() -> None:
     )
 
 
-def test_db_api_aggregate_write_returns_500_on_runner_error(monkeypatch) -> None:
+def test_db_api_aggregate_write_returns_500_on_runner_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """`/aggregate/write` 実行時例外が HTTP 500 と detail に変換されることを確認する。"""
     client = TestClient(db_app.app)
     process_id = f"agg_err_{uuid4().hex}"

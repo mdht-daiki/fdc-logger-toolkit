@@ -162,3 +162,98 @@ def test_db_api_process_upsert_on_same_process_id() -> None:
         assert row[1] == second["raw_csv_path"]
     finally:
         client.request("DELETE", "/processes", json={"process_id": process_id})
+
+
+def test_db_api_aggregate_write_accepts_empty_lists() -> None:
+    """`/aggregate/write` が空の step_windows/parameters を受理できることを確認する。"""
+    client = TestClient(db_app.app)
+    process_id = f"agg_empty_{uuid4().hex}"
+
+    payload = {
+        "process": {
+            "process_id": process_id,
+            "tool_id": "TOOL_A",
+            "chamber_id": "CH1",
+            "recipe_id": "UNKNOWN",
+            "start_ts": datetime.now().isoformat(),
+            "end_ts": datetime.now().isoformat(),
+            "raw_csv_path": f"data/detail/detail_TOOL_A_CH1_{process_id}.csv",
+        },
+        "step_windows": [],
+        "parameters": [],
+    }
+
+    try:
+        res = client.post("/aggregate/write", json=payload)
+        assert res.status_code == 200
+        assert res.json() == {"ok": True, "step_windows": 0, "parameters": 0}
+
+        process_count, step_count, feature_count = _count_rows(process_id)
+        assert process_count == 1
+        assert step_count == 0
+        assert feature_count == 0
+    finally:
+        client.request("DELETE", "/processes", json={"process_id": process_id})
+
+
+def test_db_api_aggregate_write_rejects_mismatched_process_id() -> None:
+    """`/aggregate/write` が process_id 不一致を 422 で拒否することを確認する。"""
+    client = TestClient(db_app.app)
+    process_id = f"agg_bad_{uuid4().hex}"
+
+    payload = {
+        "process": {
+            "process_id": process_id,
+            "tool_id": "TOOL_A",
+            "chamber_id": "CH1",
+            "recipe_id": "UNKNOWN",
+            "start_ts": datetime.now().isoformat(),
+            "end_ts": datetime.now().isoformat(),
+            "raw_csv_path": f"data/detail/detail_TOOL_A_CH1_{process_id}.csv",
+        },
+        "step_windows": [
+            {
+                "process_id": f"other_{process_id}",
+                "step_no": 1,
+                "start_ts": datetime.now().isoformat(),
+                "end_ts": datetime.now().isoformat(),
+                "source_channel": "dc_bias",
+            }
+        ],
+        "parameters": [],
+    }
+
+    res = client.post("/aggregate/write", json=payload)
+
+    assert res.status_code == 422
+
+
+def test_db_api_aggregate_write_returns_500_on_runner_error(monkeypatch) -> None:
+    """`/aggregate/write` 実行時例外が HTTP 500 と detail に変換されることを確認する。"""
+    client = TestClient(db_app.app)
+    process_id = f"agg_err_{uuid4().hex}"
+
+    def fail_atomic(*args, **kwargs):
+        _ = args, kwargs
+        raise RuntimeError("forced aggregate write failure")
+
+    monkeypatch.setattr(db_app, "write_aggregate_atomic", fail_atomic)
+
+    payload = {
+        "process": {
+            "process_id": process_id,
+            "tool_id": "TOOL_A",
+            "chamber_id": "CH1",
+            "recipe_id": "UNKNOWN",
+            "start_ts": datetime.now().isoformat(),
+            "end_ts": datetime.now().isoformat(),
+            "raw_csv_path": f"data/detail/detail_TOOL_A_CH1_{process_id}.csv",
+        },
+        "step_windows": [],
+        "parameters": [],
+    }
+
+    res = client.post("/aggregate/write", json=payload)
+
+    assert res.status_code == 500
+    assert "forced aggregate write failure" in res.json()["detail"]

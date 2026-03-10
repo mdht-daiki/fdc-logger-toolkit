@@ -84,7 +84,7 @@ def test_db_api_minimum_flow_for_aggregate_contract() -> None:
         assert feature_count == 1
 
     finally:
-        deleted = client.request("DELETE", "/processes", json={"process_id": process_id})
+        deleted = client.request("DELETE", f"/processes/{process_id}")
         assert deleted.status_code == 200
         assert deleted.json()["ok"] is True
 
@@ -106,9 +106,49 @@ def test_db_api_bulk_empty_and_delete_missing() -> None:
     assert feature_res.status_code == 200
     assert feature_res.json() == {"ok": True, "inserted": 0}
 
-    deleted = client.request("DELETE", "/processes", json={"process_id": missing_process_id})
+    deleted = client.request("DELETE", f"/processes/{missing_process_id}")
     assert deleted.status_code == 200
     assert deleted.json() == {"ok": True, "deleted": 0}
+
+
+def test_db_api_delete_process_new_and_legacy_endpoint_consistency() -> None:
+    """新旧 DELETE エンドポイントが同等の削除結果を返すことを確認する。"""
+    client = TestClient(db_app.app)
+    process_id_a = f"del_a_{uuid4().hex}"
+    process_id_b = f"del_b_{uuid4().hex}"
+
+    for process_id in (process_id_a, process_id_b):
+        payload = {
+            "process_id": process_id,
+            "tool_id": "TOOL_A",
+            "chamber_id": "CH1",
+            "recipe_id": "UNKNOWN",
+            "start_ts": datetime.now().isoformat(),
+            "end_ts": datetime.now().isoformat(),
+            "raw_csv_path": f"data/detail/detail_TOOL_A_CH1_{process_id}.csv",
+        }
+        created = client.post("/processes", json=payload)
+        assert created.status_code == 200
+        assert created.json()["ok"] is True
+
+    deleted_new = client.request("DELETE", f"/processes/{process_id_a}")
+    assert deleted_new.status_code == 200
+    assert deleted_new.json() == {"ok": True, "deleted": 1}
+
+    deleted_legacy = client.request("DELETE", "/processes", json={"process_id": process_id_b})
+    assert deleted_legacy.status_code == 200
+    assert deleted_legacy.json() == {"ok": True, "deleted": 1}
+    assert deleted_legacy.headers.get("Deprecation") == "true"
+
+    deleted_missing_new = client.request("DELETE", f"/processes/{process_id_a}")
+    assert deleted_missing_new.status_code == 200
+    assert deleted_missing_new.json() == {"ok": True, "deleted": 0}
+
+    deleted_missing_legacy = client.request(
+        "DELETE", "/processes", json={"process_id": process_id_b}
+    )
+    assert deleted_missing_legacy.status_code == 200
+    assert deleted_missing_legacy.json() == {"ok": True, "deleted": 0}
 
 
 def test_db_api_process_upsert_on_same_process_id() -> None:
@@ -161,7 +201,7 @@ def test_db_api_process_upsert_on_same_process_id() -> None:
         assert row[0] == "RCP_NEW"
         assert row[1] == second["raw_csv_path"]
     finally:
-        resp = client.request("DELETE", "/processes", json={"process_id": process_id})
+        resp = client.request("DELETE", f"/processes/{process_id}")
         assert resp.status_code == 200, (
             f"cleanup failed: status={resp.status_code}, body={resp.text}"
         )
@@ -196,7 +236,7 @@ def test_db_api_aggregate_write_accepts_empty_lists() -> None:
         assert step_count == 0
         assert feature_count == 0
     finally:
-        resp = client.request("DELETE", "/processes", json={"process_id": process_id})
+        resp = client.request("DELETE", f"/processes/{process_id}")
         assert resp.status_code == 200, (
             f"cleanup failed: status={resp.status_code}, body={resp.text}"
         )

@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 from threading import Lock
 from typing import cast
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Response
 
 from .aggregate_repository import (
     delete_process,
@@ -33,6 +33,7 @@ from .task_runner import DBTaskRunner
 
 logger = logging.getLogger(__name__)
 _runner_lock = Lock()
+LEGACY_DELETE_PROCESSES_SUNSET = "2026-06-30"
 
 
 def _get_or_create_runner(app: FastAPI) -> DBTaskRunner:
@@ -94,9 +95,22 @@ def create_process(request: Request, p: ProcessInfoIn):
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+@app.delete("/processes/{process_id}")
+def remove_process_by_path(request: Request, process_id: str):
+    """指定 process_id の ProcessInfo を削除する（推奨エンドポイント）。"""
+    try:
+        deleted = _runner_from_request(request).submit("write", lambda: delete_process(process_id))
+        return {"ok": True, "deleted": deleted}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 @app.delete("/processes")
-def remove_process(request: Request, req: ProcessDeleteIn):
-    """指定 process_id の ProcessInfo を削除する。"""
+def remove_process_legacy(request: Request, req: ProcessDeleteIn, response: Response):
+    """互換用の旧削除 API。廃止予定日まで `/processes/{process_id}` と併存する。"""
+    response.headers["Deprecation"] = "true"
+    response.headers["Sunset"] = LEGACY_DELETE_PROCESSES_SUNSET
+    response.headers["Link"] = '</processes/{process_id}>; rel="successor-version"'
     try:
         deleted = _runner_from_request(request).submit(
             "write", lambda: delete_process(req.process_id)

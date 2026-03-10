@@ -167,7 +167,8 @@ python -m portfolio_fdc.db_api.app
 
 - `aggregate` 連携エンドポイントのみ実装
   - `POST /processes`
-  - `DELETE /processes`
+  - `DELETE /processes/{process_id}`（推奨）
+  - `DELETE /processes`（互換用、2026-06-30 まで併存予定）
   - `POST /step_windows/bulk`
   - `POST /parameters/bulk`
 - 先送りしたエンドポイント（charts/judge/chart_sets/charts_v2）は

@@ -61,9 +61,12 @@ def test_aggregate_http_flow_to_db_api(monkeypatch) -> None:
         response = client.post(path, json=json)
         return _RequestsBridgeResponse(status_code=response.status_code, _payload=response.json())
 
-    def fake_delete(url: str, json, timeout: int):
+    def fake_delete(url: str, json=None, timeout: int = 30):
         path = urlsplit(url).path
-        response = client.request("DELETE", path, json=json)
+        if json is None:
+            response = client.request("DELETE", path)
+        else:
+            response = client.request("DELETE", path, json=json)
         return _RequestsBridgeResponse(status_code=response.status_code, _payload=response.json())
 
     monkeypatch.setattr(aggregate.requests, "post", fake_post)
@@ -134,9 +137,12 @@ def test_aggregate_main_non_dry_run_posts_to_db_api(tmp_path: Path, monkeypatch)
         response = client.post(path, json=json)
         return _RequestsBridgeResponse(status_code=response.status_code, _payload=response.json())
 
-    def fake_delete(url: str, json, timeout: int):
+    def fake_delete(url: str, json=None, timeout: int = 30):
         path = urlsplit(url).path
-        response = client.request("DELETE", path, json=json)
+        if json is None:
+            response = client.request("DELETE", path)
+        else:
+            response = client.request("DELETE", path, json=json)
         return _RequestsBridgeResponse(status_code=response.status_code, _payload=response.json())
 
     monkeypatch.setattr(aggregate.requests, "post", fake_post)

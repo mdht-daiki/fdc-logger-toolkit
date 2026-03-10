@@ -1,3 +1,5 @@
+"""SQLite 接続設定と初期スキーマ作成を提供するユーティリティ。"""
+
 from __future__ import annotations
 
 import sqlite3
@@ -10,6 +12,7 @@ TEMP_DB = DB_DIR / "temp.db"
 
 
 def _connect(db_path: Path) -> sqlite3.Connection:
+    """指定 DB への接続を開き、必要な PRAGMA を適用して返す。"""
     con = sqlite3.connect(db_path.as_posix(), check_same_thread=False)
     con.execute("PRAGMA journal_mode=DELETE;")
     con.execute("PRAGMA synchronous=NORMAL;")
@@ -18,6 +21,7 @@ def _connect(db_path: Path) -> sqlite3.Connection:
 
 
 def _init_schema(db_path: Path) -> None:
+    """DB ファイル作成と必須テーブル/インデックスの初期化を行う。"""
     DB_DIR.mkdir(parents=True, exist_ok=True)
     con = _connect(db_path)
     try:

@@ -16,12 +16,14 @@ from fastapi import FastAPI, HTTPException, Request
 
 from .aggregate_repository import (
     delete_process,
+    write_aggregate_atomic,
     write_parameters_bulk,
     write_process,
     write_step_windows_bulk,
 )
 from .db import MAIN_DB, TEMP_DB
 from .schemas import (
+    AggregateWriteIn,
     ParameterIn,
     ProcessDeleteIn,
     ProcessInfoIn,
@@ -122,5 +124,17 @@ def create_parameters_bulk(request: Request, params: list[ParameterIn]):
     try:
         n = _runner_from_request(request).submit("write", lambda: write_parameters_bulk(params))
         return {"ok": True, "inserted": n}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.post("/aggregate/write")
+def create_aggregate_write(request: Request, payload: AggregateWriteIn):
+    """Process/StepWindow/Parameter を 1 API・1 トランザクションで保存する。"""
+    try:
+        result = _runner_from_request(request).submit(
+            "write", lambda: write_aggregate_atomic(payload)
+        )
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e

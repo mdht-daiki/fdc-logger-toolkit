@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from .db import MAIN_DB, _connect
-from .schemas import ParameterIn, ProcessInfoIn, StepWindowIn
+from .schemas import AggregateWriteIn, ParameterIn, ProcessInfoIn, StepWindowIn
 
 
 def write_process(p: ProcessInfoIn) -> None:
@@ -93,6 +93,76 @@ def delete_process(process_id: str) -> int:
         ).rowcount
         con.commit()
         return int(deleted)
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
+def write_aggregate_atomic(payload: AggregateWriteIn) -> dict[str, int | bool]:
+    """ProcessInfo/StepWindows/Parameters を 1 トランザクションで保存する。"""
+    con = _connect(MAIN_DB)
+    try:
+        process_id = payload.process.process_id
+        con.execute("BEGIN")
+        con.execute(
+            """
+            INSERT INTO ProcessInfo
+            (process_id, tool_id, chamber_id, recipe_id, start_ts, end_ts, raw_csv_path)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(process_id) DO UPDATE SET
+                tool_id=excluded.tool_id,
+                chamber_id=excluded.chamber_id,
+                recipe_id=excluded.recipe_id,
+                start_ts=excluded.start_ts,
+                end_ts=excluded.end_ts,
+                raw_csv_path=excluded.raw_csv_path;
+            """,
+            (
+                payload.process.process_id,
+                payload.process.tool_id,
+                payload.process.chamber_id,
+                payload.process.recipe_id,
+                payload.process.start_ts,
+                payload.process.end_ts,
+                payload.process.raw_csv_path,
+            ),
+        )
+
+        con.execute("DELETE FROM StepWindows WHERE process_id = ?", (process_id,))
+        con.execute("DELETE FROM Parameters WHERE process_id = ?", (process_id,))
+
+        if payload.step_windows:
+            con.executemany(
+                """
+                INSERT INTO StepWindows
+                (process_id, step_no, start_ts, end_ts, source_channel)
+                VALUES (?, ?, ?, ?, ?);
+                """,
+                [
+                    (w.process_id, w.step_no, w.start_ts, w.end_ts, w.source_channel)
+                    for w in payload.step_windows
+                ],
+            )
+        if payload.parameters:
+            con.executemany(
+                """
+                INSERT INTO Parameters
+                (process_id, parameter, step_no, feature_type, feature_value)
+                VALUES (?, ?, ?, ?, ?);
+                """,
+                [
+                    (p.process_id, p.parameter, p.step_no, p.feature_type, p.feature_value)
+                    for p in payload.parameters
+                ],
+            )
+        con.commit()
+        return {
+            "ok": True,
+            "step_windows": len(payload.step_windows),
+            "parameters": len(payload.parameters),
+        }
     except Exception:
         con.rollback()
         raise

@@ -352,6 +352,34 @@ def test_recipe_classifier_returns_unknown_when_channels_missing() -> None:
     assert recipe == "UNKNOWN"
 
 
+def test_recipe_classifier_presplit_validates_fourth_bundle() -> None:
+    classifier = RecipeClassifier(aggregate.load_yaml(DUMMY_RULES_PATH))
+
+    def _peak(channel: str, value: float) -> StepPeak:
+        ts = pd.Timestamp("2026-02-19T00:00:00").to_pydatetime()
+        return StepPeak(
+            channel=channel,
+            start_ts=ts,
+            end_ts=ts,
+            duration_sec=0.0,
+            mean=value,
+            max=value,
+            min=value,
+            std=0.0,
+        )
+
+    bundles = [
+        StepBundle(step_no=1, dc_bias=_peak("dc_bias", 1.8), cl2_flow=_peak("cl2_flow", 12.0)),
+        StepBundle(step_no=2, dc_bias=_peak("dc_bias", 2.6), cl2_flow=_peak("cl2_flow", 19.0)),
+        StepBundle(step_no=3, dc_bias=_peak("dc_bias", 2.1), cl2_flow=_peak("cl2_flow", 15.0)),
+        StepBundle(step_no=4, dc_bias=_peak("dc_bias", 9.9), cl2_flow=_peak("cl2_flow", 15.0)),
+    ]
+
+    recipe = classifier.classify(bundles)
+
+    assert recipe == "UNKNOWN"
+
+
 def test_build_processes_edge_detects_one_window() -> None:
     df = _base_df()
     cfg = {

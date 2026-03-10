@@ -35,20 +35,48 @@ class RecipeClassifier:
     def _match(self, recipe_id: str, spec: dict[str, Any], bundles: list[StepBundle]) -> bool:
         """1レシピ定義と入力ステップ束列が一致するか判定する。"""
         steps = spec.get("steps", [])
+        expanded_steps = steps
         if len(steps) != len(bundles):
             # 3-step recipe を 4-bundle に暫定一致させるケースのみ許可
             allow_presplit = len(steps) == 3 and len(bundles) == 4
             if not allow_presplit:
                 return False
+            expanded_steps = self._expand_steps_for_presplit(spec, steps)
+            if len(expanded_steps) != len(bundles):
+                return False
 
-        # compare up to min length
-        n = len(steps)
+        # compare all bundled steps
+        n = len(expanded_steps)
         for i in range(n):
-            cond = steps[i]
+            cond = expanded_steps[i]
             b = bundles[i]
             if not self._match_step(cond, b):
                 return False
         return True
+
+    def _expand_steps_for_presplit(
+        self, spec: dict[str, Any], steps: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """3-step rule の split 指定がある場合、対象stepを2件に展開して返す。"""
+        split = spec.get("split")
+        if not isinstance(split, dict):
+            return steps
+        if split.get("method") != "time_ratio":
+            return steps
+
+        split_step = split.get("original_step")
+        if not isinstance(split_step, int):
+            return steps
+        if split_step < 1 or split_step > len(steps):
+            return steps
+
+        main_ratio = split.get("main_ratio")
+        over_ratio = split.get("over_ratio")
+        if main_ratio is None or over_ratio is None:
+            return steps
+
+        idx = split_step - 1
+        return [*steps[:idx], steps[idx], steps[idx], *steps[idx + 1 :]]
 
     def _match_step(self, cond: dict[str, Any], b: StepBundle) -> bool:
         """単一ステップ条件と `StepBundle` の一致を評価する。"""

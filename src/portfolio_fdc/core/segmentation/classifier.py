@@ -49,10 +49,10 @@ class RecipeClassifier:
         # Example keys: dc_bias_mean, cl2_flow_mean
         for key, rng in cond.items():
             low, high = float(rng[0]), float(rng[1])
-            if key == "dc_bias_mean":
+            if key in ("dc_bias_mean", "dc_bias"):
                 if b.dc_bias is None or not (low <= b.dc_bias.mean <= high):
                     return False
-            elif key == "cl2_flow_mean":
+            elif key in ("cl2_flow_mean", "cl2_flow"):
                 if b.cl2_flow is None or not (low <= b.cl2_flow.mean <= high):
                     return False
             else:

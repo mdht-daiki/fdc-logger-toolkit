@@ -9,6 +9,19 @@ import pandas as pd
 import requests
 import yaml
 
+from ..core.segmentation.classifier import RecipeClassifier
+from ..core.segmentation.models import StepBundle, StepPeak
+
+RECIPE_RULES_PATH = Path(__file__).resolve().parents[1] / "configs" / "recipe_rules.yaml"
+_RECIPE_CLASSIFIER_CACHE: dict[Path, RecipeClassifier] = {}
+
+
+def get_recipe_classifier(path: Path) -> RecipeClassifier:
+    cache_key = path.resolve()
+    if cache_key not in _RECIPE_CLASSIFIER_CACHE:
+        _RECIPE_CLASSIFIER_CACHE[cache_key] = RecipeClassifier(load_yaml(cache_key))
+    return _RECIPE_CLASSIFIER_CACHE[cache_key]
+
 
 def load_yaml(path: Path) -> dict:
     """YAMLファイルを読み込み、辞書として返す。空の場合は空辞書を返す。"""
@@ -201,13 +214,57 @@ def detect_steppeaks(
 
 
 def classify_recipe_from_peaks(
-    steppeak_queue: list[tuple[pd.Timestamp, pd.Timestamp]], df: pd.DataFrame
+    steppeak_queue: list[tuple[pd.Timestamp, pd.Timestamp]],
+    df: pd.DataFrame,
+    dc_key: str = "dc_bias",
+    cl2_key: str = "cl2_flow",
 ) -> str:
-    """検出したピーク列からレシピIDを判定する（現状はプレースホルダ）。"""
-    # Placeholder
-    # your real logic uses dc_bias/cl2_flow levels within each peak, plus conditional rules.
-    # For now, return a fixed recipe.
-    return "RECIPE_A"
+    """検出したピーク列をStepBundle化し、RecipeClassifierでレシピIDを判定する。"""
+    if not steppeak_queue:
+        return "UNKNOWN"
+    if "timestamp" not in df.columns:
+        return "UNKNOWN"
+
+    classifier = get_recipe_classifier(RECIPE_RULES_PATH)
+
+    d = df.copy()
+    d["timestamp"] = pd.to_datetime(d["timestamp"], errors="coerce")
+    d = d.dropna(subset=["timestamp"]).sort_values("timestamp")
+
+    def _peak_in_window(col: str, a: pd.Timestamp, b: pd.Timestamp) -> StepPeak | None:
+        if col not in d.columns:
+            return None
+        window = d.loc[(d["timestamp"] >= a) & (d["timestamp"] <= b), ["timestamp", col]].copy()
+        if window.empty:
+            return None
+        seg = pd.to_numeric(window[col], errors="coerce").dropna()
+        if seg.empty:
+            return None
+
+        start_ts = pd.Timestamp(window["timestamp"].iloc[0]).to_pydatetime()
+        end_ts = pd.Timestamp(window["timestamp"].iloc[-1]).to_pydatetime()
+        return StepPeak(
+            channel=col,
+            start_ts=start_ts,
+            end_ts=end_ts,
+            duration_sec=max((end_ts - start_ts).total_seconds(), 0.0),
+            mean=float(seg.mean()),
+            max=float(seg.max()),
+            min=float(seg.min()),
+            std=float(seg.std(ddof=0)),
+        )
+
+    bundles: list[StepBundle] = []
+    for step_no, (a, b) in enumerate(steppeak_queue, start=1):
+        bundles.append(
+            StepBundle(
+                step_no=step_no,
+                dc_bias=_peak_in_window(dc_key, a, b),
+                cl2_flow=_peak_in_window(cl2_key, a, b),
+            )
+        )
+
+    return classifier.classify(bundles)
 
 
 def split_one_peak_into_two(
@@ -274,7 +331,7 @@ def build_processes_steppeak(
     i = 0
     while i + 3 < len(peaks):
         q = peaks[i : i + 4]
-        recipe = classify_recipe_from_peaks(q, df2)
+        recipe = classify_recipe_from_peaks(q, df2, dc_key=dc_key, cl2_key=cl2_key)
         a = q[0][0]
         b = q[3][1]
         step_windows = [

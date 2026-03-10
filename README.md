@@ -122,6 +122,10 @@ dashboard judge  (future: exporter)
 - `src/portfolio_fdc/configs/sensor_map.csv`
   - 必須列: `tool_id`, `sensor`, `parameter`
   - 役割: ツール別にセンサ名を論理パラメータ名へマッピング
+- `src/portfolio_fdc/configs/segmentation.yaml`
+  - `channels.*`: チャネルごとのしきい値定義（ピーク検出に利用）
+  - `post_process.merge_gap_sec`: 近接区間マージのギャップ秒数
+  - `peak_detector.py` との関係: `channels.*` のしきい値でピーク候補を検出し、`post_process.merge_gap_sec` を使ってギャップ結合を調整
 
 ---
 

@@ -27,7 +27,19 @@ class StepPeakDetector:
         self.cfg = cfg
 
     def detect(self, df: pd.DataFrame, parameter: str) -> list[StepPeak]:
-        """対象チャネルの時系列からピーク区間リストを抽出する。"""
+        """対象チャネルの時系列からピーク区間リストを抽出する。
+
+        前提条件:
+                - `df` は少なくとも
+                    `timestamp`（datetime-like）, `parameter`（str）, `value`（数値）列を持つ。
+        - `timestamp` は `pd.Timestamp` / `datetime` 互換、`value` は `float` / `int` 互換を想定。
+        - インデックスの単調増加は不要。内部で `timestamp` 昇順に並べ替えて処理する。
+
+        戻り値:
+        - `list[StepPeak]` を返す。
+        - 各 `StepPeak` は `channel == parameter` を満たし、`start_ts <= end_ts`。
+        - `mean/max/min/std` は対応区間の `value` から算出される。
+        """
         sub = df[df["parameter"] == parameter].sort_values("timestamp")
         if sub.empty:
             return []
@@ -85,7 +97,14 @@ class StepPeakDetector:
     def _merge_close_segments(
         self, ts: np.ndarray, segs: list[tuple[int, int]]
     ) -> list[tuple[int, int]]:
-        """近接するピーク候補区間をギャップ秒数条件で結合する。"""
+        """近接するピーク候補区間を `merge_gap_sec` 条件で結合する。
+
+        `segs` の各要素は `(start_index, end_index)`（いずれも両端含む）を表す。
+        隣接区間 `(ps, pe)` と `(s, e)` の間隔は
+        `gap_sec = (pd.Timestamp(ts[s]) - pd.Timestamp(ts[pe])).total_seconds()`
+        で計算し、`gap_sec <= self.cfg.merge_gap_sec` のとき結合する（等号を含む）。
+        つまり `if ts[next_start] - ts[prev_end] <= merge_gap_sec then merge` の挙動。
+        """
         if not segs:
             return segs
         merged = [segs[0]]

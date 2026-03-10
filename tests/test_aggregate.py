@@ -561,6 +561,27 @@ def test_post_features_skips_empty_payload(monkeypatch) -> None:
     assert calls == []
 
 
+def test_post_aggregate_atomic_posts_single_payload(monkeypatch) -> None:
+    calls: list[tuple[str, Any]] = []
+
+    def fake_api_post(db_api: str, path: str, payload: Any) -> dict[str, bool]:
+        calls.append((path, payload))
+        return {"ok": True}
+
+    monkeypatch.setattr(aggregate, "api_post", fake_api_post)
+
+    aggregate.post_aggregate_atomic(
+        db_api="http://dummy",
+        process_payload={"process_id": "p1"},
+        step_windows_payload=[{"process_id": "p1", "step_no": 1}],
+        parameters_payload=[{"process_id": "p1", "parameter": "dc_bias"}],
+    )
+
+    assert len(calls) == 1
+    assert calls[0][0] == "/aggregate/write"
+    assert calls[0][1]["process"]["process_id"] == "p1"
+
+
 def test_main_dry_run_skips_db_posts(tmp_path: Path, monkeypatch) -> None:
     """dry-run モードでは DB POST が呼ばれないことを確認する。"""
     input_csv = tmp_path / "scrape_out.csv"
@@ -585,9 +606,7 @@ def test_main_dry_run_skips_db_posts(tmp_path: Path, monkeypatch) -> None:
         """呼ばれたら失敗させるガード。"""
         raise AssertionError("DB POST should not be called in dry-run mode")
 
-    monkeypatch.setattr(aggregate, "post_one_process", _raise_if_called)
-    monkeypatch.setattr(aggregate, "post_step_windows", _raise_if_called)
-    monkeypatch.setattr(aggregate, "post_features", _raise_if_called)
+    monkeypatch.setattr(aggregate, "post_aggregate_atomic", _raise_if_called)
 
     monkeypatch.setattr(
         sys,
@@ -610,8 +629,8 @@ def test_main_dry_run_skips_db_posts(tmp_path: Path, monkeypatch) -> None:
     assert out_files
 
 
-def test_main_non_dry_run_cleans_up_on_post_error(tmp_path: Path, monkeypatch) -> None:
-    """POST 途中失敗時に作成済みプロセスを削除することを確認する。"""
+def test_main_non_dry_run_survives_atomic_post_error(tmp_path: Path, monkeypatch) -> None:
+    """atomic POST 失敗時に処理継続できることを確認する。"""
     input_csv = tmp_path / "scrape_out.csv"
     cfg_yaml = tmp_path / "aggregate_tools.yaml"
     detail_dir = tmp_path / "detail"
@@ -630,36 +649,25 @@ def test_main_non_dry_run_cleans_up_on_post_error(tmp_path: Path, monkeypatch) -
     df.to_csv(input_csv, index=False)
     cfg_yaml.write_text(yaml.safe_dump({"tools": {}}), encoding="utf-8")
 
-    called: dict[str, str | None] = {"created": None, "deleted": None}
+    called: dict[str, int] = {"attempted": 0, "deleted": 0}
 
-    def fake_post_one_process(
+    def fail_atomic_post(
         db_api: str,
-        tool_id: str,
-        chamber_id: str,
-        recipe_id: str,
-        process_id: str,
-        start_ts: pd.Timestamp,
-        end_ts: pd.Timestamp,
-        raw_csv_path: str,
+        process_payload: dict,
+        step_windows_payload: list[dict],
+        parameters_payload: list[dict],
     ) -> None:
-        """process 作成成功を記録するテストダブル。"""
-        called["created"] = process_id
-
-    def fail_step_windows(
-        db_api: str,
-        process_id: str,
-        step_windows: list[tuple[int, pd.Timestamp, pd.Timestamp]],
-        source_channel: str,
-    ) -> None:
-        """step window 投稿失敗を模擬するテストダブル。"""
+        """atomic 書き込み失敗を模擬するテストダブル。"""
+        _ = db_api, process_payload, step_windows_payload, parameters_payload
+        called["attempted"] += 1
         raise RuntimeError("forced step window failure")
 
     def fake_delete_process(db_api: str, process_id: str) -> None:
         """削除呼び出しを記録するテストダブル。"""
-        called["deleted"] = process_id
+        _ = db_api, process_id
+        called["deleted"] += 1
 
-    monkeypatch.setattr(aggregate, "post_one_process", fake_post_one_process)
-    monkeypatch.setattr(aggregate, "post_step_windows", fail_step_windows)
+    monkeypatch.setattr(aggregate, "post_aggregate_atomic", fail_atomic_post)
     monkeypatch.setattr(aggregate, "delete_process", fake_delete_process)
 
     monkeypatch.setattr(
@@ -680,5 +688,5 @@ def test_main_non_dry_run_cleans_up_on_post_error(tmp_path: Path, monkeypatch) -
 
     aggregate.main()
 
-    assert called["created"] is not None
-    assert called["deleted"] == called["created"]
+    assert called["attempted"] == 1
+    assert called["deleted"] == 0

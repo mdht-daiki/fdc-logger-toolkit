@@ -68,3 +68,20 @@ class ParameterIn(BaseModel):
     step_no: int
     feature_type: str
     feature_value: float
+
+
+class AggregateWriteIn(BaseModel):
+    """`/aggregate/write` 用の原子的書き込み入力。"""
+
+    process: ProcessInfoIn
+    step_windows: list[StepWindowIn]
+    parameters: list[ParameterIn]
+
+    @model_validator(mode="after")
+    def validate_process_id_consistency(self) -> AggregateWriteIn:
+        pid = self.process.process_id
+        if any(item.process_id != pid for item in self.step_windows):
+            raise ValueError("step_windows process_id must match process.process_id")
+        if any(item.process_id != pid for item in self.parameters):
+            raise ValueError("parameters process_id must match process.process_id")
+        return self

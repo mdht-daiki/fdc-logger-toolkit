@@ -422,6 +422,24 @@ def post_features(db_api: str, process_id: str, feats: list[dict]) -> None:
         api_post(db_api, "/parameters/bulk", payload)
 
 
+def post_aggregate_atomic(
+    db_api: str,
+    process_payload: dict,
+    step_windows_payload: list[dict],
+    parameters_payload: list[dict],
+) -> None:
+    """process/step/features を 1 API で原子的に保存する。"""
+    api_post(
+        db_api,
+        "/aggregate/write",
+        {
+            "process": process_payload,
+            "step_windows": step_windows_payload,
+            "parameters": parameters_payload,
+        },
+    )
+
+
 def delete_process(db_api: str, process_id: str) -> None:
     """指定したprocess_idのプロセスと関連データをDBから削除する。"""
     api_delete(db_api, "/processes", {"process_id": process_id})
@@ -533,21 +551,42 @@ def main():
                 )
             else:
                 # write to DB
-                created = False
                 try:
-                    post_one_process(
+                    process_payload = {
+                        "process_id": process_id,
+                        "tool_id": tool_id,
+                        "chamber_id": chamber_id,
+                        "recipe_id": recipe_id,
+                        "start_ts": _to_iso_naive_utc(start_ts),
+                        "end_ts": _to_iso_naive_utc(end_ts),
+                        "raw_csv_path": raw_csv_path,
+                    }
+                    step_windows_payload = [
+                        {
+                            "process_id": process_id,
+                            "step_no": int(no),
+                            "start_ts": _to_iso_naive_utc(s),
+                            "end_ts": _to_iso_naive_utc(e),
+                            "source_channel": source_ch,
+                        }
+                        for (no, s, e) in p["step_windows"]
+                    ]
+                    parameters_payload = [
+                        {
+                            "process_id": process_id,
+                            "parameter": f["parameter"],
+                            "step_no": int(f["step_no"]),
+                            "feature_type": f["feature_type"],
+                            "feature_value": f["feature_value"],
+                        }
+                        for f in feats
+                    ]
+                    post_aggregate_atomic(
                         args.db_api,
-                        tool_id,
-                        chamber_id,
-                        recipe_id,
-                        process_id,
-                        start_ts,
-                        end_ts,
-                        raw_csv_path,
+                        process_payload,
+                        step_windows_payload,
+                        parameters_payload,
                     )
-                    created = True
-                    post_step_windows(args.db_api, process_id, p["step_windows"], source_ch)
-                    post_features(args.db_api, process_id, feats)
                     print(
                         f"OK: tool={tool_id} chamber={chamber_id} mode={mode} "
                         f"process_id={process_id} recipe={recipe_id} "
@@ -559,12 +598,6 @@ def main():
                         f"tool={tool_id} chamber={chamber_id} "
                         f"error={e}"
                     )
-                    # attempt cleanup if process was partially created
-                    if created:
-                        try:
-                            delete_process(args.db_api, process_id)
-                        except Exception as e2:
-                            print(f"ERROR during cleanup of process_id={process_id} error={e2}")
 
 
 if __name__ == "__main__":

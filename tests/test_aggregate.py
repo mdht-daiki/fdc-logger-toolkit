@@ -381,7 +381,7 @@ def test_recipe_classifier_returns_unknown_when_channels_missing() -> None:
 
 
 def test_recipe_classifier_presplit_validates_fourth_bundle() -> None:
-    """presplit 4本目が範囲外なら一致しないことを確認する。"""
+    """presplit 4本目の負例/正例が正しく判定されることを確認する。"""
     classifier = RecipeClassifier(aggregate.load_yaml(DUMMY_RULES_PATH))
 
     bundles = [
@@ -410,6 +410,33 @@ def test_recipe_classifier_presplit_validates_fourth_bundle() -> None:
     recipe = classifier.classify(bundles)
 
     assert recipe == "UNKNOWN"
+
+    valid_bundles = [
+        StepBundle(
+            step_no=1,
+            dc_bias=_make_step_peak("dc_bias", 1.8),
+            cl2_flow=_make_step_peak("cl2_flow", 12.0),
+        ),
+        StepBundle(
+            step_no=2,
+            dc_bias=_make_step_peak("dc_bias", 2.6),
+            cl2_flow=_make_step_peak("cl2_flow", 19.0),
+        ),
+        StepBundle(
+            step_no=3,
+            dc_bias=_make_step_peak("dc_bias", 2.1),
+            cl2_flow=_make_step_peak("cl2_flow", 15.0),
+        ),
+        StepBundle(
+            step_no=4,
+            dc_bias=_make_step_peak("dc_bias", 2.0),
+            cl2_flow=_make_step_peak("cl2_flow", 14.0),
+        ),
+    ]
+
+    valid_recipe = classifier.classify(valid_bundles)
+
+    assert valid_recipe == "RECIPE_D_3STEP"
 
 
 def test_build_processes_edge_detects_one_window() -> None:

@@ -74,7 +74,11 @@ class RecipeClassifier:
 
         main_ratio = split.get("main_ratio")
         over_ratio = split.get("over_ratio")
-        if main_ratio is None or over_ratio is None:
+        if not isinstance(main_ratio, int | float) or not isinstance(over_ratio, int | float):
+            return steps
+        if main_ratio <= 0 or over_ratio <= 0:
+            return steps
+        if abs((main_ratio + over_ratio) - 1.0) > 1e-9:
             return steps
 
         # original_step は 1-based index なので、steps 配列では -1 して参照する。

@@ -21,6 +21,8 @@ class Range:
 
 
 class RecipeClassifier:
+    """ステップ束とレシピ定義の一致判定を行う分類器。"""
+
     def __init__(self, rules: dict[str, Any]):
         """YAML から読み込んだルール辞書で分類器を初期化する。"""
         self.rules = rules.get("recipes", {})
@@ -75,6 +77,9 @@ class RecipeClassifier:
         if main_ratio is None or over_ratio is None:
             return steps
 
+        # original_step は 1-based index なので、steps 配列では -1 して参照する。
+        # 返り値では対象 step (steps[idx]) を2回並べ、分割後の 2 bundle が同一条件を満たす前提で
+        # ステップ列を 3 件 -> 4 件に拡張して bundles 側の比較長と一致させる。
         idx = split_step - 1
         return [*steps[:idx], steps[idx], steps[idx], *steps[idx + 1 :]]
 

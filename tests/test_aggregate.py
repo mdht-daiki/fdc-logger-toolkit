@@ -20,6 +20,21 @@ DUMMY_RULES_PATH = (
 )
 
 
+def _make_step_peak(channel: str, value: float) -> StepPeak:
+    """分類テスト用に固定時刻の `StepPeak` を生成する。"""
+    ts = pd.Timestamp("2026-02-19T00:00:00").to_pydatetime()
+    return StepPeak(
+        channel=channel,
+        start_ts=ts,
+        end_ts=ts,
+        duration_sec=0.0,
+        mean=value,
+        max=value,
+        min=value,
+        std=0.0,
+    )
+
+
 def _base_df() -> pd.DataFrame:
     ts = pd.date_range("2026-02-19T00:00:00", periods=8, freq="s")
     return pd.DataFrame(
@@ -327,24 +342,23 @@ def test_classify_recipe_from_peaks_returns_unknown_without_timestamp(monkeypatc
 def test_recipe_classifier_returns_unknown_when_channels_missing() -> None:
     classifier = RecipeClassifier(aggregate.load_yaml(DUMMY_RULES_PATH))
 
-    def _peak(channel: str, value: float) -> StepPeak:
-        ts = pd.Timestamp("2026-02-19T00:00:00").to_pydatetime()
-        return StepPeak(
-            channel=channel,
-            start_ts=ts,
-            end_ts=ts,
-            duration_sec=0.0,
-            mean=value,
-            max=value,
-            min=value,
-            std=0.0,
-        )
-
     bundles = [
-        StepBundle(step_no=1, dc_bias=_peak("dc_bias", 2.0), cl2_flow=_peak("cl2_flow", 12.0)),
-        StepBundle(step_no=2, dc_bias=None, cl2_flow=_peak("cl2_flow", 20.0)),
-        StepBundle(step_no=3, dc_bias=_peak("dc_bias", 2.4), cl2_flow=_peak("cl2_flow", 17.0)),
-        StepBundle(step_no=4, dc_bias=_peak("dc_bias", 1.7), cl2_flow=_peak("cl2_flow", 13.0)),
+        StepBundle(
+            step_no=1,
+            dc_bias=_make_step_peak("dc_bias", 2.0),
+            cl2_flow=_make_step_peak("cl2_flow", 12.0),
+        ),
+        StepBundle(step_no=2, dc_bias=None, cl2_flow=_make_step_peak("cl2_flow", 20.0)),
+        StepBundle(
+            step_no=3,
+            dc_bias=_make_step_peak("dc_bias", 2.4),
+            cl2_flow=_make_step_peak("cl2_flow", 17.0),
+        ),
+        StepBundle(
+            step_no=4,
+            dc_bias=_make_step_peak("dc_bias", 1.7),
+            cl2_flow=_make_step_peak("cl2_flow", 13.0),
+        ),
     ]
 
     recipe = classifier.classify(bundles)
@@ -353,26 +367,30 @@ def test_recipe_classifier_returns_unknown_when_channels_missing() -> None:
 
 
 def test_recipe_classifier_presplit_validates_fourth_bundle() -> None:
+    """presplit 4本目が範囲外なら一致しないことを確認する。"""
     classifier = RecipeClassifier(aggregate.load_yaml(DUMMY_RULES_PATH))
 
-    def _peak(channel: str, value: float) -> StepPeak:
-        ts = pd.Timestamp("2026-02-19T00:00:00").to_pydatetime()
-        return StepPeak(
-            channel=channel,
-            start_ts=ts,
-            end_ts=ts,
-            duration_sec=0.0,
-            mean=value,
-            max=value,
-            min=value,
-            std=0.0,
-        )
-
     bundles = [
-        StepBundle(step_no=1, dc_bias=_peak("dc_bias", 1.8), cl2_flow=_peak("cl2_flow", 12.0)),
-        StepBundle(step_no=2, dc_bias=_peak("dc_bias", 2.6), cl2_flow=_peak("cl2_flow", 19.0)),
-        StepBundle(step_no=3, dc_bias=_peak("dc_bias", 2.1), cl2_flow=_peak("cl2_flow", 15.0)),
-        StepBundle(step_no=4, dc_bias=_peak("dc_bias", 9.9), cl2_flow=_peak("cl2_flow", 15.0)),
+        StepBundle(
+            step_no=1,
+            dc_bias=_make_step_peak("dc_bias", 1.8),
+            cl2_flow=_make_step_peak("cl2_flow", 12.0),
+        ),
+        StepBundle(
+            step_no=2,
+            dc_bias=_make_step_peak("dc_bias", 2.6),
+            cl2_flow=_make_step_peak("cl2_flow", 19.0),
+        ),
+        StepBundle(
+            step_no=3,
+            dc_bias=_make_step_peak("dc_bias", 2.1),
+            cl2_flow=_make_step_peak("cl2_flow", 15.0),
+        ),
+        StepBundle(
+            step_no=4,
+            dc_bias=_make_step_peak("dc_bias", 9.9),
+            cl2_flow=_make_step_peak("cl2_flow", 15.0),
+        ),
     ]
 
     recipe = classifier.classify(bundles)

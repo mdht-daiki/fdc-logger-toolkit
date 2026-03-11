@@ -596,6 +596,15 @@ def main():
                         f"steps={len(p['step_windows'])} features={len(feats)}"
                     )
                 except Exception as e:
+                    raw_path = Path(raw_csv_path)
+                    if raw_path.exists():
+                        try:
+                            raw_path.unlink()
+                        except OSError as cleanup_error:
+                            print(
+                                f"WARN cleanup failed process_id={process_id} "
+                                f"path={raw_csv_path} error={cleanup_error}"
+                            )
                     print(
                         f"ERROR posting process_id={process_id} "
                         f"tool={tool_id} chamber={chamber_id} "

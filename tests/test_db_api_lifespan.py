@@ -8,6 +8,8 @@ from portfolio_fdc.db_api import app as db_app
 
 
 class _RecordingRunner:
+    """停止呼び出しの有無を記録するテスト用ランナー。"""
+
     instances: list[_RecordingRunner] = []
 
     def __init__(self, main_db: Path, temp_db: Path) -> None:
@@ -21,6 +23,8 @@ class _RecordingRunner:
 
 
 class _ErrorRunner:
+    """stop() が常に失敗するテスト用ランナー。"""
+
     def __init__(self, main_db: Path, temp_db: Path) -> None:
         self.main_db = main_db
         self.temp_db = temp_db
@@ -30,6 +34,8 @@ class _ErrorRunner:
 
 
 class _SwapOnStopRunner:
+    """stop() 中に app.state.runner を差し替えるテスト用ランナー。"""
+
     def __init__(self, main_db: Path, temp_db: Path) -> None:
         self.main_db = main_db
         self.temp_db = temp_db
@@ -38,12 +44,17 @@ class _SwapOnStopRunner:
         db_app.app.state.runner = object()
 
 
-async def _run_lifespan_once() -> int:
+async def _run_lifespan_once(*, create_runner: bool = False) -> int | None:
+    """lifespan を 1 回実行し、必要なら遅延初期化で runner を生成する。"""
     async with db_app.lifespan(db_app.app):
-        return id(db_app.app.state.runner)
+        if not create_runner:
+            return None
+        runner = db_app._get_or_create_runner(db_app.app)
+        return id(runner)
 
 
-def test_lifespan_creates_fresh_runner_per_entry(monkeypatch) -> None:
+def test_lifespan_lazy_init_does_not_create_runner_without_request(monkeypatch) -> None:
+    """リクエストがなければ lifespan 開始時に runner を作らないことを確認する。"""
     _RecordingRunner.instances.clear()
     monkeypatch.setattr(db_app, "DBTaskRunner", _RecordingRunner)
 
@@ -53,16 +64,17 @@ def test_lifespan_creates_fresh_runner_per_entry(monkeypatch) -> None:
     second_runner_id = asyncio.run(_run_lifespan_once())
     assert not hasattr(db_app.app.state, "runner")
 
-    assert len(_RecordingRunner.instances) == 2
-    assert first_runner_id != second_runner_id
-    assert all(instance.stopped for instance in _RecordingRunner.instances)
+    assert first_runner_id is None
+    assert second_runner_id is None
+    assert len(_RecordingRunner.instances) == 0
 
 
 def test_lifespan_handles_stop_runtime_error(monkeypatch, caplog) -> None:
+    """shutdown 時の stop 失敗がログに残り、例外送出しないことを確認する。"""
     monkeypatch.setattr(db_app, "DBTaskRunner", _ErrorRunner)
 
     with caplog.at_level(logging.ERROR):
-        asyncio.run(_run_lifespan_once())
+        asyncio.run(_run_lifespan_once(create_runner=True))
 
     assert "Failed to stop DBTaskRunner during shutdown" in caplog.text
     assert hasattr(db_app.app.state, "runner")
@@ -70,6 +82,7 @@ def test_lifespan_handles_stop_runtime_error(monkeypatch, caplog) -> None:
 
 
 def test_lifespan_reuses_existing_runner(monkeypatch) -> None:
+    """既存 runner がある場合は shutdown で同一インスタンスを停止する。"""
     _RecordingRunner.instances.clear()
     monkeypatch.setattr(db_app, "DBTaskRunner", _RecordingRunner)
 
@@ -80,15 +93,17 @@ def test_lifespan_reuses_existing_runner(monkeypatch) -> None:
 
     runner_id = asyncio.run(_run_lifespan_once())
 
-    assert runner_id == id(existing_runner)
+    assert runner_id is None
     assert len(_RecordingRunner.instances) == 1
     assert existing_runner.stopped is True
     assert not hasattr(db_app.app.state, "runner")
 
 
 def test_lifespan_does_not_delete_replaced_runner_after_stop(monkeypatch) -> None:
+    """stop 中に差し替えられた runner を shutdown で誤削除しないことを確認する。"""
     monkeypatch.setattr(db_app, "DBTaskRunner", _SwapOnStopRunner)
 
+    db_app.app.state.runner = _SwapOnStopRunner(Path("main.db"), Path("temp.db"))
     asyncio.run(_run_lifespan_once())
 
     assert hasattr(db_app.app.state, "runner")

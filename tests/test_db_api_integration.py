@@ -17,11 +17,13 @@ pytestmark = pytest.mark.integration
 
 @pytest.fixture
 def client() -> Iterator[TestClient]:
+    """Lifespan を含めて DB API アプリへアクセスする TestClient を提供する。"""
     with TestClient(db_app.app) as test_client:
         yield test_client
 
 
 def _count_rows(process_id: str) -> tuple[int, int, int]:
+    """指定 process_id の ProcessInfo/StepWindows/Parameters 件数を返す。"""
     con = sqlite3.connect(MAIN_DB.as_posix())
     try:
         p = con.execute(
@@ -42,6 +44,7 @@ def _count_rows(process_id: str) -> tuple[int, int, int]:
 
 
 def test_db_api_minimum_flow_for_aggregate_contract(client: TestClient) -> None:
+    """process/step/parameter の最小フローが保存・削除まで成立することを確認する。"""
     process_id = f"it_{uuid4().hex}"
 
     process_payload = {
@@ -102,6 +105,7 @@ def test_db_api_minimum_flow_for_aggregate_contract(client: TestClient) -> None:
 
 
 def test_db_api_bulk_empty_and_delete_missing(client: TestClient) -> None:
+    """空 bulk と存在しない process_id の削除が成功応答になることを確認する。"""
     missing_process_id = f"missing_{uuid4().hex}"
 
     step_res = client.post("/step_windows/bulk", json=[])
@@ -119,7 +123,6 @@ def test_db_api_bulk_empty_and_delete_missing(client: TestClient) -> None:
 
 def test_db_api_delete_process_new_and_legacy_endpoint_consistency(client: TestClient) -> None:
     """新旧 DELETE エンドポイントが同等の削除結果を返すことを確認する。"""
-    client = TestClient(db_app.app)
     process_id_a = f"del_a_{uuid4().hex}"
     process_id_b = f"del_b_{uuid4().hex}"
 
@@ -175,6 +178,7 @@ def test_db_api_delete_process_new_and_legacy_endpoint_consistency(client: TestC
 
 
 def test_db_api_process_upsert_on_same_process_id(client: TestClient) -> None:
+    """同一 process_id の再登録で upsert されることを確認する。"""
     process_id = f"upsert_{uuid4().hex}"
 
     first = {
@@ -340,6 +344,7 @@ def test_db_api_legacy_delete_preserves_migration_headers_on_error(
     """`/processes` の例外応答でも移行ヘッダが維持されることを確認する。"""
 
     def fail_delete(*args, **kwargs):
+        """テスト用: legacy delete を強制失敗させる。"""
         _ = args, kwargs
         raise RuntimeError("forced delete failure")
 

@@ -60,7 +60,6 @@ def _get_or_create_runner(app: FastAPI) -> DBTaskRunner:
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """FastAPI の起動/終了時に DBTaskRunner のライフサイクルを管理する。"""
-    _get_or_create_runner(app)
     try:
         yield
     finally:

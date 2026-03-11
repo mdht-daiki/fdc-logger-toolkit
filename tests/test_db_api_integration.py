@@ -4,6 +4,7 @@ import sqlite3
 from collections.abc import Iterator
 from datetime import datetime, timedelta
 from email.utils import parsedate_to_datetime
+from urllib.parse import quote
 from uuid import uuid4
 
 import pytest
@@ -154,7 +155,7 @@ def test_db_api_delete_process_new_and_legacy_endpoint_consistency(client: TestC
     assert parsed_sunset.tzinfo is not None
     assert parsed_sunset.utcoffset() == timedelta(0)
     assert deleted_legacy.headers.get("Link") == (
-        f'</processes/{process_id_b}>; rel="successor-version"'
+        f'</processes/{quote(process_id_b, safe="")}>; rel="successor-version"'
     )
 
     deleted_missing_new = client.request("DELETE", f"/processes/{process_id_a}")
@@ -173,8 +174,24 @@ def test_db_api_delete_process_new_and_legacy_endpoint_consistency(client: TestC
     assert parsed_missing_sunset.utcoffset() == timedelta(0)
     assert deleted_missing_legacy.headers.get("Deprecation") == "true"
     assert deleted_missing_legacy.headers.get("Link") == (
-        f'</processes/{process_id_b}>; rel="successor-version"'
+        f'</processes/{quote(process_id_b, safe="")}>; rel="successor-version"'
     )
+
+
+def test_db_api_legacy_delete_validation_error_still_has_migration_headers(
+    client: TestClient,
+) -> None:
+    """`DELETE /processes` の 422 応答にも移行ヘッダが付与されることを確認する。"""
+    res = client.request("DELETE", "/processes", json={})
+
+    assert res.status_code == 422
+    assert res.headers.get("Deprecation") == "true"
+    sunset = res.headers.get("Sunset")
+    assert sunset is not None
+    parsed_sunset = parsedate_to_datetime(sunset)
+    assert parsed_sunset.tzinfo is not None
+    assert parsed_sunset.utcoffset() == timedelta(0)
+    assert res.headers.get("Link") == '</processes>; rel="successor-version"'
 
 
 def test_db_api_process_upsert_on_same_process_id(client: TestClient) -> None:
@@ -361,4 +378,6 @@ def test_db_api_legacy_delete_preserves_migration_headers_on_error(
     parsed_sunset = parsedate_to_datetime(sunset)
     assert parsed_sunset.tzinfo is not None
     assert parsed_sunset.utcoffset() == timedelta(0)
-    assert res.headers.get("Link") == f'</processes/{process_id}>; rel="successor-version"'
+    assert res.headers.get("Link") == (
+        f'</processes/{quote(process_id, safe="")}>; rel="successor-version"'
+    )

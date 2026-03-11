@@ -13,8 +13,9 @@ from datetime import UTC, datetime
 from email.utils import format_datetime
 from threading import Lock
 from typing import cast
+from urllib.parse import quote
 
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import FastAPI, HTTPException, Request
 
 from .aggregate_repository import (
     delete_process,
@@ -37,6 +38,19 @@ logger = logging.getLogger(__name__)
 _runner_lock = Lock()
 LEGACY_DELETE_PROCESSES_SUNSET_AT = datetime(2026, 6, 30, 23, 59, 59, tzinfo=UTC)
 LEGACY_DELETE_PROCESSES_SUNSET = format_datetime(LEGACY_DELETE_PROCESSES_SUNSET_AT, usegmt=True)
+
+
+def _legacy_delete_headers(process_id: str | None) -> dict[str, str]:
+    """旧 DELETE `/processes` の移行ヘッダを生成する。"""
+    if process_id is None:
+        link_target = "/processes"
+    else:
+        link_target = f"/processes/{quote(process_id, safe='')}"
+    return {
+        "Deprecation": "true",
+        "Sunset": LEGACY_DELETE_PROCESSES_SUNSET,
+        "Link": f'<{link_target}>; rel="successor-version"',
+    }
 
 
 def _get_or_create_runner(app: FastAPI) -> DBTaskRunner:
@@ -82,6 +96,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 app = FastAPI(title="db_api", version="0.1.0", lifespan=lifespan)
 
 
+@app.middleware("http")
+async def add_legacy_delete_migration_headers(request: Request, call_next):
+    """`DELETE /processes` の全レスポンスに移行ヘッダを付与する。"""
+    response = await call_next(request)
+    if request.method == "DELETE" and request.url.path == "/processes":
+        process_id = getattr(request.state, "legacy_delete_process_id", None)
+        response.headers.update(_legacy_delete_headers(process_id))
+    return response
+
+
 def _runner_from_request(request: Request) -> DBTaskRunner:
     """リクエストコンテキストから DBTaskRunner を取得する。"""
     return _get_or_create_runner(request.app)
@@ -108,14 +132,10 @@ def remove_process_by_path(request: Request, process_id: str):
 
 
 @app.delete("/processes")
-def remove_process_legacy(request: Request, req: ProcessDeleteIn, response: Response):
+def remove_process_legacy(request: Request, req: ProcessDeleteIn):
     """互換用の旧削除 API。廃止予定日まで `/processes/{process_id}` と併存する。"""
-    headers = {
-        "Deprecation": "true",
-        "Sunset": LEGACY_DELETE_PROCESSES_SUNSET,
-        "Link": f'</processes/{req.process_id}>; rel="successor-version"',
-    }
-    response.headers.update(headers)
+    request.state.legacy_delete_process_id = req.process_id
+    headers = _legacy_delete_headers(req.process_id)
     try:
         deleted = _runner_from_request(request).submit(
             "write", lambda: delete_process(req.process_id)

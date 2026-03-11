@@ -166,6 +166,7 @@ python -m portfolio_fdc.db_api.app
 現時点の実装スコープ（PR を小さく保つため）:
 
 - `aggregate` 連携エンドポイントのみ実装
+  - `POST /aggregate/write`（推奨）
   - `POST /processes`
   - `DELETE /processes/{process_id}`（推奨）
   - `DELETE /processes`（互換用、2026-06-30 まで併存予定）

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
+from email.utils import parsedate_to_datetime
 from uuid import uuid4
 
 import pytest
@@ -139,6 +140,14 @@ def test_db_api_delete_process_new_and_legacy_endpoint_consistency() -> None:
     assert deleted_legacy.status_code == 200
     assert deleted_legacy.json() == {"ok": True, "deleted": 1}
     assert deleted_legacy.headers.get("Deprecation") == "true"
+    sunset = deleted_legacy.headers.get("Sunset")
+    assert sunset is not None
+    parsed_sunset = parsedate_to_datetime(sunset)
+    assert parsed_sunset.tzinfo is not None
+    assert parsed_sunset.utcoffset() == timedelta(0)
+    assert deleted_legacy.headers.get("Link") == (
+        f'</processes/{process_id_b}>; rel="successor-version"'
+    )
 
     deleted_missing_new = client.request("DELETE", f"/processes/{process_id_a}")
     assert deleted_missing_new.status_code == 200
@@ -149,6 +158,15 @@ def test_db_api_delete_process_new_and_legacy_endpoint_consistency() -> None:
     )
     assert deleted_missing_legacy.status_code == 200
     assert deleted_missing_legacy.json() == {"ok": True, "deleted": 0}
+    missing_sunset = deleted_missing_legacy.headers.get("Sunset")
+    assert missing_sunset is not None
+    parsed_missing_sunset = parsedate_to_datetime(missing_sunset)
+    assert parsed_missing_sunset.tzinfo is not None
+    assert parsed_missing_sunset.utcoffset() == timedelta(0)
+    assert deleted_missing_legacy.headers.get("Deprecation") == "true"
+    assert deleted_missing_legacy.headers.get("Link") == (
+        f'</processes/{process_id_b}>; rel="successor-version"'
+    )
 
 
 def test_db_api_process_upsert_on_same_process_id() -> None:

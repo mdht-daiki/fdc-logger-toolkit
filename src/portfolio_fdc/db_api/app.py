@@ -9,6 +9,8 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
+from email.utils import format_datetime
 from threading import Lock
 from typing import cast
 
@@ -33,7 +35,8 @@ from .task_runner import DBTaskRunner
 
 logger = logging.getLogger(__name__)
 _runner_lock = Lock()
-LEGACY_DELETE_PROCESSES_SUNSET = "2026-06-30"
+LEGACY_DELETE_PROCESSES_SUNSET_AT = datetime(2026, 6, 30, 23, 59, 59, tzinfo=UTC)
+LEGACY_DELETE_PROCESSES_SUNSET = format_datetime(LEGACY_DELETE_PROCESSES_SUNSET_AT, usegmt=True)
 
 
 def _get_or_create_runner(app: FastAPI) -> DBTaskRunner:
@@ -110,7 +113,7 @@ def remove_process_legacy(request: Request, req: ProcessDeleteIn, response: Resp
     """互換用の旧削除 API。廃止予定日まで `/processes/{process_id}` と併存する。"""
     response.headers["Deprecation"] = "true"
     response.headers["Sunset"] = LEGACY_DELETE_PROCESSES_SUNSET
-    response.headers["Link"] = '</processes/{process_id}>; rel="successor-version"'
+    response.headers["Link"] = f'</processes/{req.process_id}>; rel="successor-version"'
     try:
         deleted = _runner_from_request(request).submit(
             "write", lambda: delete_process(req.process_id)

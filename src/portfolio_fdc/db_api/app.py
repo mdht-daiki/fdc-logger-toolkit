@@ -111,16 +111,19 @@ def remove_process_by_path(request: Request, process_id: str):
 @app.delete("/processes")
 def remove_process_legacy(request: Request, req: ProcessDeleteIn, response: Response):
     """互換用の旧削除 API。廃止予定日まで `/processes/{process_id}` と併存する。"""
-    response.headers["Deprecation"] = "true"
-    response.headers["Sunset"] = LEGACY_DELETE_PROCESSES_SUNSET
-    response.headers["Link"] = f'</processes/{req.process_id}>; rel="successor-version"'
+    headers = {
+        "Deprecation": "true",
+        "Sunset": LEGACY_DELETE_PROCESSES_SUNSET,
+        "Link": f'</processes/{req.process_id}>; rel="successor-version"',
+    }
+    response.headers.update(headers)
     try:
         deleted = _runner_from_request(request).submit(
             "write", lambda: delete_process(req.process_id)
         )
         return {"ok": True, "deleted": deleted}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail=str(e), headers=headers) from e
 
 
 @app.post("/step_windows/bulk")

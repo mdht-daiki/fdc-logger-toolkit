@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Iterator
 from datetime import datetime, timedelta
 from email.utils import parsedate_to_datetime
 from uuid import uuid4
@@ -12,6 +13,12 @@ from portfolio_fdc.db_api import app as db_app
 from portfolio_fdc.db_api.db import MAIN_DB
 
 pytestmark = pytest.mark.integration
+
+
+@pytest.fixture
+def client() -> Iterator[TestClient]:
+    with TestClient(db_app.app) as test_client:
+        yield test_client
 
 
 def _count_rows(process_id: str) -> tuple[int, int, int]:
@@ -34,8 +41,7 @@ def _count_rows(process_id: str) -> tuple[int, int, int]:
         con.close()
 
 
-def test_db_api_minimum_flow_for_aggregate_contract() -> None:
-    client = TestClient(db_app.app)
+def test_db_api_minimum_flow_for_aggregate_contract(client: TestClient) -> None:
     process_id = f"it_{uuid4().hex}"
 
     process_payload = {
@@ -95,8 +101,7 @@ def test_db_api_minimum_flow_for_aggregate_contract() -> None:
     assert feature_count == 0
 
 
-def test_db_api_bulk_empty_and_delete_missing() -> None:
-    client = TestClient(db_app.app)
+def test_db_api_bulk_empty_and_delete_missing(client: TestClient) -> None:
     missing_process_id = f"missing_{uuid4().hex}"
 
     step_res = client.post("/step_windows/bulk", json=[])
@@ -112,7 +117,7 @@ def test_db_api_bulk_empty_and_delete_missing() -> None:
     assert deleted.json() == {"ok": True, "deleted": 0}
 
 
-def test_db_api_delete_process_new_and_legacy_endpoint_consistency() -> None:
+def test_db_api_delete_process_new_and_legacy_endpoint_consistency(client: TestClient) -> None:
     """新旧 DELETE エンドポイントが同等の削除結果を返すことを確認する。"""
     client = TestClient(db_app.app)
     process_id_a = f"del_a_{uuid4().hex}"
@@ -169,8 +174,7 @@ def test_db_api_delete_process_new_and_legacy_endpoint_consistency() -> None:
     )
 
 
-def test_db_api_process_upsert_on_same_process_id() -> None:
-    client = TestClient(db_app.app)
+def test_db_api_process_upsert_on_same_process_id(client: TestClient) -> None:
     process_id = f"upsert_{uuid4().hex}"
 
     first = {
@@ -225,7 +229,7 @@ def test_db_api_process_upsert_on_same_process_id() -> None:
         )
 
 
-def test_db_api_aggregate_write_accepts_empty_lists() -> None:
+def test_db_api_aggregate_write_accepts_empty_lists(client: TestClient) -> None:
     """`/aggregate/write` が空の step_windows/parameters を受理できることを確認する。"""
     client = TestClient(db_app.app)
     process_id = f"agg_empty_{uuid4().hex}"
@@ -260,7 +264,7 @@ def test_db_api_aggregate_write_accepts_empty_lists() -> None:
         )
 
 
-def test_db_api_aggregate_write_rejects_mismatched_process_id() -> None:
+def test_db_api_aggregate_write_rejects_mismatched_process_id(client: TestClient) -> None:
     """`/aggregate/write` が process_id 不一致を 422 で拒否することを確認する。"""
     client = TestClient(db_app.app)
     process_id = f"agg_bad_{uuid4().hex}"
@@ -297,10 +301,10 @@ def test_db_api_aggregate_write_rejects_mismatched_process_id() -> None:
 
 
 def test_db_api_aggregate_write_returns_500_on_runner_error(
+    client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """`/aggregate/write` 実行時例外が HTTP 500 と detail に変換されることを確認する。"""
-    client = TestClient(db_app.app)
     process_id = f"agg_err_{uuid4().hex}"
 
     def fail_atomic(*args, **kwargs):
@@ -327,3 +331,29 @@ def test_db_api_aggregate_write_returns_500_on_runner_error(
 
     assert res.status_code == 500
     assert "forced aggregate write failure" in res.json()["detail"]
+
+
+def test_db_api_legacy_delete_preserves_migration_headers_on_error(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`/processes` の例外応答でも移行ヘッダが維持されることを確認する。"""
+
+    def fail_delete(*args, **kwargs):
+        _ = args, kwargs
+        raise RuntimeError("forced delete failure")
+
+    monkeypatch.setattr(db_app, "delete_process", fail_delete)
+
+    process_id = f"legacy_err_{uuid4().hex}"
+    res = client.request("DELETE", "/processes", json={"process_id": process_id})
+
+    assert res.status_code == 500
+    assert "forced delete failure" in res.json()["detail"]
+    assert res.headers.get("Deprecation") == "true"
+    sunset = res.headers.get("Sunset")
+    assert sunset is not None
+    parsed_sunset = parsedate_to_datetime(sunset)
+    assert parsed_sunset.tzinfo is not None
+    assert parsed_sunset.utcoffset() == timedelta(0)
+    assert res.headers.get("Link") == f'</processes/{process_id}>; rel="successor-version"'

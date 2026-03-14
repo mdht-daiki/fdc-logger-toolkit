@@ -189,8 +189,15 @@ def test_db_api_delete_process_new_and_legacy_endpoint_consistency(client: TestC
             db_app.LEGACY_DELETE_PROCESSES_SUNSET,
         )
     finally:
-        client.request("DELETE", f"/processes/{quote(process_id_a, safe='')}")
-        client.request("DELETE", "/processes", json={"process_id": process_id_b})
+        cleanup_new = client.request("DELETE", f"/processes/{quote(process_id_a, safe='')}")
+        assert cleanup_new.status_code == 200, (
+            f"cleanup_new failed: status={cleanup_new.status_code}, body={cleanup_new.text}"
+        )
+        cleanup_legacy = client.request("DELETE", "/processes", json={"process_id": process_id_b})
+        assert cleanup_legacy.status_code == 200, (
+            f"cleanup_legacy failed: status={cleanup_legacy.status_code}, "
+            f"body={cleanup_legacy.text}"
+        )
 
 
 def test_db_api_legacy_delete_validation_error_still_has_migration_headers(
@@ -409,4 +416,7 @@ def test_db_api_delete_by_path_accepts_process_id_with_slash(client: TestClient)
         assert deleted.json() == {"ok": True, "deleted": 1}
     finally:
         # Ensure cleanup even when assertions fail midway.
-        client.request("DELETE", f"/processes/{quote(process_id, safe='')}")
+        cleanup = client.request("DELETE", f"/processes/{quote(process_id, safe='')}")
+        assert cleanup.status_code == 200, (
+            f"cleanup failed: status={cleanup.status_code}, body={cleanup.text}"
+        )

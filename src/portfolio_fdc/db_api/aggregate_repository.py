@@ -34,6 +34,7 @@ _INSERT_PARAMETERS_SQL = """
 
 
 def _process_row(p: ProcessInfoIn) -> tuple[str, str, str, str, str, str, str]:
+    """`ProcessInfoIn` を ProcessInfo upsert 用のタプル順へ変換する。"""
     return (
         p.process_id,
         p.tool_id,
@@ -46,24 +47,29 @@ def _process_row(p: ProcessInfoIn) -> tuple[str, str, str, str, str, str, str]:
 
 
 def _step_window_rows(items: list[StepWindowIn]) -> list[tuple[str, int, str, str, str]]:
+    """`StepWindowIn` 一覧を StepWindows insert 用のタプル一覧へ変換する。"""
     return [(w.process_id, w.step_no, w.start_ts, w.end_ts, w.source_channel) for w in items]
 
 
 def _parameter_rows(params: list[ParameterIn]) -> list[tuple[str, str, int, str, float]]:
+    """`ParameterIn` 一覧を Parameters insert 用のタプル一覧へ変換する。"""
     return [(p.process_id, p.parameter, p.step_no, p.feature_type, p.feature_value) for p in params]
 
 
 def _write_process_with_conn(con: sqlite3.Connection, p: ProcessInfoIn) -> None:
+    """既存コネクションで ProcessInfo を upsert する。"""
     con.execute(_UPSERT_PROCESS_SQL, _process_row(p))
 
 
 def _insert_step_windows_with_conn(con: sqlite3.Connection, items: list[StepWindowIn]) -> None:
+    """既存コネクションで StepWindows を一括挿入する。"""
     if not items:
         return
     con.executemany(_INSERT_STEP_WINDOWS_SQL, _step_window_rows(items))
 
 
 def _insert_parameters_with_conn(con: sqlite3.Connection, params: list[ParameterIn]) -> None:
+    """既存コネクションで Parameters を一括挿入する。"""
     if not params:
         return
     con.executemany(_INSERT_PARAMETERS_SQL, _parameter_rows(params))

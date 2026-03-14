@@ -12,10 +12,10 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from email.utils import format_datetime
 from threading import Lock
-from typing import cast
+from typing import Annotated, cast
 from urllib.parse import quote
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 
 from .aggregate_repository import (
     delete_process,
@@ -111,69 +111,75 @@ def _runner_from_request(request: Request) -> DBTaskRunner:
     return _get_or_create_runner(request.app)
 
 
+def get_runner(request: Request) -> DBTaskRunner:
+    """FastAPI Depends 経由で遅延初期化された DBTaskRunner を提供する。"""
+    return _runner_from_request(request)
+
+
+RunnerDep = Annotated[DBTaskRunner, Depends(get_runner)]
+
+
 @app.post("/processes")
-def create_process(request: Request, p: ProcessInfoIn):
+def create_process(p: ProcessInfoIn, runner: RunnerDep):
     """1 件の ProcessInfo をキュー経由で保存する。"""
     try:
-        _runner_from_request(request).submit("write", lambda: write_process(p))
+        runner.submit("write", lambda: write_process(p))
         return {"ok": True}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.delete("/processes/{process_id:path}")
-def remove_process_by_path(request: Request, process_id: str):
+def remove_process_by_path(process_id: str, runner: RunnerDep):
     """指定 process_id の ProcessInfo を削除する（推奨エンドポイント）。"""
     try:
-        deleted = _runner_from_request(request).submit("write", lambda: delete_process(process_id))
+        deleted = runner.submit("write", lambda: delete_process(process_id))
         return {"ok": True, "deleted": deleted}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.delete("/processes")
-def remove_process_legacy(request: Request, req: ProcessDeleteIn):
+def remove_process_legacy(
+    request: Request,
+    req: ProcessDeleteIn,
+    runner: RunnerDep,
+):
     """互換用の旧削除 API。廃止予定日まで `/processes/{process_id}` と併存する。"""
     request.state.legacy_delete_process_id = req.process_id
     headers = _legacy_delete_headers(req.process_id)
     try:
-        deleted = _runner_from_request(request).submit(
-            "write", lambda: delete_process(req.process_id)
-        )
+        deleted = runner.submit("write", lambda: delete_process(req.process_id))
         return {"ok": True, "deleted": deleted}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e), headers=headers) from e
 
 
 @app.post("/step_windows/bulk")
-def create_step_windows_bulk(request: Request, items: list[StepWindowIn]):
+def create_step_windows_bulk(items: list[StepWindowIn], runner: RunnerDep):
     """StepWindow レコードをまとめて保存する。"""
     try:
-        inserted = _runner_from_request(request).submit(
-            "write", lambda: write_step_windows_bulk(items)
-        )
+        inserted = runner.submit("write", lambda: write_step_windows_bulk(items))
         return {"ok": True, "inserted": inserted}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.post("/parameters/bulk")
-def create_parameters_bulk(request: Request, params: list[ParameterIn]):
+def create_parameters_bulk(params: list[ParameterIn], runner: RunnerDep):
     """Parameter レコードをまとめて保存する。"""
     try:
-        n = _runner_from_request(request).submit("write", lambda: write_parameters_bulk(params))
+        n = runner.submit("write", lambda: write_parameters_bulk(params))
         return {"ok": True, "inserted": n}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.post("/aggregate/write")
-def create_aggregate_write(request: Request, payload: AggregateWriteIn):
+def create_aggregate_write(payload: AggregateWriteIn, runner: RunnerDep):
     """Process/StepWindow/Parameter を 1 API・1 トランザクションで保存する。"""
     try:
-        result = _runner_from_request(request).submit(
-            "write", lambda: write_aggregate_atomic(payload)
-        )
+        result = runner.submit("write", lambda: write_aggregate_atomic(payload))
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e

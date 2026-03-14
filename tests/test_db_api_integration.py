@@ -161,7 +161,7 @@ def test_db_api_delete_process_new_and_legacy_endpoint_consistency(client: TestC
             assert created.status_code == 200
             assert created.json()["ok"] is True
 
-        deleted_new = client.request("DELETE", f"/processes/{process_id_a}")
+        deleted_new = client.request("DELETE", f"/processes/{quote(process_id_a, safe='')}")
         assert deleted_new.status_code == 200
         assert deleted_new.json() == {"ok": True, "deleted": 1}
 
@@ -174,7 +174,7 @@ def test_db_api_delete_process_new_and_legacy_endpoint_consistency(client: TestC
             db_app.LEGACY_DELETE_PROCESSES_SUNSET,
         )
 
-        deleted_missing_new = client.request("DELETE", f"/processes/{process_id_a}")
+        deleted_missing_new = client.request("DELETE", f"/processes/{quote(process_id_a, safe='')}")
         assert deleted_missing_new.status_code == 200
         assert deleted_missing_new.json() == {"ok": True, "deleted": 0}
 

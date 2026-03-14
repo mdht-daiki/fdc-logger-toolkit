@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from datetime import datetime, timedelta
 from email.utils import parsedate_to_datetime
 from urllib.parse import quote
@@ -42,6 +42,26 @@ def _count_rows(process_id: str) -> tuple[int, int, int]:
         return int(p), int(s), int(f)
     finally:
         con.close()
+
+
+def assert_legacy_migration_headers(
+    response_headers: Mapping[str, str],
+    process_id: str | None,
+    expected_sunset: str,
+) -> None:
+    """legacy DELETE 応答の移行ヘッダ契約を検証する。"""
+    assert response_headers.get("Deprecation") == "true"
+    sunset_str = response_headers.get("Sunset")
+    assert sunset_str == expected_sunset
+    parsed = parsedate_to_datetime(expected_sunset)
+    assert parsed.tzinfo is not None
+    assert parsed.utcoffset() == timedelta(0)
+
+    if process_id is None:
+        expected_link = '</processes>; rel="successor-version"'
+    else:
+        expected_link = f'</processes/{quote(process_id, safe="")}>; rel="successor-version"'
+    assert response_headers.get("Link") == expected_link
 
 
 def test_db_api_minimum_flow_for_aggregate_contract(client: TestClient) -> None:
@@ -148,14 +168,10 @@ def test_db_api_delete_process_new_and_legacy_endpoint_consistency(client: TestC
     deleted_legacy = client.request("DELETE", "/processes", json={"process_id": process_id_b})
     assert deleted_legacy.status_code == 200
     assert deleted_legacy.json() == {"ok": True, "deleted": 1}
-    assert deleted_legacy.headers.get("Deprecation") == "true"
-    sunset_str = deleted_legacy.headers.get("Sunset")
-    assert sunset_str == db_app.LEGACY_DELETE_PROCESSES_SUNSET
-    parsed_sunset = parsedate_to_datetime(sunset_str)
-    assert parsed_sunset.tzinfo is not None
-    assert parsed_sunset.utcoffset() == timedelta(0)
-    assert deleted_legacy.headers.get("Link") == (
-        f'</processes/{quote(process_id_b, safe="")}>; rel="successor-version"'
+    assert_legacy_migration_headers(
+        deleted_legacy.headers,
+        process_id_b,
+        db_app.LEGACY_DELETE_PROCESSES_SUNSET,
     )
 
     deleted_missing_new = client.request("DELETE", f"/processes/{process_id_a}")
@@ -167,14 +183,10 @@ def test_db_api_delete_process_new_and_legacy_endpoint_consistency(client: TestC
     )
     assert deleted_missing_legacy.status_code == 200
     assert deleted_missing_legacy.json() == {"ok": True, "deleted": 0}
-    missing_sunset_str = deleted_missing_legacy.headers.get("Sunset")
-    assert missing_sunset_str == db_app.LEGACY_DELETE_PROCESSES_SUNSET
-    parsed_missing_sunset = parsedate_to_datetime(missing_sunset_str)
-    assert parsed_missing_sunset.tzinfo is not None
-    assert parsed_missing_sunset.utcoffset() == timedelta(0)
-    assert deleted_missing_legacy.headers.get("Deprecation") == "true"
-    assert deleted_missing_legacy.headers.get("Link") == (
-        f'</processes/{quote(process_id_b, safe="")}>; rel="successor-version"'
+    assert_legacy_migration_headers(
+        deleted_missing_legacy.headers,
+        process_id_b,
+        db_app.LEGACY_DELETE_PROCESSES_SUNSET,
     )
 
 
@@ -185,13 +197,7 @@ def test_db_api_legacy_delete_validation_error_still_has_migration_headers(
     res = client.request("DELETE", "/processes", json={})
 
     assert res.status_code == 422
-    assert res.headers.get("Deprecation") == "true"
-    sunset_str = res.headers.get("Sunset")
-    assert sunset_str == db_app.LEGACY_DELETE_PROCESSES_SUNSET
-    parsed_sunset = parsedate_to_datetime(sunset_str)
-    assert parsed_sunset.tzinfo is not None
-    assert parsed_sunset.utcoffset() == timedelta(0)
-    assert res.headers.get("Link") == '</processes>; rel="successor-version"'
+    assert_legacy_migration_headers(res.headers, None, db_app.LEGACY_DELETE_PROCESSES_SUNSET)
 
 
 def test_db_api_process_upsert_on_same_process_id(client: TestClient) -> None:
@@ -370,14 +376,10 @@ def test_db_api_legacy_delete_preserves_migration_headers_on_error(
 
     assert res.status_code == 500
     assert "forced delete failure" in res.json()["detail"]
-    assert res.headers.get("Deprecation") == "true"
-    sunset_str = res.headers.get("Sunset")
-    assert sunset_str == db_app.LEGACY_DELETE_PROCESSES_SUNSET
-    parsed_sunset = parsedate_to_datetime(sunset_str)
-    assert parsed_sunset.tzinfo is not None
-    assert parsed_sunset.utcoffset() == timedelta(0)
-    assert res.headers.get("Link") == (
-        f'</processes/{quote(process_id, safe="")}>; rel="successor-version"'
+    assert_legacy_migration_headers(
+        res.headers,
+        process_id,
+        db_app.LEGACY_DELETE_PROCESSES_SUNSET,
     )
 
 

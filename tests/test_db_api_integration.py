@@ -53,7 +53,7 @@ def assert_legacy_migration_headers(
     assert response_headers.get("Deprecation") == "true"
     sunset_str = response_headers.get("Sunset")
     assert sunset_str == expected_sunset
-    parsed = parsedate_to_datetime(expected_sunset)
+    parsed = parsedate_to_datetime(sunset_str)
     assert parsed.tzinfo is not None
     assert parsed.utcoffset() == timedelta(0)
 
@@ -396,10 +396,14 @@ def test_db_api_delete_by_path_accepts_process_id_with_slash(client: TestClient)
         "raw_csv_path": f"data/detail/detail_TOOL_A_CH1_{uuid4().hex}.csv",
     }
 
-    created = client.post("/processes", json=payload)
-    assert created.status_code == 200
-    assert created.json() == {"ok": True}
+    try:
+        created = client.post("/processes", json=payload)
+        assert created.status_code == 200
+        assert created.json() == {"ok": True}
 
-    deleted = client.request("DELETE", f"/processes/{quote(process_id, safe='')}")
-    assert deleted.status_code == 200
-    assert deleted.json() == {"ok": True, "deleted": 1}
+        deleted = client.request("DELETE", f"/processes/{quote(process_id, safe='')}")
+        assert deleted.status_code == 200
+        assert deleted.json() == {"ok": True, "deleted": 1}
+    finally:
+        # Ensure cleanup even when assertions fail midway.
+        client.request("DELETE", f"/processes/{quote(process_id, safe='')}")

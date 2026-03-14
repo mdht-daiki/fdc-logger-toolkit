@@ -146,48 +146,51 @@ def test_db_api_delete_process_new_and_legacy_endpoint_consistency(client: TestC
     """新旧 DELETE エンドポイントが同等の削除結果を返すことを確認する。"""
     process_id_a = f"del_a_{uuid4().hex}"
     process_id_b = f"del_b_{uuid4().hex}"
+    try:
+        for process_id in (process_id_a, process_id_b):
+            payload = {
+                "process_id": process_id,
+                "tool_id": "TOOL_A",
+                "chamber_id": "CH1",
+                "recipe_id": "UNKNOWN",
+                "start_ts": datetime.now().isoformat(),
+                "end_ts": datetime.now().isoformat(),
+                "raw_csv_path": f"data/detail/detail_TOOL_A_CH1_{process_id}.csv",
+            }
+            created = client.post("/processes", json=payload)
+            assert created.status_code == 200
+            assert created.json()["ok"] is True
 
-    for process_id in (process_id_a, process_id_b):
-        payload = {
-            "process_id": process_id,
-            "tool_id": "TOOL_A",
-            "chamber_id": "CH1",
-            "recipe_id": "UNKNOWN",
-            "start_ts": datetime.now().isoformat(),
-            "end_ts": datetime.now().isoformat(),
-            "raw_csv_path": f"data/detail/detail_TOOL_A_CH1_{process_id}.csv",
-        }
-        created = client.post("/processes", json=payload)
-        assert created.status_code == 200
-        assert created.json()["ok"] is True
+        deleted_new = client.request("DELETE", f"/processes/{process_id_a}")
+        assert deleted_new.status_code == 200
+        assert deleted_new.json() == {"ok": True, "deleted": 1}
 
-    deleted_new = client.request("DELETE", f"/processes/{process_id_a}")
-    assert deleted_new.status_code == 200
-    assert deleted_new.json() == {"ok": True, "deleted": 1}
+        deleted_legacy = client.request("DELETE", "/processes", json={"process_id": process_id_b})
+        assert deleted_legacy.status_code == 200
+        assert deleted_legacy.json() == {"ok": True, "deleted": 1}
+        assert_legacy_migration_headers(
+            deleted_legacy.headers,
+            process_id_b,
+            db_app.LEGACY_DELETE_PROCESSES_SUNSET,
+        )
 
-    deleted_legacy = client.request("DELETE", "/processes", json={"process_id": process_id_b})
-    assert deleted_legacy.status_code == 200
-    assert deleted_legacy.json() == {"ok": True, "deleted": 1}
-    assert_legacy_migration_headers(
-        deleted_legacy.headers,
-        process_id_b,
-        db_app.LEGACY_DELETE_PROCESSES_SUNSET,
-    )
+        deleted_missing_new = client.request("DELETE", f"/processes/{process_id_a}")
+        assert deleted_missing_new.status_code == 200
+        assert deleted_missing_new.json() == {"ok": True, "deleted": 0}
 
-    deleted_missing_new = client.request("DELETE", f"/processes/{process_id_a}")
-    assert deleted_missing_new.status_code == 200
-    assert deleted_missing_new.json() == {"ok": True, "deleted": 0}
-
-    deleted_missing_legacy = client.request(
-        "DELETE", "/processes", json={"process_id": process_id_b}
-    )
-    assert deleted_missing_legacy.status_code == 200
-    assert deleted_missing_legacy.json() == {"ok": True, "deleted": 0}
-    assert_legacy_migration_headers(
-        deleted_missing_legacy.headers,
-        process_id_b,
-        db_app.LEGACY_DELETE_PROCESSES_SUNSET,
-    )
+        deleted_missing_legacy = client.request(
+            "DELETE", "/processes", json={"process_id": process_id_b}
+        )
+        assert deleted_missing_legacy.status_code == 200
+        assert deleted_missing_legacy.json() == {"ok": True, "deleted": 0}
+        assert_legacy_migration_headers(
+            deleted_missing_legacy.headers,
+            process_id_b,
+            db_app.LEGACY_DELETE_PROCESSES_SUNSET,
+        )
+    finally:
+        client.request("DELETE", f"/processes/{quote(process_id_a, safe='')}")
+        client.request("DELETE", "/processes", json={"process_id": process_id_b})
 
 
 def test_db_api_legacy_delete_validation_error_still_has_migration_headers(

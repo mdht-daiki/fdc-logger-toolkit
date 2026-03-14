@@ -252,7 +252,6 @@ def test_db_api_process_upsert_on_same_process_id(client: TestClient) -> None:
 
 def test_db_api_aggregate_write_accepts_empty_lists(client: TestClient) -> None:
     """`/aggregate/write` が空の step_windows/parameters を受理できることを確認する。"""
-    client = TestClient(db_app.app)
     process_id = f"agg_empty_{uuid4().hex}"
 
     payload = {
@@ -287,7 +286,6 @@ def test_db_api_aggregate_write_accepts_empty_lists(client: TestClient) -> None:
 
 def test_db_api_aggregate_write_rejects_mismatched_process_id(client: TestClient) -> None:
     """`/aggregate/write` が process_id 不一致を 422 で拒否することを確認する。"""
-    client = TestClient(db_app.app)
     process_id = f"agg_bad_{uuid4().hex}"
 
     payload = {
@@ -381,3 +379,25 @@ def test_db_api_legacy_delete_preserves_migration_headers_on_error(
     assert res.headers.get("Link") == (
         f'</processes/{quote(process_id, safe="")}>; rel="successor-version"'
     )
+
+
+def test_db_api_delete_by_path_accepts_process_id_with_slash(client: TestClient) -> None:
+    """`/processes/{process_id:path}` が `/` を含む process_id を削除できることを確認する。"""
+    process_id = f"tool/A/{uuid4().hex}"
+    payload = {
+        "process_id": process_id,
+        "tool_id": "TOOL_A",
+        "chamber_id": "CH1",
+        "recipe_id": "UNKNOWN",
+        "start_ts": datetime.now().isoformat(),
+        "end_ts": datetime.now().isoformat(),
+        "raw_csv_path": f"data/detail/detail_TOOL_A_CH1_{uuid4().hex}.csv",
+    }
+
+    created = client.post("/processes", json=payload)
+    assert created.status_code == 200
+    assert created.json() == {"ok": True}
+
+    deleted = client.request("DELETE", f"/processes/{quote(process_id, safe='')}")
+    assert deleted.status_code == 200
+    assert deleted.json() == {"ok": True, "deleted": 1}

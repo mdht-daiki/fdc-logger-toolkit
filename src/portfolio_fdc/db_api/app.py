@@ -121,7 +121,7 @@ def create_process(request: Request, p: ProcessInfoIn):
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@app.delete("/processes/{process_id}")
+@app.delete("/processes/{process_id:path}")
 def remove_process_by_path(request: Request, process_id: str):
     """指定 process_id の ProcessInfo を削除する（推奨エンドポイント）。"""
     try:

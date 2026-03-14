@@ -72,13 +72,15 @@ def test_lifespan_lazy_init_does_not_create_runner_without_request(monkeypatch) 
 def test_lifespan_handles_stop_runtime_error(monkeypatch, caplog) -> None:
     """shutdown 時の stop 失敗がログに残り、例外送出しないことを確認する。"""
     monkeypatch.setattr(db_app, "DBTaskRunner", _ErrorRunner)
+    try:
+        with caplog.at_level(logging.ERROR):
+            asyncio.run(_run_lifespan_once(create_runner=True))
 
-    with caplog.at_level(logging.ERROR):
-        asyncio.run(_run_lifespan_once(create_runner=True))
-
-    assert "Failed to stop DBTaskRunner during shutdown" in caplog.text
-    assert hasattr(db_app.app.state, "runner")
-    del db_app.app.state.runner
+        assert "Failed to stop DBTaskRunner during shutdown" in caplog.text
+        assert hasattr(db_app.app.state, "runner")
+    finally:
+        if hasattr(db_app.app.state, "runner"):
+            del db_app.app.state.runner
 
 
 def test_lifespan_reuses_existing_runner(monkeypatch) -> None:
@@ -102,9 +104,11 @@ def test_lifespan_reuses_existing_runner(monkeypatch) -> None:
 def test_lifespan_does_not_delete_replaced_runner_after_stop(monkeypatch) -> None:
     """stop 中に差し替えられた runner を shutdown で誤削除しないことを確認する。"""
     monkeypatch.setattr(db_app, "DBTaskRunner", _SwapOnStopRunner)
+    try:
+        db_app.app.state.runner = _SwapOnStopRunner(Path("main.db"), Path("temp.db"))
+        asyncio.run(_run_lifespan_once())
 
-    db_app.app.state.runner = _SwapOnStopRunner(Path("main.db"), Path("temp.db"))
-    asyncio.run(_run_lifespan_once())
-
-    assert hasattr(db_app.app.state, "runner")
-    del db_app.app.state.runner
+        assert hasattr(db_app.app.state, "runner")
+    finally:
+        if hasattr(db_app.app.state, "runner"):
+            del db_app.app.state.runner

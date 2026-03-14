@@ -75,6 +75,12 @@ def _insert_parameters_with_conn(con: sqlite3.Connection, params: list[Parameter
     con.executemany(_INSERT_PARAMETERS_SQL, _parameter_rows(params))
 
 
+def _purge_related_tables_for_process(con: sqlite3.Connection, process_id: str) -> None:
+    """既存コネクションで process_id 配下の関連テーブルを削除する。"""
+    con.execute("DELETE FROM StepWindows WHERE process_id = ?", (process_id,))
+    con.execute("DELETE FROM Parameters WHERE process_id = ?", (process_id,))
+
+
 def write_process(p: ProcessInfoIn) -> None:
     """`ProcessInfo` を upsert で 1 件保存する。"""
     con = _connect(MAIN_DB)
@@ -116,8 +122,7 @@ def delete_process(process_id: str) -> int:
     con = _connect(MAIN_DB)
     try:
         con.execute("BEGIN")
-        con.execute("DELETE FROM StepWindows WHERE process_id = ?", (process_id,))
-        con.execute("DELETE FROM Parameters WHERE process_id = ?", (process_id,))
+        _purge_related_tables_for_process(con, process_id)
         deleted = con.execute(
             "DELETE FROM ProcessInfo WHERE process_id = ?", (process_id,)
         ).rowcount
@@ -138,8 +143,7 @@ def write_aggregate_atomic(payload: AggregateWriteIn) -> dict[str, int | bool]:
         con.execute("BEGIN")
         _write_process_with_conn(con, payload.process)
 
-        con.execute("DELETE FROM StepWindows WHERE process_id = ?", (process_id,))
-        con.execute("DELETE FROM Parameters WHERE process_id = ?", (process_id,))
+        _purge_related_tables_for_process(con, process_id)
 
         _insert_step_windows_with_conn(con, payload.step_windows)
         _insert_parameters_with_conn(con, payload.parameters)

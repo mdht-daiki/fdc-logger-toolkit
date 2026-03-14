@@ -149,9 +149,9 @@ def test_db_api_delete_process_new_and_legacy_endpoint_consistency(client: TestC
     assert deleted_legacy.status_code == 200
     assert deleted_legacy.json() == {"ok": True, "deleted": 1}
     assert deleted_legacy.headers.get("Deprecation") == "true"
-    sunset = deleted_legacy.headers.get("Sunset")
-    assert sunset is not None
-    parsed_sunset = parsedate_to_datetime(sunset)
+    sunset_str = deleted_legacy.headers.get("Sunset")
+    assert sunset_str == db_app.LEGACY_DELETE_PROCESSES_SUNSET
+    parsed_sunset = parsedate_to_datetime(sunset_str)
     assert parsed_sunset.tzinfo is not None
     assert parsed_sunset.utcoffset() == timedelta(0)
     assert deleted_legacy.headers.get("Link") == (
@@ -167,9 +167,9 @@ def test_db_api_delete_process_new_and_legacy_endpoint_consistency(client: TestC
     )
     assert deleted_missing_legacy.status_code == 200
     assert deleted_missing_legacy.json() == {"ok": True, "deleted": 0}
-    missing_sunset = deleted_missing_legacy.headers.get("Sunset")
-    assert missing_sunset is not None
-    parsed_missing_sunset = parsedate_to_datetime(missing_sunset)
+    missing_sunset_str = deleted_missing_legacy.headers.get("Sunset")
+    assert missing_sunset_str == db_app.LEGACY_DELETE_PROCESSES_SUNSET
+    parsed_missing_sunset = parsedate_to_datetime(missing_sunset_str)
     assert parsed_missing_sunset.tzinfo is not None
     assert parsed_missing_sunset.utcoffset() == timedelta(0)
     assert deleted_missing_legacy.headers.get("Deprecation") == "true"
@@ -186,9 +186,9 @@ def test_db_api_legacy_delete_validation_error_still_has_migration_headers(
 
     assert res.status_code == 422
     assert res.headers.get("Deprecation") == "true"
-    sunset = res.headers.get("Sunset")
-    assert sunset is not None
-    parsed_sunset = parsedate_to_datetime(sunset)
+    sunset_str = res.headers.get("Sunset")
+    assert sunset_str == db_app.LEGACY_DELETE_PROCESSES_SUNSET
+    parsed_sunset = parsedate_to_datetime(sunset_str)
     assert parsed_sunset.tzinfo is not None
     assert parsed_sunset.utcoffset() == timedelta(0)
     assert res.headers.get("Link") == '</processes>; rel="successor-version"'
@@ -371,9 +371,9 @@ def test_db_api_legacy_delete_preserves_migration_headers_on_error(
     assert res.status_code == 500
     assert "forced delete failure" in res.json()["detail"]
     assert res.headers.get("Deprecation") == "true"
-    sunset = res.headers.get("Sunset")
-    assert sunset is not None
-    parsed_sunset = parsedate_to_datetime(sunset)
+    sunset_str = res.headers.get("Sunset")
+    assert sunset_str == db_app.LEGACY_DELETE_PROCESSES_SUNSET
+    parsed_sunset = parsedate_to_datetime(sunset_str)
     assert parsed_sunset.tzinfo is not None
     assert parsed_sunset.utcoffset() == timedelta(0)
     assert res.headers.get("Link") == (

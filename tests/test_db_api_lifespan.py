@@ -93,9 +93,9 @@ def test_lifespan_reuses_existing_runner(monkeypatch) -> None:
     )
     db_app.app.state.runner = existing_runner
 
-    runner_id = asyncio.run(_run_lifespan_once())
+    runner_id = asyncio.run(_run_lifespan_once(create_runner=True))
 
-    assert runner_id is None
+    assert runner_id == id(existing_runner)
     assert len(_RecordingRunner.instances) == 1
     assert existing_runner.stopped is True
     assert not hasattr(db_app.app.state, "runner")

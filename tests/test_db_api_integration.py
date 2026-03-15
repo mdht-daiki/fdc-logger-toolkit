@@ -44,6 +44,19 @@ def _count_rows(process_id: str) -> tuple[int, int, int]:
         con.close()
 
 
+def build_process_payload(process_id: str) -> dict[str, str]:
+    """ProcessInfo 作成 API 用の標準 payload を返す。"""
+    return {
+        "process_id": process_id,
+        "tool_id": "TOOL_A",
+        "chamber_id": "CH1",
+        "recipe_id": "UNKNOWN",
+        "start_ts": datetime.now().isoformat(),
+        "end_ts": datetime.now().isoformat(),
+        "raw_csv_path": f"data/detail/detail_TOOL_A_CH1_{process_id}.csv",
+    }
+
+
 def assert_legacy_migration_headers(
     response_headers: Mapping[str, str],
     process_id: str | None,
@@ -148,15 +161,7 @@ def test_db_api_delete_process_new_and_legacy_endpoint_consistency(client: TestC
     process_id_b = f"del_b_{uuid4().hex}"
     try:
         for process_id in (process_id_a, process_id_b):
-            payload = {
-                "process_id": process_id,
-                "tool_id": "TOOL_A",
-                "chamber_id": "CH1",
-                "recipe_id": "UNKNOWN",
-                "start_ts": datetime.now().isoformat(),
-                "end_ts": datetime.now().isoformat(),
-                "raw_csv_path": f"data/detail/detail_TOOL_A_CH1_{process_id}.csv",
-            }
+            payload = build_process_payload(process_id)
             created = client.post("/processes", json=payload)
             assert created.status_code == 200
             assert created.json()["ok"] is True
@@ -396,15 +401,7 @@ def test_db_api_legacy_delete_preserves_migration_headers_on_error(
 def test_db_api_delete_by_path_accepts_process_id_with_slash(client: TestClient) -> None:
     """`/processes/{process_id:path}` が `/` を含む process_id を削除できることを確認する。"""
     process_id = f"tool/A/{uuid4().hex}"
-    payload = {
-        "process_id": process_id,
-        "tool_id": "TOOL_A",
-        "chamber_id": "CH1",
-        "recipe_id": "UNKNOWN",
-        "start_ts": datetime.now().isoformat(),
-        "end_ts": datetime.now().isoformat(),
-        "raw_csv_path": f"data/detail/detail_TOOL_A_CH1_{uuid4().hex}.csv",
-    }
+    payload = build_process_payload(process_id)
 
     try:
         created = client.post("/processes", json=payload)

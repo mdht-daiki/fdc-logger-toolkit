@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Mapping
 from datetime import datetime, timedelta
 from email.utils import parsedate_to_datetime
 from urllib.parse import quote
@@ -14,34 +14,6 @@ from portfolio_fdc.db_api import app as db_app
 from portfolio_fdc.db_api.db import MAIN_DB
 
 pytestmark = pytest.mark.integration
-
-
-@pytest.fixture
-def client() -> Iterator[TestClient]:
-    """Lifespan を含めて DB API アプリへアクセスする TestClient を提供する。"""
-    with TestClient(db_app.app) as test_client:
-        yield test_client
-
-
-def _count_rows(process_id: str) -> tuple[int, int, int]:
-    """指定 process_id の ProcessInfo/StepWindows/Parameters 件数を返す。"""
-    con = sqlite3.connect(MAIN_DB.as_posix())
-    try:
-        p = con.execute(
-            "SELECT COUNT(*) FROM processInfo WHERE process_id = ?",
-            (process_id,),
-        ).fetchone()[0]
-        s = con.execute(
-            "SELECT COUNT(*) FROM StepWindows WHERE process_id = ?",
-            (process_id,),
-        ).fetchone()[0]
-        f = con.execute(
-            "SELECT COUNT(*) FROM Parameters WHERE process_id = ?",
-            (process_id,),
-        ).fetchone()[0]
-        return int(p), int(s), int(f)
-    finally:
-        con.close()
 
 
 def build_process_payload(process_id: str) -> dict[str, str]:
@@ -77,7 +49,10 @@ def assert_legacy_migration_headers(
     assert response_headers.get("Link") == expected_link
 
 
-def test_db_api_minimum_flow_for_aggregate_contract(client: TestClient) -> None:
+def test_db_api_minimum_flow_for_aggregate_contract(
+    client: TestClient,
+    count_rows: Callable[[str], tuple[int, int, int]],
+) -> None:
     """process/step/parameter の最小フローが保存・削除まで成立することを確認する。"""
     process_id = f"it_{uuid4().hex}"
 
@@ -114,7 +89,7 @@ def test_db_api_minimum_flow_for_aggregate_contract(client: TestClient) -> None:
         assert feature_res.status_code == 200
         assert feature_res.json() == {"ok": True, "inserted": 1}
 
-        process_count, step_count, feature_count = _count_rows(process_id)
+        process_count, step_count, feature_count = count_rows(process_id)
         assert process_count == 1
         assert step_count == 1
         assert feature_count == 1
@@ -124,7 +99,7 @@ def test_db_api_minimum_flow_for_aggregate_contract(client: TestClient) -> None:
         assert deleted.status_code == 200
         assert deleted.json()["ok"] is True
 
-    process_count, step_count, feature_count = _count_rows(process_id)
+    process_count, step_count, feature_count = count_rows(process_id)
     assert process_count == 0
     assert step_count == 0
     assert feature_count == 0
@@ -263,7 +238,10 @@ def test_db_api_process_upsert_on_same_process_id(client: TestClient) -> None:
         )
 
 
-def test_db_api_aggregate_write_accepts_empty_lists(client: TestClient) -> None:
+def test_db_api_aggregate_write_accepts_empty_lists(
+    client: TestClient,
+    count_rows: Callable[[str], tuple[int, int, int]],
+) -> None:
     """`/aggregate/write` が空の step_windows/parameters を受理できることを確認する。"""
     process_id = f"agg_empty_{uuid4().hex}"
 
@@ -286,7 +264,7 @@ def test_db_api_aggregate_write_accepts_empty_lists(client: TestClient) -> None:
         assert res.status_code == 200
         assert res.json() == {"ok": True, "step_windows": 0, "parameters": 0}
 
-        process_count, step_count, feature_count = _count_rows(process_id)
+        process_count, step_count, feature_count = count_rows(process_id)
         assert process_count == 1
         assert step_count == 0
         assert feature_count == 0

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -13,7 +14,6 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
-from portfolio_fdc.db_api import app as db_app
 from portfolio_fdc.db_api.db import MAIN_DB
 from portfolio_fdc.main import aggregate
 
@@ -37,30 +37,13 @@ class _RequestsBridgeResponse:
         return self._payload
 
 
-def _count_rows(process_id: str) -> tuple[int, int, int]:
-    """指定 process_id の process/step/feature レコード件数を返す。"""
-    con = sqlite3.connect(MAIN_DB.as_posix())
-    try:
-        p = con.execute(
-            "SELECT COUNT(*) FROM processInfo WHERE process_id = ?",
-            (process_id,),
-        ).fetchone()[0]
-        s = con.execute(
-            "SELECT COUNT(*) FROM StepWindows WHERE process_id = ?",
-            (process_id,),
-        ).fetchone()[0]
-        f = con.execute(
-            "SELECT COUNT(*) FROM Parameters WHERE process_id = ?",
-            (process_id,),
-        ).fetchone()[0]
-        return int(p), int(s), int(f)
-    finally:
-        con.close()
-
-
-def test_aggregate_http_flow_to_db_api(monkeypatch) -> None:
+def test_aggregate_http_flow_to_db_api(
+    monkeypatch: pytest.MonkeyPatch,
+    db_api_client: TestClient,
+    count_rows: Callable[[str], tuple[int, int, int]],
+) -> None:
     """aggregate の通常投稿フローが DB API 経由で永続化されることを確認する。"""
-    client = TestClient(db_app.app)
+    client = db_api_client
 
     def fake_post(url: str, json, timeout: int):
         path = urlsplit(url).path
@@ -121,7 +104,7 @@ def test_aggregate_http_flow_to_db_api(monkeypatch) -> None:
             feats=features,
         )
 
-        process_count, step_count, feature_count = _count_rows(process_id)
+        process_count, step_count, feature_count = count_rows(process_id)
         assert process_count == 1
         assert step_count == 1
         assert feature_count == 2
@@ -129,15 +112,20 @@ def test_aggregate_http_flow_to_db_api(monkeypatch) -> None:
     finally:
         aggregate.delete_process("http://testserver", process_id)
 
-    process_count, step_count, feature_count = _count_rows(process_id)
+    process_count, step_count, feature_count = count_rows(process_id)
     assert process_count == 0
     assert step_count == 0
     assert feature_count == 0
 
 
-def test_aggregate_main_non_dry_run_posts_to_db_api(tmp_path: Path, monkeypatch) -> None:
+def test_aggregate_main_non_dry_run_posts_to_db_api(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    db_api_client: TestClient,
+    count_rows: Callable[[str], tuple[int, int, int]],
+) -> None:
     """aggregate.main の非 dry-run 実行が DB API 投稿と後始末まで完了することを確認する。"""
-    client = TestClient(db_app.app)
+    client = db_api_client
 
     def fake_post(url: str, json, timeout: int):
         path = urlsplit(url).path
@@ -226,7 +214,7 @@ def test_aggregate_main_non_dry_run_posts_to_db_api(tmp_path: Path, monkeypatch)
     assert Path(raw_csv_path).exists()
 
     aggregate.delete_process("http://testserver", process_id)
-    process_count, step_count, feature_count = _count_rows(process_id)
+    process_count, step_count, feature_count = count_rows(process_id)
     assert process_count == 0
     assert step_count == 0
     assert feature_count == 0

@@ -81,15 +81,7 @@ def test_db_api_minimum_flow_for_aggregate_contract(client: TestClient) -> None:
     """process/step/parameter の最小フローが保存・削除まで成立することを確認する。"""
     process_id = f"it_{uuid4().hex}"
 
-    process_payload = {
-        "process_id": process_id,
-        "tool_id": "TOOL_A",
-        "chamber_id": "CH1",
-        "recipe_id": "UNKNOWN",
-        "start_ts": datetime.now().isoformat(),
-        "end_ts": datetime.now().isoformat(),
-        "raw_csv_path": f"data/detail/detail_TOOL_A_CH1_{process_id}.csv",
-    }
+    process_payload = build_process_payload(process_id)
 
     try:
         created = client.post("/processes", json=process_payload)

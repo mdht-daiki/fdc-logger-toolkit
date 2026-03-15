@@ -22,18 +22,23 @@ pytestmark = pytest.mark.integration
 
 @dataclass
 class _RequestsBridgeResponse:
+    """requests.Response 互換の最小インターフェースを提供するテスト用レスポンス。"""
+
     status_code: int
     _payload: dict
 
     def raise_for_status(self) -> None:
+        """HTTP ステータスが 4xx/5xx の場合に例外を送出する。"""
         if self.status_code >= 400:
             raise RuntimeError(f"HTTP error status={self.status_code}")
 
     def json(self) -> dict:
+        """レスポンス payload を辞書で返す。"""
         return self._payload
 
 
 def _count_rows(process_id: str) -> tuple[int, int, int]:
+    """指定 process_id の process/step/feature レコード件数を返す。"""
     con = sqlite3.connect(MAIN_DB.as_posix())
     try:
         p = con.execute(
@@ -54,6 +59,7 @@ def _count_rows(process_id: str) -> tuple[int, int, int]:
 
 
 def test_aggregate_http_flow_to_db_api(monkeypatch) -> None:
+    """aggregate の通常投稿フローが DB API 経由で永続化されることを確認する。"""
     client = TestClient(db_app.app)
 
     def fake_post(url: str, json, timeout: int):
@@ -61,9 +67,12 @@ def test_aggregate_http_flow_to_db_api(monkeypatch) -> None:
         response = client.post(path, json=json)
         return _RequestsBridgeResponse(status_code=response.status_code, _payload=response.json())
 
-    def fake_delete(url: str, json, timeout: int):
+    def fake_delete(url: str, json=None, timeout: int = 30):
         path = urlsplit(url).path
-        response = client.request("DELETE", path, json=json)
+        if json is None:
+            response = client.request("DELETE", path)
+        else:
+            response = client.request("DELETE", path, json=json)
         return _RequestsBridgeResponse(status_code=response.status_code, _payload=response.json())
 
     monkeypatch.setattr(aggregate.requests, "post", fake_post)
@@ -127,6 +136,7 @@ def test_aggregate_http_flow_to_db_api(monkeypatch) -> None:
 
 
 def test_aggregate_main_non_dry_run_posts_to_db_api(tmp_path: Path, monkeypatch) -> None:
+    """aggregate.main の非 dry-run 実行が DB API 投稿と後始末まで完了することを確認する。"""
     client = TestClient(db_app.app)
 
     def fake_post(url: str, json, timeout: int):
@@ -134,9 +144,12 @@ def test_aggregate_main_non_dry_run_posts_to_db_api(tmp_path: Path, monkeypatch)
         response = client.post(path, json=json)
         return _RequestsBridgeResponse(status_code=response.status_code, _payload=response.json())
 
-    def fake_delete(url: str, json, timeout: int):
+    def fake_delete(url: str, json=None, timeout: int = 30):
         path = urlsplit(url).path
-        response = client.request("DELETE", path, json=json)
+        if json is None:
+            response = client.request("DELETE", path)
+        else:
+            response = client.request("DELETE", path, json=json)
         return _RequestsBridgeResponse(status_code=response.status_code, _payload=response.json())
 
     monkeypatch.setattr(aggregate.requests, "post", fake_post)

@@ -35,9 +35,12 @@ def api_post(db_api: str, path: str, payload: Any) -> dict:
     return r.json()
 
 
-def api_delete(db_api: str, path: str, payload: Any) -> dict:
+def api_delete(db_api: str, path: str, payload: Any | None = None) -> dict:
     """DB APIにDELETEリクエストを送り、JSONレスポンスを返す。"""
-    r = requests.delete(f"{db_api}{path}", json=payload, timeout=30)
+    if payload is None:
+        r = requests.delete(f"{db_api}{path}", timeout=30)
+    else:
+        r = requests.delete(f"{db_api}{path}", json=payload, timeout=30)
     r.raise_for_status()
     return r.json()
 
@@ -442,7 +445,7 @@ def post_aggregate_atomic(
 
 def delete_process(db_api: str, process_id: str) -> None:
     """指定したprocess_idのプロセスと関連データをDBから削除する。"""
-    api_delete(db_api, "/processes", {"process_id": process_id})
+    api_delete(db_api, f"/processes/{process_id}")
 
 
 def main():
@@ -593,6 +596,15 @@ def main():
                         f"steps={len(p['step_windows'])} features={len(feats)}"
                     )
                 except Exception as e:
+                    raw_path = Path(raw_csv_path)
+                    if raw_path.exists():
+                        try:
+                            raw_path.unlink()
+                        except OSError as cleanup_error:
+                            print(
+                                f"WARN cleanup failed process_id={process_id} "
+                                f"path={raw_csv_path} error={cleanup_error}"
+                            )
                     print(
                         f"ERROR posting process_id={process_id} "
                         f"tool={tool_id} chamber={chamber_id} "

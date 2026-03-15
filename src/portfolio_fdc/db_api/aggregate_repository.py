@@ -2,37 +2,90 @@
 
 from __future__ import annotations
 
+import sqlite3
+
 from .db import MAIN_DB, _connect
 from .schemas import AggregateWriteIn, ParameterIn, ProcessInfoIn, StepWindowIn
+
+_UPSERT_PROCESS_SQL = """
+    INSERT INTO ProcessInfo
+    (process_id, tool_id, chamber_id, recipe_id, start_ts, end_ts, raw_csv_path)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(process_id) DO UPDATE SET
+        tool_id=excluded.tool_id,
+        chamber_id=excluded.chamber_id,
+        recipe_id=excluded.recipe_id,
+        start_ts=excluded.start_ts,
+        end_ts=excluded.end_ts,
+        raw_csv_path=excluded.raw_csv_path;
+"""
+
+_INSERT_STEP_WINDOWS_SQL = """
+    INSERT INTO StepWindows
+    (process_id, step_no, start_ts, end_ts, source_channel)
+    VALUES (?, ?, ?, ?, ?);
+"""
+
+_INSERT_PARAMETERS_SQL = """
+    INSERT INTO Parameters
+    (process_id, parameter, step_no, feature_type, feature_value)
+    VALUES (?, ?, ?, ?, ?);
+"""
+
+
+def _process_row(p: ProcessInfoIn) -> tuple[str, str, str, str, str, str, str]:
+    """`ProcessInfoIn` を ProcessInfo upsert 用のタプル順へ変換する。"""
+    return (
+        p.process_id,
+        p.tool_id,
+        p.chamber_id,
+        p.recipe_id,
+        p.start_ts,
+        p.end_ts,
+        p.raw_csv_path,
+    )
+
+
+def _step_window_rows(items: list[StepWindowIn]) -> list[tuple[str, int, str, str, str]]:
+    """`StepWindowIn` 一覧を StepWindows insert 用のタプル一覧へ変換する。"""
+    return [(w.process_id, w.step_no, w.start_ts, w.end_ts, w.source_channel) for w in items]
+
+
+def _parameter_rows(params: list[ParameterIn]) -> list[tuple[str, str, int, str, float]]:
+    """`ParameterIn` 一覧を Parameters insert 用のタプル一覧へ変換する。"""
+    return [(p.process_id, p.parameter, p.step_no, p.feature_type, p.feature_value) for p in params]
+
+
+def _write_process_with_conn(con: sqlite3.Connection, p: ProcessInfoIn) -> None:
+    """既存コネクションで ProcessInfo を upsert する。"""
+    con.execute(_UPSERT_PROCESS_SQL, _process_row(p))
+
+
+def _insert_step_windows_with_conn(con: sqlite3.Connection, items: list[StepWindowIn]) -> None:
+    """既存コネクションで StepWindows を一括挿入する。"""
+    if not items:
+        return
+    con.executemany(_INSERT_STEP_WINDOWS_SQL, _step_window_rows(items))
+
+
+def _insert_parameters_with_conn(con: sqlite3.Connection, params: list[ParameterIn]) -> None:
+    """既存コネクションで Parameters を一括挿入する。"""
+    if not params:
+        return
+    con.executemany(_INSERT_PARAMETERS_SQL, _parameter_rows(params))
+
+
+def _purge_related_tables_for_process(con: sqlite3.Connection, process_id: str) -> None:
+    """既存コネクションで process_id 配下の関連テーブルを削除する。"""
+    con.execute("DELETE FROM StepWindows WHERE process_id = ?", (process_id,))
+    con.execute("DELETE FROM Parameters WHERE process_id = ?", (process_id,))
 
 
 def write_process(p: ProcessInfoIn) -> None:
     """`ProcessInfo` を upsert で 1 件保存する。"""
     con = _connect(MAIN_DB)
     try:
-        con.execute(
-            """
-            INSERT INTO ProcessInfo
-            (process_id, tool_id, chamber_id, recipe_id, start_ts, end_ts, raw_csv_path)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(process_id) DO UPDATE SET
-                tool_id=excluded.tool_id,
-                chamber_id=excluded.chamber_id,
-                recipe_id=excluded.recipe_id,
-                start_ts=excluded.start_ts,
-                end_ts=excluded.end_ts,
-                raw_csv_path=excluded.raw_csv_path;
-            """,
-            (
-                p.process_id,
-                p.tool_id,
-                p.chamber_id,
-                p.recipe_id,
-                p.start_ts,
-                p.end_ts,
-                p.raw_csv_path,
-            ),
-        )
+        _write_process_with_conn(con, p)
         con.commit()
     finally:
         con.close()
@@ -44,14 +97,7 @@ def write_step_windows_bulk(items: list[StepWindowIn]) -> int:
         return 0
     con = _connect(MAIN_DB)
     try:
-        con.executemany(
-            """
-            INSERT INTO StepWindows
-            (process_id, step_no, start_ts, end_ts, source_channel)
-            VALUES (?, ?, ?, ?, ?);
-            """,
-            [(w.process_id, w.step_no, w.start_ts, w.end_ts, w.source_channel) for w in items],
-        )
+        _insert_step_windows_with_conn(con, items)
         con.commit()
         return len(items)
     finally:
@@ -64,17 +110,7 @@ def write_parameters_bulk(params: list[ParameterIn]) -> int:
         return 0
     con = _connect(MAIN_DB)
     try:
-        con.executemany(
-            """
-            INSERT INTO Parameters
-            (process_id, parameter, step_no, feature_type, feature_value)
-            VALUES (?, ?, ?, ?, ?);
-            """,
-            [
-                (p.process_id, p.parameter, p.step_no, p.feature_type, p.feature_value)
-                for p in params
-            ],
-        )
+        _insert_parameters_with_conn(con, params)
         con.commit()
         return len(params)
     finally:
@@ -86,8 +122,7 @@ def delete_process(process_id: str) -> int:
     con = _connect(MAIN_DB)
     try:
         con.execute("BEGIN")
-        con.execute("DELETE FROM StepWindows WHERE process_id = ?", (process_id,))
-        con.execute("DELETE FROM Parameters WHERE process_id = ?", (process_id,))
+        _purge_related_tables_for_process(con, process_id)
         deleted = con.execute(
             "DELETE FROM ProcessInfo WHERE process_id = ?", (process_id,)
         ).rowcount
@@ -106,57 +141,12 @@ def write_aggregate_atomic(payload: AggregateWriteIn) -> dict[str, int | bool]:
     try:
         process_id = payload.process.process_id
         con.execute("BEGIN")
-        con.execute(
-            """
-            INSERT INTO ProcessInfo
-            (process_id, tool_id, chamber_id, recipe_id, start_ts, end_ts, raw_csv_path)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(process_id) DO UPDATE SET
-                tool_id=excluded.tool_id,
-                chamber_id=excluded.chamber_id,
-                recipe_id=excluded.recipe_id,
-                start_ts=excluded.start_ts,
-                end_ts=excluded.end_ts,
-                raw_csv_path=excluded.raw_csv_path;
-            """,
-            (
-                payload.process.process_id,
-                payload.process.tool_id,
-                payload.process.chamber_id,
-                payload.process.recipe_id,
-                payload.process.start_ts,
-                payload.process.end_ts,
-                payload.process.raw_csv_path,
-            ),
-        )
+        _write_process_with_conn(con, payload.process)
 
-        con.execute("DELETE FROM StepWindows WHERE process_id = ?", (process_id,))
-        con.execute("DELETE FROM Parameters WHERE process_id = ?", (process_id,))
+        _purge_related_tables_for_process(con, process_id)
 
-        if payload.step_windows:
-            con.executemany(
-                """
-                INSERT INTO StepWindows
-                (process_id, step_no, start_ts, end_ts, source_channel)
-                VALUES (?, ?, ?, ?, ?);
-                """,
-                [
-                    (w.process_id, w.step_no, w.start_ts, w.end_ts, w.source_channel)
-                    for w in payload.step_windows
-                ],
-            )
-        if payload.parameters:
-            con.executemany(
-                """
-                INSERT INTO Parameters
-                (process_id, parameter, step_no, feature_type, feature_value)
-                VALUES (?, ?, ?, ?, ?);
-                """,
-                [
-                    (p.process_id, p.parameter, p.step_no, p.feature_type, p.feature_value)
-                    for p in payload.parameters
-                ],
-            )
+        _insert_step_windows_with_conn(con, payload.step_windows)
+        _insert_parameters_with_conn(con, payload.parameters)
         con.commit()
         return {
             "ok": True,

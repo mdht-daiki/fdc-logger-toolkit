@@ -120,7 +120,7 @@ def test_db_api_minimum_flow_for_aggregate_contract(client: TestClient) -> None:
         assert feature_count == 1
 
     finally:
-        deleted = client.request("DELETE", f"/processes/{process_id}")
+        deleted = client.request("DELETE", f"/processes/{quote(process_id, safe='')}")
         assert deleted.status_code == 200
         assert deleted.json()["ok"] is True
 
@@ -142,7 +142,7 @@ def test_db_api_bulk_empty_and_delete_missing(client: TestClient) -> None:
     assert feature_res.status_code == 200
     assert feature_res.json() == {"ok": True, "inserted": 0}
 
-    deleted = client.request("DELETE", f"/processes/{missing_process_id}")
+    deleted = client.request("DELETE", f"/processes/{quote(missing_process_id, safe='')}")
     assert deleted.status_code == 200
     assert deleted.json() == {"ok": True, "deleted": 0}
 
@@ -257,7 +257,7 @@ def test_db_api_process_upsert_on_same_process_id(client: TestClient) -> None:
         assert row[0] == "RCP_NEW"
         assert row[1] == second["raw_csv_path"]
     finally:
-        resp = client.request("DELETE", f"/processes/{process_id}")
+        resp = client.request("DELETE", f"/processes/{quote(process_id, safe='')}")
         assert resp.status_code == 200, (
             f"cleanup failed: status={resp.status_code}, body={resp.text}"
         )
@@ -291,7 +291,7 @@ def test_db_api_aggregate_write_accepts_empty_lists(client: TestClient) -> None:
         assert step_count == 0
         assert feature_count == 0
     finally:
-        resp = client.request("DELETE", f"/processes/{process_id}")
+        resp = client.request("DELETE", f"/processes/{quote(process_id, safe='')}")
         assert resp.status_code == 200, (
             f"cleanup failed: status={resp.status_code}, body={resp.text}"
         )

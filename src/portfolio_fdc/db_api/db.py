@@ -2,11 +2,24 @@
 
 from __future__ import annotations
 
+import os
 import sqlite3
 from datetime import datetime
 from pathlib import Path
 
-DB_DIR = Path(__file__).resolve().parents[3] / "data/db"
+DB_DIR_ENV_VAR = "PORTFOLIO_DB_DIR"
+DEFAULT_DB_DIR = Path(__file__).resolve().parents[3] / "data" / "db"
+
+
+def _resolve_db_dir() -> Path:
+    """環境変数があれば優先し、未設定時は既定パスへフォールバックする。"""
+    raw = os.getenv(DB_DIR_ENV_VAR)
+    if not raw:
+        return DEFAULT_DB_DIR
+    return Path(raw).expanduser().resolve()
+
+
+DB_DIR = _resolve_db_dir()
 MAIN_DB = DB_DIR / "main.db"
 TEMP_DB = DB_DIR / "temp.db"
 
@@ -22,7 +35,7 @@ def _connect(db_path: Path) -> sqlite3.Connection:
 
 def _init_schema(db_path: Path) -> None:
     """DB ファイル作成と必須テーブル/インデックスの初期化を行う。"""
-    DB_DIR.mkdir(parents=True, exist_ok=True)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
     con = _connect(db_path)
     try:
         con.execute(

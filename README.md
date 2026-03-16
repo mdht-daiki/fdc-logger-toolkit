@@ -164,6 +164,7 @@ python -m portfolio_fdc.db_api.app
 ```
 
 DB 保存先を変更したい場合は、環境変数 `PORTFOLIO_DB_DIR` を指定できます。
+この環境変数はアプリ起動時に読み込まれるため、必ず `python -m portfolio_fdc.db_api.app` を実行する前に設定してください。
 
 ```bash
 export PORTFOLIO_DB_DIR=/path/to/data/db

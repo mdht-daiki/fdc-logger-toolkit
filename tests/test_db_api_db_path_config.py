@@ -17,13 +17,13 @@ def _reload_db_module() -> None:
 def _restore_db_dir_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """各テスト後に環境変数とモジュール状態を既定へ戻す。"""
     yield
-    monkeypatch.delenv("PORTFOLIO_DB_DIR", raising=False)
+    monkeypatch.delenv(db_module.DB_DIR_ENV_VAR, raising=False)
     _reload_db_module()
 
 
 def test_db_dir_uses_default_path_when_env_missing(monkeypatch: pytest.MonkeyPatch) -> None:
     """PORTFOLIO_DB_DIR 未設定時は既定の data/db を使う。"""
-    monkeypatch.delenv("PORTFOLIO_DB_DIR", raising=False)
+    monkeypatch.delenv(db_module.DB_DIR_ENV_VAR, raising=False)
 
     _reload_db_module()
 
@@ -39,7 +39,7 @@ def test_db_dir_uses_env_override_when_set(
 ) -> None:
     """PORTFOLIO_DB_DIR が設定されていればそのパスを優先する。"""
     custom_dir = tmp_path / "custom_db_dir"
-    monkeypatch.setenv("PORTFOLIO_DB_DIR", str(custom_dir))
+    monkeypatch.setenv(db_module.DB_DIR_ENV_VAR, str(custom_dir))
 
     _reload_db_module()
 

@@ -41,6 +41,8 @@ def test_recipe_rules_path_uses_env_override_when_set(
 ) -> None:
     """PORTFOLIO_RECIPE_RULES_PATH が設定されていればそのパスを優先する。"""
     custom_path = tmp_path / "custom_rules" / "recipe_rules.yaml"
+    custom_path.parent.mkdir(parents=True, exist_ok=True)
+    custom_path.write_text("{}", encoding="utf-8")
     monkeypatch.setenv(aggregate_module.RECIPE_RULES_PATH_ENV_VAR, str(custom_path))
 
     _reload_aggregate_module()
@@ -55,9 +57,23 @@ def test_recipe_rules_path_resolves_relative_env_path(
     """相対パス指定の PORTFOLIO_RECIPE_RULES_PATH は絶対パスに解決される。"""
     monkeypatch.chdir(tmp_path)
     relative_path = Path("relative/subdir/recipe_rules.yaml")
+    relative_path.parent.mkdir(parents=True, exist_ok=True)
+    relative_path.write_text("{}", encoding="utf-8")
     monkeypatch.setenv(aggregate_module.RECIPE_RULES_PATH_ENV_VAR, str(relative_path))
 
     _reload_aggregate_module()
 
     resolved_path = (tmp_path / relative_path).resolve()
     assert aggregate_module.RECIPE_RULES_PATH == resolved_path
+
+
+def test_recipe_rules_path_raises_on_missing_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """存在しないファイルパスが指定された場合は FileNotFoundError を発生させる。"""
+    missing_path = tmp_path / "missing_rules.yaml"
+    monkeypatch.setenv(aggregate_module.RECIPE_RULES_PATH_ENV_VAR, str(missing_path))
+
+    with pytest.raises(FileNotFoundError, match="Recipe rules YAML file not found"):
+        _reload_aggregate_module()

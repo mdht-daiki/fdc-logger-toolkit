@@ -18,11 +18,25 @@ DEFAULT_RECIPE_RULES_PATH = Path(__file__).resolve().parents[1] / "configs" / "r
 
 
 def _resolve_recipe_rules_path() -> Path:
-    """環境変数があれば優先し、未設定時は既定パスへフォールバックする。"""
+    """環境変数があれば優先し、未設定時は既定パスへフォールバックする。
+
+    Raises:
+        FileNotFoundError: ファイルが見つからない場合
+    """
     raw = os.getenv(RECIPE_RULES_PATH_ENV_VAR)
     if not raw:
-        return DEFAULT_RECIPE_RULES_PATH
-    return Path(raw).expanduser().resolve()
+        resolved_path = DEFAULT_RECIPE_RULES_PATH
+    else:
+        resolved_path = Path(raw).expanduser().resolve()
+
+    if not resolved_path.exists() or not resolved_path.is_file():
+        source = "environment variable PORTFOLIO_RECIPE_RULES_PATH" if raw else "default path"
+        raise FileNotFoundError(
+            f"Recipe rules YAML file not found at {resolved_path} (from {source}). "
+            f"Set PORTFOLIO_RECIPE_RULES_PATH env var or ensure the default path exists."
+        )
+
+    return resolved_path
 
 
 RECIPE_RULES_PATH = _resolve_recipe_rules_path()

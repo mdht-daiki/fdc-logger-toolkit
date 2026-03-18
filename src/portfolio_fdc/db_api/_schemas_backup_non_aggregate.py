@@ -6,7 +6,7 @@ Do not import from production code.
 
 from __future__ import annotations
 
-from pydantic import BaseModel  # noqa: E402
+from pydantic import BaseModel
 
 __all__: list[str] = []
 

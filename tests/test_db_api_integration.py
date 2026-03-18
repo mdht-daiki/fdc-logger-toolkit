@@ -124,6 +124,42 @@ def test_db_api_bulk_empty_and_delete_missing(client: TestClient) -> None:
     assert deleted.json() == {"ok": True, "deleted": 0}
 
 
+def test_db_api_parameters_bulk_accepts_zero_step_no(
+    client: TestClient,
+    count_rows: Callable[[str], tuple[int, int, int]],
+) -> None:
+    """`/parameters/bulk` が step_no=0 を受け入れることを確認する。"""
+    process_id = f"param_step_zero_{uuid4().hex}"
+    process_payload = build_process_payload(process_id)
+
+    try:
+        created = client.post("/processes", json=process_payload)
+        assert created.status_code == 200
+        assert created.json()["ok"] is True
+
+        payload = [
+            {
+                "process_id": process_id,
+                "parameter": "dc_bias",
+                "step_no": 0,
+                "feature_type": "mean",
+                "feature_value": 1.23,
+            }
+        ]
+
+        res = client.post("/parameters/bulk", json=payload)
+
+        assert res.status_code == 200
+        assert res.json() == {"ok": True, "inserted": 1}
+
+        process_count, _, feature_count = count_rows(process_id)
+        assert process_count == 1
+        assert feature_count == 1
+    finally:
+        deleted = client.request("DELETE", f"/processes/{quote(process_id, safe='')}")
+        assert deleted.status_code == 200
+
+
 def test_db_api_parameters_bulk_rejects_negative_step_no(client: TestClient) -> None:
     """`/parameters/bulk` が負の step_no を 422 で拒否することを確認する。"""
     process_id = f"param_bad_step_{uuid4().hex}"

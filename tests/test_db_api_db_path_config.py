@@ -50,3 +50,20 @@ def test_db_dir_uses_env_override_when_set(
     db_module._init_schema(db_module.MAIN_DB)
     assert custom_dir.exists()
     assert db_module.MAIN_DB.exists()
+
+
+def test_db_dir_resolves_relative_env_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """相対パス指定の PORTFOLIO_DB_DIR は絶対パスに解決される。"""
+    monkeypatch.chdir(tmp_path)
+    relative_dir = Path("relative/subdir")
+    monkeypatch.setenv(db_module.DB_DIR_ENV_VAR, str(relative_dir))
+
+    _reload_db_module()
+
+    resolved_dir = (tmp_path / relative_dir).resolve()
+    assert db_module.DB_DIR == resolved_dir
+    assert db_module.MAIN_DB == resolved_dir / "main.db"
+    assert db_module.TEMP_DB == resolved_dir / "temp.db"

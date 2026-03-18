@@ -1,0 +1,100 @@
+from __future__ import annotations
+
+import importlib
+from collections.abc import Iterator
+from pathlib import Path
+from types import ModuleType
+from typing import cast
+
+import pytest
+
+# 遅延インポート：環境変数設定後にモジュールを読み込む
+aggregate_module: ModuleType | None = None
+
+
+def _load_aggregate_module() -> ModuleType:
+    """環境変数設定後のモジュール遅延インポート"""
+    global aggregate_module
+    aggregate_module = importlib.import_module("portfolio_fdc.main.aggregate")
+    return aggregate_module
+
+
+def _reload_aggregate_module() -> None:
+    """既にロード済みのモジュールをリロード"""
+    global aggregate_module
+    if aggregate_module is not None:
+        aggregate_module = importlib.reload(aggregate_module)
+
+
+@pytest.fixture(autouse=True)
+def _restore_recipe_path_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """各テスト後に環境変数とモジュール状態を既定へ戻す。"""
+    # 初回ロード（環境変数が未設定の状態）
+    if aggregate_module is None:
+        _load_aggregate_module()
+    yield
+    monkeypatch.delenv("PORTFOLIO_RECIPE_RULES_PATH", raising=False)
+    _reload_aggregate_module()
+
+
+def test_recipe_rules_path_uses_default_when_env_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PORTFOLIO_RECIPE_RULES_PATH 未設定時は既定の configs/recipe_rules.yaml を使う。"""
+    monkeypatch.delenv("PORTFOLIO_RECIPE_RULES_PATH", raising=False)
+
+    _reload_aggregate_module()
+    assert aggregate_module is not None
+
+    expected = (
+        Path(cast(str, aggregate_module.__file__)).resolve().parents[1]
+        / "configs"
+        / "recipe_rules.yaml"
+    )
+    assert aggregate_module.RECIPE_RULES_PATH == expected
+
+
+def test_recipe_rules_path_uses_env_override_when_set(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PORTFOLIO_RECIPE_RULES_PATH が設定されていればそのパスを優先する。"""
+    custom_path = tmp_path / "custom_rules" / "recipe_rules.yaml"
+    custom_path.parent.mkdir(parents=True, exist_ok=True)
+    custom_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("PORTFOLIO_RECIPE_RULES_PATH", str(custom_path))
+
+    _reload_aggregate_module()
+    assert aggregate_module is not None
+
+    assert aggregate_module.RECIPE_RULES_PATH == custom_path.resolve()
+
+
+def test_recipe_rules_path_resolves_relative_env_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """相対パス指定の PORTFOLIO_RECIPE_RULES_PATH は絶対パスに解決される。"""
+    monkeypatch.chdir(tmp_path)
+    relative_path = Path("relative/subdir/recipe_rules.yaml")
+    relative_path.parent.mkdir(parents=True, exist_ok=True)
+    relative_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("PORTFOLIO_RECIPE_RULES_PATH", str(relative_path))
+
+    _reload_aggregate_module()
+    assert aggregate_module is not None
+
+    resolved_path = (tmp_path / relative_path).resolve()
+    assert aggregate_module.RECIPE_RULES_PATH == resolved_path
+
+
+def test_recipe_rules_path_raises_on_missing_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """存在しないファイルパスが指定された場合は FileNotFoundError を発生させる。"""
+    missing_path = tmp_path / "missing_rules.yaml"
+    monkeypatch.setenv("PORTFOLIO_RECIPE_RULES_PATH", str(missing_path))
+
+    with pytest.raises(FileNotFoundError, match="Recipe rules YAML file not found"):
+        _reload_aggregate_module()

@@ -163,6 +163,19 @@ python -m portfolio_fdc.db_api.app
 # or uvicorn portfolio_fdc.db_api.app:app --host 0.0.0.0 --port 8000
 ```
 
+DB 保存先を変更したい場合は、環境変数 `PORTFOLIO_DB_DIR` を指定できます。
+この環境変数はアプリ起動時に読み込まれるため、必ず `python -m portfolio_fdc.db_api.app` を実行する前に設定してください。
+
+```bash
+export PORTFOLIO_DB_DIR=/path/to/data/db
+python -m portfolio_fdc.db_api.app
+```
+
+```powershell
+$env:PORTFOLIO_DB_DIR = "E:/work/python/logger/data/db"
+python -m portfolio_fdc.db_api.app
+```
+
 現時点の実装スコープ（PR を小さく保つため）:
 
 - `aggregate` 連携エンドポイントのみ実装

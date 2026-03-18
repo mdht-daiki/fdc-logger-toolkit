@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import os
 from pathlib import Path
 from typing import Any
 
@@ -12,7 +13,19 @@ import yaml
 from ..core.segmentation.classifier import RecipeClassifier
 from ..core.segmentation.models import StepBundle, StepPeak
 
-RECIPE_RULES_PATH = Path(__file__).resolve().parents[1] / "configs" / "recipe_rules.yaml"
+RECIPE_RULES_PATH_ENV_VAR = "PORTFOLIO_RECIPE_RULES_PATH"
+DEFAULT_RECIPE_RULES_PATH = Path(__file__).resolve().parents[1] / "configs" / "recipe_rules.yaml"
+
+
+def _resolve_recipe_rules_path() -> Path:
+    """環境変数があれば優先し、未設定時は既定パスへフォールバックする。"""
+    raw = os.getenv(RECIPE_RULES_PATH_ENV_VAR)
+    if not raw:
+        return DEFAULT_RECIPE_RULES_PATH
+    return Path(raw).expanduser().resolve()
+
+
+RECIPE_RULES_PATH = _resolve_recipe_rules_path()
 _RECIPE_CLASSIFIER_CACHE: dict[Path, RecipeClassifier] = {}
 
 

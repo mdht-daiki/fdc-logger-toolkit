@@ -201,6 +201,17 @@ python -m portfolio_fdc.tools.generate_logger_csv --out data/raw/logger_raw.csv 
 python -m portfolio_fdc.main.run_once --tool TOOL_A --raw data/raw/logger_raw.csv --db-api http://localhost:8000
 ```
 
+レシピルールファイルのパスを変更したい場合は、環境変数 `PORTFOLIO_RECIPE_RULES_PATH` を指定できます。
+この環境変数はアプリ起動時に読み込まれるため、必ず `python -m portfolio_fdc.main.aggregate` を実行する前に設定してください。
+
+```bash
+export PORTFOLIO_RECIPE_RULES_PATH=/path/to/recipe_rules.yaml
+```
+
+```powershell
+$env:PORTFOLIO_RECIPE_RULES_PATH = "E:/work/python/logger/src/portfolio_fdc/configs/recipe_rules.yaml"
+```
+
 DB API 未起動時は `aggregate` の dry-run（ローカル処理のみ、POST なし）も可能です。
 
 ```bash

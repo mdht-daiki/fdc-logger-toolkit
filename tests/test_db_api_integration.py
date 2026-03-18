@@ -9,9 +9,11 @@ from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from portfolio_fdc.db_api import app as db_app
 from portfolio_fdc.db_api.db import MAIN_DB
+from portfolio_fdc.db_api.schemas import ParameterIn
 
 pytestmark = pytest.mark.integration
 
@@ -120,6 +122,42 @@ def test_db_api_bulk_empty_and_delete_missing(client: TestClient) -> None:
     deleted = client.request("DELETE", f"/processes/{quote(missing_process_id, safe='')}")
     assert deleted.status_code == 200
     assert deleted.json() == {"ok": True, "deleted": 0}
+
+
+def test_db_api_parameters_bulk_rejects_negative_step_no(client: TestClient) -> None:
+    """`/parameters/bulk` が負の step_no を 422 で拒否することを確認する。"""
+    process_id = f"param_bad_step_{uuid4().hex}"
+    payload = [
+        {
+            "process_id": process_id,
+            "parameter": "dc_bias",
+            "step_no": -1,
+            "feature_type": "mean",
+            "feature_value": 1.23,
+        }
+    ]
+
+    res = client.post("/parameters/bulk", json=payload)
+
+    assert res.status_code == 422
+    details = res.json()["detail"]
+    assert any("step_no" in item.get("loc", []) for item in details)
+
+
+def test_parameter_in_rejects_non_finite_feature_value() -> None:
+    """`ParameterIn` が inf/NaN の feature_value を拒否することを確認する。"""
+    base_payload = {
+        "process_id": f"param_bad_feature_{uuid4().hex}",
+        "parameter": "dc_bias",
+        "step_no": 1,
+        "feature_type": "mean",
+    }
+
+    with pytest.raises(ValidationError):
+        ParameterIn(**base_payload, feature_value=float("inf"))
+
+    with pytest.raises(ValidationError):
+        ParameterIn(**base_payload, feature_value=float("nan"))
 
 
 def test_db_api_delete_process_new_and_legacy_endpoint_consistency(client: TestClient) -> None:

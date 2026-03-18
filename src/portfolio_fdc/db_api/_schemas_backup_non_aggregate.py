@@ -1,6 +1,14 @@
+"""Internal backup-only schema definitions.
+
+This module is not part of the runtime DB API contract.
+Do not import from production code.
+"""
+
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel  # noqa: E402
+
+__all__: list[str] = []
 
 # このファイルはPRノイズを避けるための退避用です。
 # aggregate で使わない schema 群を schemas.py から切り出して保存しています。

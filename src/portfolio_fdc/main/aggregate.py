@@ -467,8 +467,9 @@ def build_processes_steppeak(
         split_step_no = int(sp.get("split_step_no", 3)) - 1  # 1-indexed → 0-indexed
         if not (0 <= split_step_no < len(remaining)):
             logger.warning(
-                "split_step_no=%d is out of range for %d remaining peaks; skipping 3-step split.",
-                split_step_no,
+                "Configured split_step_no=%d (1-indexed) is out of range "
+                "for %d remaining peaks; skipping 3-step split.",
+                split_step_no + 1,
                 len(remaining),
             )
             return out

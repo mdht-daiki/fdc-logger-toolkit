@@ -482,7 +482,7 @@ def build_processes_steppeak(
             logger.warning(
                 "Invalid split parameters (split_step_no=%d, split_ratio=%r); "
                 "skipping 3-step split: %s",
-                split_step_no,
+                split_step_no + 1,
                 sp.get("split_ratio"),
                 exc,
             )
@@ -492,7 +492,7 @@ def build_processes_steppeak(
                 "split_one_peak_into_two returned %d piece(s) instead of 2 "
                 "(split_step_no=%d, split_ratio=%r); skipping 3-step split.",
                 len(split_pieces),
-                split_step_no,
+                split_step_no + 1,
                 split_ratio,
             )
             return out

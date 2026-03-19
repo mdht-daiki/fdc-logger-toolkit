@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from datetime import datetime
+from math import isfinite
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 def _parse_iso8601(ts: str) -> datetime:
@@ -65,9 +66,16 @@ class ParameterIn(BaseModel):
 
     process_id: str
     parameter: str
-    step_no: int
+    step_no: int = Field(ge=0)
     feature_type: str
     feature_value: float
+
+    @field_validator("feature_value")
+    @classmethod
+    def validate_feature_value_is_finite(cls, value: float) -> float:
+        if not isfinite(value):
+            raise ValueError("feature_value must be finite")
+        return value
 
 
 class AggregateWriteIn(BaseModel):

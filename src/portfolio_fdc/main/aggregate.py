@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 RECIPE_RULES_PATH_ENV_VAR = "PORTFOLIO_RECIPE_RULES_PATH"
 DEFAULT_RECIPE_RULES_PATH = Path(__file__).resolve().parents[1] / "configs" / "recipe_rules.yaml"
+MIN_CLASSIFICATION_WINDOW_SEC = 1.0
 
 
 def _resolve_recipe_rules_path() -> Path:
@@ -284,7 +285,11 @@ def classify_recipe_from_peaks(
     dc_key: str = "dc_bias",
     cl2_key: str = "cl2_flow",
 ) -> str:
-    """検出したピーク列をStepBundle化し、RecipeClassifierでレシピIDを判定する。"""
+    """検出したピーク列をStepBundle化し、RecipeClassifierでレシピIDを判定する。
+
+    部分欠損チャネル（dc_bias/cl2_flow のいずれか欠落）や極端に短いウィンドウは
+    不安定データとして扱い、警告ログを出して `UNKNOWN` を返す。
+    """
     if not steppeak_queue:
         return "UNKNOWN"
     if "timestamp" not in df.columns:
@@ -296,38 +301,78 @@ def classify_recipe_from_peaks(
     d["timestamp"] = pd.to_datetime(d["timestamp"], errors="coerce")
     d = d.dropna(subset=["timestamp"]).sort_values("timestamp")
 
-    def _peak_in_window(col: str, a: pd.Timestamp, b: pd.Timestamp) -> StepPeak | None:
+    def _peak_in_window(col: str, a: pd.Timestamp, b: pd.Timestamp) -> tuple[StepPeak | None, bool]:
         if col not in d.columns:
-            return None
+            return None, False
         window = d.loc[(d["timestamp"] >= a) & (d["timestamp"] <= b), ["timestamp", col]].copy()
         if window.empty:
-            return None
-        seg = pd.to_numeric(window[col], errors="coerce").dropna()
+            return None, False
+
+        numeric = pd.to_numeric(window[col], errors="coerce")
+        is_complete_numeric = not numeric.isna().any()
+        seg = numeric.dropna()
         if seg.empty:
-            return None
+            return None, False
 
         start_ts = pd.Timestamp(window["timestamp"].iloc[0]).to_pydatetime()
         end_ts = pd.Timestamp(window["timestamp"].iloc[-1]).to_pydatetime()
-        return StepPeak(
-            channel=col,
-            start_ts=start_ts,
-            end_ts=end_ts,
-            duration_sec=max((end_ts - start_ts).total_seconds(), 0.0),
-            mean=float(seg.mean()),
-            max=float(seg.max()),
-            min=float(seg.min()),
-            std=float(seg.std(ddof=0)),
+        return (
+            StepPeak(
+                channel=col,
+                start_ts=start_ts,
+                end_ts=end_ts,
+                duration_sec=max((end_ts - start_ts).total_seconds(), 0.0),
+                mean=float(seg.mean()),
+                max=float(seg.max()),
+                min=float(seg.min()),
+                std=float(seg.std(ddof=0)),
+            ),
+            is_complete_numeric,
         )
 
     bundles: list[StepBundle] = []
+    channel_completeness: list[tuple[bool, bool]] = []
     for step_no, (a, b) in enumerate(steppeak_queue, start=1):
+        dc_bias_peak, dc_bias_complete = _peak_in_window(dc_key, a, b)
+        cl2_flow_peak, cl2_flow_complete = _peak_in_window(cl2_key, a, b)
         bundles.append(
             StepBundle(
                 step_no=step_no,
-                dc_bias=_peak_in_window(dc_key, a, b),
-                cl2_flow=_peak_in_window(cl2_key, a, b),
+                dc_bias=dc_bias_peak,
+                cl2_flow=cl2_flow_peak,
             )
         )
+        channel_completeness.append((dc_bias_complete, cl2_flow_complete))
+
+    for bundle, (dc_bias_complete, cl2_flow_complete) in zip(
+        bundles, channel_completeness, strict=False
+    ):
+        if (
+            bundle.dc_bias is None
+            or bundle.cl2_flow is None
+            or not dc_bias_complete
+            or not cl2_flow_complete
+        ):
+            logger.warning(
+                "Recipe classification fallback to UNKNOWN due to partial channel data: "
+                "step_no=%s, dc_bias_complete=%s, cl2_flow_complete=%s",
+                bundle.step_no,
+                dc_bias_complete,
+                cl2_flow_complete,
+            )
+            return "UNKNOWN"
+        if (
+            bundle.dc_bias.duration_sec < MIN_CLASSIFICATION_WINDOW_SEC
+            or bundle.cl2_flow.duration_sec < MIN_CLASSIFICATION_WINDOW_SEC
+        ):
+            logger.warning(
+                "Recipe classification fallback to UNKNOWN due to short window: "
+                "step_no=%s, dc_bias_duration=%.3f, cl2_flow_duration=%.3f",
+                bundle.step_no,
+                bundle.dc_bias.duration_sec,
+                bundle.cl2_flow.duration_sec,
+            )
+            return "UNKNOWN"
 
     return classifier.classify(bundles)
 

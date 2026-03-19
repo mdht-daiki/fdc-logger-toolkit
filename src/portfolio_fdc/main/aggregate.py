@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import logging
 import os
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,8 @@ import yaml
 
 from ..core.segmentation.classifier import RecipeClassifier
 from ..core.segmentation.models import StepBundle, StepPeak
+
+logger = logging.getLogger(__name__)
 
 RECIPE_RULES_PATH_ENV_VAR = "PORTFOLIO_RECIPE_RULES_PATH"
 DEFAULT_RECIPE_RULES_PATH = Path(__file__).resolve().parents[1] / "configs" / "recipe_rules.yaml"
@@ -46,7 +49,14 @@ _RECIPE_CLASSIFIER_CACHE: dict[Path, RecipeClassifier] = {}
 def get_recipe_classifier(path: Path) -> RecipeClassifier:
     cache_key = path.resolve()
     if cache_key not in _RECIPE_CLASSIFIER_CACHE:
-        _RECIPE_CLASSIFIER_CACHE[cache_key] = RecipeClassifier(load_yaml(cache_key))
+        try:
+            _RECIPE_CLASSIFIER_CACHE[cache_key] = RecipeClassifier(load_yaml(cache_key))
+        except (FileNotFoundError, OSError, yaml.YAMLError, TypeError, ValueError, AttributeError):
+            logger.exception(
+                "Failed to load recipe rules from %s. Falling back to UNKNOWN classification.",
+                cache_key,
+            )
+            _RECIPE_CLASSIFIER_CACHE[cache_key] = RecipeClassifier({})
     return _RECIPE_CLASSIFIER_CACHE[cache_key]
 
 

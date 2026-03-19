@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import sys
 from pathlib import Path
 from typing import Any
@@ -350,6 +351,43 @@ def test_classify_recipe_from_peaks_returns_unknown_without_timestamp(monkeypatc
     recipe = aggregate.classify_recipe_from_peaks(queue, df.drop(columns=["timestamp"]))
 
     assert recipe == "UNKNOWN"
+
+
+def test_get_recipe_classifier_fallbacks_on_missing_rules_file(
+    tmp_path: Path,
+    caplog,
+) -> None:
+    """ルールファイル欠落時に UNKNOWN フォールバックとログ出力を行うことを確認する。"""
+    missing_path = tmp_path / "missing_rules.yaml"
+    aggregate._RECIPE_CLASSIFIER_CACHE.clear()
+
+    with caplog.at_level(logging.ERROR):
+        classifier = aggregate.get_recipe_classifier(missing_path)
+
+    bundles = [
+        StepBundle(step_no=1, dc_bias=_make_step_peak("dc_bias", 2.0), cl2_flow=None),
+    ]
+    assert classifier.classify(bundles) == "UNKNOWN"
+    assert "Falling back to UNKNOWN classification" in caplog.text
+
+
+def test_get_recipe_classifier_fallbacks_on_yaml_parse_error(
+    tmp_path: Path,
+    caplog,
+) -> None:
+    """ルールYAMLパース失敗時に UNKNOWN フォールバックとログ出力を行うことを確認する。"""
+    invalid_rules = tmp_path / "invalid_rules.yaml"
+    invalid_rules.write_text("recipes: [", encoding="utf-8")
+    aggregate._RECIPE_CLASSIFIER_CACHE.clear()
+
+    with caplog.at_level(logging.ERROR):
+        classifier = aggregate.get_recipe_classifier(invalid_rules)
+
+    bundles = [
+        StepBundle(step_no=1, dc_bias=_make_step_peak("dc_bias", 2.0), cl2_flow=None),
+    ]
+    assert classifier.classify(bundles) == "UNKNOWN"
+    assert "Falling back to UNKNOWN classification" in caplog.text
 
 
 def test_recipe_classifier_returns_unknown_when_channels_missing() -> None:

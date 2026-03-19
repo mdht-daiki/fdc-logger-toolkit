@@ -88,13 +88,14 @@ def test_recipe_rules_path_resolves_relative_env_path(
     assert aggregate_module.RECIPE_RULES_PATH == resolved_path
 
 
-def test_recipe_rules_path_raises_on_missing_file(
+def test_recipe_rules_path_is_none_on_missing_file(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """存在しないファイルパスが指定された場合は FileNotFoundError を発生させる。"""
+    """存在しないファイルパス指定でもモジュールimportは継続し、パスは `None` になる。"""
     missing_path = tmp_path / "missing_rules.yaml"
     monkeypatch.setenv("PORTFOLIO_RECIPE_RULES_PATH", str(missing_path))
 
-    with pytest.raises(FileNotFoundError, match="Recipe rules YAML file not found"):
-        _reload_aggregate_module()
+    _reload_aggregate_module()
+    assert aggregate_module is not None
+    assert aggregate_module.RECIPE_RULES_PATH is None

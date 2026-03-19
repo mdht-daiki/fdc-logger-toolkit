@@ -42,21 +42,46 @@ def _resolve_recipe_rules_path() -> Path:
     return resolved_path
 
 
-RECIPE_RULES_PATH = _resolve_recipe_rules_path()
-_RECIPE_CLASSIFIER_CACHE: dict[Path, RecipeClassifier] = {}
+def _resolve_recipe_rules_path_or_none() -> Path | None:
+    """レシピルールパスを解決し、失敗時は警告を出して `None` を返す。"""
+    try:
+        return _resolve_recipe_rules_path()
+    except FileNotFoundError:
+        logger.warning(
+            "Failed to resolve recipe rules path during module import. "
+            "Recipe classification falls back to UNKNOWN until a valid rules path is provided."
+        )
+        return None
 
 
-def get_recipe_classifier(path: Path) -> RecipeClassifier:
-    cache_key = path.resolve()
+RECIPE_RULES_PATH: Path | None = _resolve_recipe_rules_path_or_none()
+_RECIPE_CLASSIFIER_CACHE: dict[Path | None, RecipeClassifier] = {}
+
+
+def get_recipe_classifier(path: Path | None) -> RecipeClassifier:
+    cache_key = None if path is None else path.resolve()
     if cache_key not in _RECIPE_CLASSIFIER_CACHE:
-        try:
-            _RECIPE_CLASSIFIER_CACHE[cache_key] = RecipeClassifier(load_yaml(cache_key))
-        except (FileNotFoundError, OSError, yaml.YAMLError, TypeError, ValueError, AttributeError):
-            logger.exception(
-                "Failed to load recipe rules from %s. Falling back to UNKNOWN classification.",
-                cache_key,
+        if cache_key is None:
+            logger.warning(
+                "Recipe rules path is unavailable. Falling back to UNKNOWN classification."
             )
             _RECIPE_CLASSIFIER_CACHE[cache_key] = RecipeClassifier({})
+        else:
+            try:
+                _RECIPE_CLASSIFIER_CACHE[cache_key] = RecipeClassifier(load_yaml(cache_key))
+            except (
+                FileNotFoundError,
+                OSError,
+                yaml.YAMLError,
+                TypeError,
+                ValueError,
+                AttributeError,
+            ):
+                logger.exception(
+                    "Failed to load recipe rules from %s. Falling back to UNKNOWN classification.",
+                    cache_key,
+                )
+                _RECIPE_CLASSIFIER_CACHE[cache_key] = RecipeClassifier({})
     return _RECIPE_CLASSIFIER_CACHE[cache_key]
 
 

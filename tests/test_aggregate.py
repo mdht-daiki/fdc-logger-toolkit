@@ -353,6 +353,42 @@ def test_classify_recipe_from_peaks_returns_unknown_without_timestamp(monkeypatc
     assert recipe == "UNKNOWN"
 
 
+def test_classify_recipe_from_peaks_returns_unknown_on_partial_channel_data(
+    monkeypatch,
+    caplog,
+) -> None:
+    """片チャネル欠損ステップを含む場合は警告付きで UNKNOWN を返す。"""
+    df, queue = _recipe_classify_df()
+    missing_window = (df["timestamp"] >= queue[1][0]) & (df["timestamp"] <= queue[1][1])
+    df.loc[missing_window, "cl2_flow"] = pd.NA
+    monkeypatch.setattr(aggregate, "RECIPE_RULES_PATH", DUMMY_RULES_PATH)
+
+    with caplog.at_level(logging.WARNING):
+        recipe = aggregate.classify_recipe_from_peaks(queue, df)
+
+    assert recipe == "UNKNOWN"
+    assert "partial channel data" in caplog.text
+
+
+def test_classify_recipe_from_peaks_returns_unknown_on_short_window(monkeypatch, caplog) -> None:
+    """極端に短いウィンドウは不安定データとして警告付きで UNKNOWN を返す。"""
+    ts = pd.Timestamp("2026-02-19T00:00:00")
+    df = pd.DataFrame(
+        {
+            "timestamp": [ts],
+            "dc_bias": [2.0],
+            "cl2_flow": [12.0],
+        }
+    )
+    monkeypatch.setattr(aggregate, "RECIPE_RULES_PATH", DUMMY_RULES_PATH)
+
+    with caplog.at_level(logging.WARNING):
+        recipe = aggregate.classify_recipe_from_peaks([(ts, ts)], df)
+
+    assert recipe == "UNKNOWN"
+    assert "short window" in caplog.text
+
+
 def test_get_recipe_classifier_fallbacks_on_missing_rules_file(
     tmp_path: Path,
     caplog,

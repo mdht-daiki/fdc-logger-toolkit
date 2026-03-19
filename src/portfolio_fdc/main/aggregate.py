@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 RECIPE_RULES_PATH_ENV_VAR = "PORTFOLIO_RECIPE_RULES_PATH"
 DEFAULT_RECIPE_RULES_PATH = Path(__file__).resolve().parents[1] / "configs" / "recipe_rules.yaml"
+MIN_CLASSIFICATION_WINDOW_SEC = 1.0
 
 
 def _resolve_recipe_rules_path() -> Path:
@@ -284,7 +285,11 @@ def classify_recipe_from_peaks(
     dc_key: str = "dc_bias",
     cl2_key: str = "cl2_flow",
 ) -> str:
-    """検出したピーク列をStepBundle化し、RecipeClassifierでレシピIDを判定する。"""
+    """検出したピーク列をStepBundle化し、RecipeClassifierでレシピIDを判定する。
+
+    部分欠損チャネル（dc_bias/cl2_flow のいずれか欠落）や極端に短いウィンドウは
+    不安定データとして扱い、警告ログを出して `UNKNOWN` を返す。
+    """
     if not steppeak_queue:
         return "UNKNOWN"
     if "timestamp" not in df.columns:
@@ -328,6 +333,29 @@ def classify_recipe_from_peaks(
                 cl2_flow=_peak_in_window(cl2_key, a, b),
             )
         )
+
+    for bundle in bundles:
+        if bundle.dc_bias is None or bundle.cl2_flow is None:
+            logger.warning(
+                "Recipe classification fallback to UNKNOWN due to partial channel data: "
+                "step_no=%s, dc_bias=%s, cl2_flow=%s",
+                bundle.step_no,
+                bundle.dc_bias is not None,
+                bundle.cl2_flow is not None,
+            )
+            return "UNKNOWN"
+        if (
+            bundle.dc_bias.duration_sec < MIN_CLASSIFICATION_WINDOW_SEC
+            or bundle.cl2_flow.duration_sec < MIN_CLASSIFICATION_WINDOW_SEC
+        ):
+            logger.warning(
+                "Recipe classification fallback to UNKNOWN due to short window: "
+                "step_no=%s, dc_bias_duration=%.3f, cl2_flow_duration=%.3f",
+                bundle.step_no,
+                bundle.dc_bias.duration_sec,
+                bundle.cl2_flow.duration_sec,
+            )
+            return "UNKNOWN"
 
     return classifier.classify(bundles)
 

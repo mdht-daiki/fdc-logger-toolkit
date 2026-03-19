@@ -370,6 +370,24 @@ def test_classify_recipe_from_peaks_returns_unknown_on_partial_channel_data(
     assert "partial channel data" in caplog.text
 
 
+def test_classify_recipe_from_peaks_returns_unknown_on_partial_nan_samples(
+    monkeypatch,
+    caplog,
+) -> None:
+    """ウィンドウ内に一部 NaN が混入する場合も UNKNOWN を返す。"""
+    df, queue = _recipe_classify_df()
+    target_ts = queue[1][0]
+    df.loc[df["timestamp"] == target_ts, "cl2_flow"] = pd.NA
+    monkeypatch.setattr(aggregate, "RECIPE_RULES_PATH", DUMMY_RULES_PATH)
+
+    with caplog.at_level(logging.WARNING):
+        recipe = aggregate.classify_recipe_from_peaks(queue, df)
+
+    assert recipe == "UNKNOWN"
+    assert "partial channel data" in caplog.text
+    assert "cl2_flow_complete=False" in caplog.text
+
+
 def test_classify_recipe_from_peaks_returns_unknown_on_short_window(monkeypatch, caplog) -> None:
     """極端に短いウィンドウは不安定データとして警告付きで UNKNOWN を返す。"""
     ts = pd.Timestamp("2026-02-19T00:00:00")

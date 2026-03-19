@@ -301,47 +301,64 @@ def classify_recipe_from_peaks(
     d["timestamp"] = pd.to_datetime(d["timestamp"], errors="coerce")
     d = d.dropna(subset=["timestamp"]).sort_values("timestamp")
 
-    def _peak_in_window(col: str, a: pd.Timestamp, b: pd.Timestamp) -> StepPeak | None:
+    def _peak_in_window(col: str, a: pd.Timestamp, b: pd.Timestamp) -> tuple[StepPeak | None, bool]:
         if col not in d.columns:
-            return None
+            return None, False
         window = d.loc[(d["timestamp"] >= a) & (d["timestamp"] <= b), ["timestamp", col]].copy()
         if window.empty:
-            return None
-        seg = pd.to_numeric(window[col], errors="coerce").dropna()
+            return None, False
+
+        numeric = pd.to_numeric(window[col], errors="coerce")
+        is_complete_numeric = not numeric.isna().any()
+        seg = numeric.dropna()
         if seg.empty:
-            return None
+            return None, False
 
         start_ts = pd.Timestamp(window["timestamp"].iloc[0]).to_pydatetime()
         end_ts = pd.Timestamp(window["timestamp"].iloc[-1]).to_pydatetime()
-        return StepPeak(
-            channel=col,
-            start_ts=start_ts,
-            end_ts=end_ts,
-            duration_sec=max((end_ts - start_ts).total_seconds(), 0.0),
-            mean=float(seg.mean()),
-            max=float(seg.max()),
-            min=float(seg.min()),
-            std=float(seg.std(ddof=0)),
+        return (
+            StepPeak(
+                channel=col,
+                start_ts=start_ts,
+                end_ts=end_ts,
+                duration_sec=max((end_ts - start_ts).total_seconds(), 0.0),
+                mean=float(seg.mean()),
+                max=float(seg.max()),
+                min=float(seg.min()),
+                std=float(seg.std(ddof=0)),
+            ),
+            is_complete_numeric,
         )
 
     bundles: list[StepBundle] = []
+    channel_completeness: list[tuple[bool, bool]] = []
     for step_no, (a, b) in enumerate(steppeak_queue, start=1):
+        dc_bias_peak, dc_bias_complete = _peak_in_window(dc_key, a, b)
+        cl2_flow_peak, cl2_flow_complete = _peak_in_window(cl2_key, a, b)
         bundles.append(
             StepBundle(
                 step_no=step_no,
-                dc_bias=_peak_in_window(dc_key, a, b),
-                cl2_flow=_peak_in_window(cl2_key, a, b),
+                dc_bias=dc_bias_peak,
+                cl2_flow=cl2_flow_peak,
             )
         )
+        channel_completeness.append((dc_bias_complete, cl2_flow_complete))
 
-    for bundle in bundles:
-        if bundle.dc_bias is None or bundle.cl2_flow is None:
+    for bundle, (dc_bias_complete, cl2_flow_complete) in zip(
+        bundles, channel_completeness, strict=False
+    ):
+        if (
+            bundle.dc_bias is None
+            or bundle.cl2_flow is None
+            or not dc_bias_complete
+            or not cl2_flow_complete
+        ):
             logger.warning(
                 "Recipe classification fallback to UNKNOWN due to partial channel data: "
-                "step_no=%s, dc_bias=%s, cl2_flow=%s",
+                "step_no=%s, dc_bias_complete=%s, cl2_flow_complete=%s",
                 bundle.step_no,
-                bundle.dc_bias is not None,
-                bundle.cl2_flow is not None,
+                dc_bias_complete,
+                cl2_flow_complete,
             )
             return "UNKNOWN"
         if (

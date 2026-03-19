@@ -465,7 +465,6 @@ def build_processes_steppeak(
     remaining = peaks[i:]
     if len(remaining) == 3:
         split_step_no = int(sp.get("split_step_no", 3)) - 1  # 1-indexed → 0-indexed
-        split_ratio = float(sp.get("split_ratio", 0.5))
         if not (0 <= split_step_no < len(remaining)):
             logger.warning(
                 "split_step_no=%d is out of range for %d remaining peaks; skipping 3-step split.",
@@ -473,7 +472,29 @@ def build_processes_steppeak(
                 len(remaining),
             )
             return out
-        split_pieces = split_one_peak_into_two(remaining[split_step_no], ratio=split_ratio)
+        try:
+            split_ratio = float(sp.get("split_ratio", 0.5))
+            if not (0 < split_ratio < 1):
+                raise ValueError(f"split_ratio={split_ratio!r} must satisfy 0 < ratio < 1")
+            split_pieces = split_one_peak_into_two(remaining[split_step_no], ratio=split_ratio)
+        except ValueError as exc:
+            logger.warning(
+                "Invalid split parameters (split_step_no=%d, split_ratio=%r); "
+                "skipping 3-step split: %s",
+                split_step_no,
+                sp.get("split_ratio"),
+                exc,
+            )
+            return out
+        if len(split_pieces) != 2:
+            logger.warning(
+                "split_one_peak_into_two returned %d piece(s) instead of 2 "
+                "(split_step_no=%d, split_ratio=%r); skipping 3-step split.",
+                len(split_pieces),
+                split_step_no,
+                split_ratio,
+            )
+            return out
         q = list(remaining[:split_step_no]) + split_pieces + list(remaining[split_step_no + 1 :])
         recipe = classify_recipe_from_peaks(q, df2, dc_key=dc_key, cl2_key=cl2_key)
         a = q[0][0]

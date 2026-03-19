@@ -88,7 +88,7 @@ def test_recipe_rules_path_resolves_relative_env_path(
     assert aggregate_module.RECIPE_RULES_PATH == resolved_path
 
 
-def test_recipe_rules_path_raises_on_missing_file(
+def test_recipe_rules_path_is_none_on_missing_file(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

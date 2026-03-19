@@ -461,8 +461,30 @@ def build_processes_steppeak(
             }
         )
         i += 4
-    # handle 3-step recipes: placeholder logic (if you detect 3 peaks pattern, split one peak)
-    # You can implement: detect 3 peaks then split step2 into 2 using split_ratio to make 4 steps.
+    # handle 3-step recipes: 残余3ピークを split_step_no 番目で分割し4ステップ化する
+    remaining = peaks[i:]
+    if len(remaining) == 3:
+        split_step_no = int(sp.get("split_step_no", 3)) - 1  # 1-indexed → 0-indexed
+        split_ratio = float(sp.get("split_ratio", 0.5))
+        split_pieces = (
+            split_one_peak_into_two(remaining[split_step_no], ratio=split_ratio)
+            if 0 <= split_step_no < 3
+            else [remaining[0]]
+        )
+        q = list(remaining[:split_step_no]) + split_pieces + list(remaining[split_step_no + 1 :])
+        recipe = classify_recipe_from_peaks(q, df2, dc_key=dc_key, cl2_key=cl2_key)
+        a = q[0][0]
+        b = q[-1][1]
+        step_windows = [(step_idx + 1, p[0], p[1]) for step_idx, p in enumerate(q)]
+        out.append(
+            {
+                "cut_method": "steppeak",
+                "recipe_id": recipe,
+                "process_start": a,
+                "process_end": b,
+                "step_windows": step_windows,
+            }
+        )
     return out
 
 

@@ -22,6 +22,19 @@ DUMMY_RULES_PATH = (
 )
 
 
+class _FixedClassifier:
+    """テスト用固定分類器。呼び出し有無を `called` で記録する。"""
+
+    def __init__(self, return_value: str = "RECIPE_EDGE") -> None:
+        self.return_value = return_value
+        self.called = False
+
+    def classify(self, bundles: list[StepBundle]) -> str:
+        _ = bundles
+        self.called = True
+        return self.return_value
+
+
 def _make_step_peak(channel: str, value: float) -> StepPeak:
     """分類テスト用に固定時刻の `StepPeak` を生成する。"""
     ts = pd.Timestamp("2026-02-19T00:00:00").to_pydatetime()
@@ -411,6 +424,54 @@ def test_classify_recipe_from_peaks_returns_unknown_on_short_window(monkeypatch,
     with caplog.at_level(logging.WARNING):
         recipe = aggregate.classify_recipe_from_peaks([(ts, ts)], df)
 
+    assert recipe == "UNKNOWN"
+    assert "short window" in caplog.text
+
+
+def test_classify_recipe_from_peaks_allows_duration_equal_threshold(monkeypatch) -> None:
+    """duration_sec == MIN_CLASSIFICATION_WINDOW_SEC は分類処理へ進む。"""
+    ts = pd.Timestamp("2026-02-19T00:00:00")
+    df = pd.DataFrame(
+        {
+            "timestamp": [ts, ts + pd.Timedelta(seconds=1)],
+            "dc_bias": [2.0, 2.0],
+            "cl2_flow": [12.0, 12.0],
+        }
+    )
+
+    classifier = _FixedClassifier()
+    monkeypatch.setattr(aggregate, "get_recipe_classifier", lambda _path: classifier)
+
+    recipe = aggregate.classify_recipe_from_peaks(
+        [(ts, ts + pd.Timedelta(seconds=1))],
+        df,
+    )
+
+    assert classifier.called is True
+    assert recipe == "RECIPE_EDGE"
+
+
+def test_classify_recipe_from_peaks_returns_unknown_below_threshold(monkeypatch, caplog) -> None:
+    """duration_sec < MIN_CLASSIFICATION_WINDOW_SEC は UNKNOWN でガードされる。"""
+    ts = pd.Timestamp("2026-02-19T00:00:00")
+    df = pd.DataFrame(
+        {
+            "timestamp": [ts, ts + pd.Timedelta(milliseconds=999)],
+            "dc_bias": [2.0, 2.0],
+            "cl2_flow": [12.0, 12.0],
+        }
+    )
+
+    classifier = _FixedClassifier()
+    monkeypatch.setattr(aggregate, "get_recipe_classifier", lambda _path: classifier)
+
+    with caplog.at_level(logging.WARNING):
+        recipe = aggregate.classify_recipe_from_peaks(
+            [(ts, ts + pd.Timedelta(milliseconds=999))],
+            df,
+        )
+
+    assert classifier.called is False
     assert recipe == "UNKNOWN"
     assert "short window" in caplog.text
 

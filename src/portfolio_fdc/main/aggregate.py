@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 RECIPE_RULES_PATH_ENV_VAR = "PORTFOLIO_RECIPE_RULES_PATH"
 DEFAULT_RECIPE_RULES_PATH = Path(__file__).resolve().parents[1] / "configs" / "recipe_rules.yaml"
+# Boundary contract: duration_sec == 1.0 is allowed; only duration_sec < 1.0 falls back.
 MIN_CLASSIFICATION_WINDOW_SEC = 1.0
 
 

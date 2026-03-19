@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+import pytest
 import yaml
 
 from portfolio_fdc.core.segmentation.classifier import RecipeClassifier
@@ -353,14 +354,16 @@ def test_classify_recipe_from_peaks_returns_unknown_without_timestamp(monkeypatc
     assert recipe == "UNKNOWN"
 
 
+@pytest.mark.parametrize("target_col", ["cl2_flow", "dc_bias"])
 def test_classify_recipe_from_peaks_returns_unknown_on_partial_channel_data(
     monkeypatch,
     caplog,
+    target_col: str,
 ) -> None:
     """片チャネル欠損ステップを含む場合は警告付きで UNKNOWN を返す。"""
     df, queue = _recipe_classify_df()
     missing_window = (df["timestamp"] >= queue[1][0]) & (df["timestamp"] <= queue[1][1])
-    df.loc[missing_window, "cl2_flow"] = pd.NA
+    df.loc[missing_window, target_col] = pd.NA
     monkeypatch.setattr(aggregate, "RECIPE_RULES_PATH", DUMMY_RULES_PATH)
 
     with caplog.at_level(logging.WARNING):
@@ -370,14 +373,16 @@ def test_classify_recipe_from_peaks_returns_unknown_on_partial_channel_data(
     assert "partial channel data" in caplog.text
 
 
+@pytest.mark.parametrize("target_col", ["cl2_flow", "dc_bias"])
 def test_classify_recipe_from_peaks_returns_unknown_on_partial_nan_samples(
     monkeypatch,
     caplog,
+    target_col: str,
 ) -> None:
     """ウィンドウ内に一部 NaN が混入する場合も UNKNOWN を返す。"""
     df, queue = _recipe_classify_df()
     target_ts = queue[1][0]
-    df.loc[df["timestamp"] == target_ts, "cl2_flow"] = pd.NA
+    df.loc[df["timestamp"] == target_ts, target_col] = pd.NA
     monkeypatch.setattr(aggregate, "RECIPE_RULES_PATH", DUMMY_RULES_PATH)
 
     with caplog.at_level(logging.WARNING):
@@ -385,7 +390,10 @@ def test_classify_recipe_from_peaks_returns_unknown_on_partial_nan_samples(
 
     assert recipe == "UNKNOWN"
     assert "partial channel data" in caplog.text
-    assert "cl2_flow_complete=False" in caplog.text
+    if target_col == "dc_bias":
+        assert "dc_bias_complete=False" in caplog.text
+    else:
+        assert "cl2_flow_complete=False" in caplog.text
 
 
 def test_classify_recipe_from_peaks_returns_unknown_on_short_window(monkeypatch, caplog) -> None:

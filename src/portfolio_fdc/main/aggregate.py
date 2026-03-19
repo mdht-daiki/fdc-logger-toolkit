@@ -466,11 +466,14 @@ def build_processes_steppeak(
     if len(remaining) == 3:
         split_step_no = int(sp.get("split_step_no", 3)) - 1  # 1-indexed → 0-indexed
         split_ratio = float(sp.get("split_ratio", 0.5))
-        split_pieces = (
-            split_one_peak_into_two(remaining[split_step_no], ratio=split_ratio)
-            if 0 <= split_step_no < 3
-            else [remaining[0]]
-        )
+        if not (0 <= split_step_no < len(remaining)):
+            logger.warning(
+                "split_step_no=%d is out of range for %d remaining peaks; skipping 3-step split.",
+                split_step_no,
+                len(remaining),
+            )
+            return out
+        split_pieces = split_one_peak_into_two(remaining[split_step_no], ratio=split_ratio)
         q = list(remaining[:split_step_no]) + split_pieces + list(remaining[split_step_no + 1 :])
         recipe = classify_recipe_from_peaks(q, df2, dc_key=dc_key, cl2_key=cl2_key)
         a = q[0][0]

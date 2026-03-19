@@ -900,3 +900,32 @@ def test_build_processes_steppeak_handles_3peak_remainder(monkeypatch) -> None:
         t0 + pd.Timedelta(seconds=14),
     )
     assert p["process_end"] == t0 + pd.Timedelta(seconds=14)
+
+
+def test_build_processes_steppeak_skips_split_on_invalid_split_step_no(monkeypatch, caplog) -> None:
+    """split_step_no が範囲外の場合、3ピーク余剰を無視して空リストを返す。"""
+    t0 = pd.Timestamp("2026-02-19T00:00:00")
+    fake_peaks = [
+        (t0 + pd.Timedelta(seconds=1), t0 + pd.Timedelta(seconds=4)),
+        (t0 + pd.Timedelta(seconds=6), t0 + pd.Timedelta(seconds=9)),
+        (t0 + pd.Timedelta(seconds=11), t0 + pd.Timedelta(seconds=14)),
+    ]
+    monkeypatch.setattr(aggregate, "detect_steppeaks", lambda *a, **kw: fake_peaks)
+
+    df, _ = _recipe_d_3step_df()
+    cfg = {
+        "key_channels": {"dc_bias": "dc_bias", "cl2_flow": "cl2_flow"},
+        "steppeak": {
+            "dc_bias_on": 0.8,
+            "dc_bias_off": 0.4,
+            "cl2_flow_on": 5.0,
+            "split_step_no": 99,  # 範囲外
+            "split_ratio": 0.5,
+        },
+    }
+
+    with caplog.at_level(logging.WARNING):
+        procs = aggregate.build_processes_steppeak(df, "TOOL_A", "CH1", cfg)
+
+    assert procs == []
+    assert "out of range" in caplog.text

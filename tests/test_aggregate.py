@@ -22,6 +22,19 @@ DUMMY_RULES_PATH = (
 )
 
 
+class _FixedClassifier:
+    """テスト用固定分類器。呼び出し有無を `called` で記録する。"""
+
+    def __init__(self, return_value: str = "RECIPE_EDGE") -> None:
+        self.return_value = return_value
+        self.called = False
+
+    def classify(self, bundles: list[StepBundle]) -> str:
+        _ = bundles
+        self.called = True
+        return self.return_value
+
+
 def _make_step_peak(channel: str, value: float) -> StepPeak:
     """分類テスト用に固定時刻の `StepPeak` を生成する。"""
     ts = pd.Timestamp("2026-02-19T00:00:00").to_pydatetime()
@@ -426,14 +439,6 @@ def test_classify_recipe_from_peaks_allows_duration_equal_threshold(monkeypatch)
         }
     )
 
-    class _FixedClassifier:
-        def __init__(self) -> None:
-            self.called = False
-
-        def classify(self, bundles: list[StepBundle]) -> str:
-            self.called = True
-            return "RECIPE_EDGE"
-
     classifier = _FixedClassifier()
     monkeypatch.setattr(aggregate, "get_recipe_classifier", lambda _path: classifier)
 
@@ -456,14 +461,6 @@ def test_classify_recipe_from_peaks_returns_unknown_below_threshold(monkeypatch,
             "cl2_flow": [12.0, 12.0],
         }
     )
-
-    class _FixedClassifier:
-        def __init__(self) -> None:
-            self.called = False
-
-        def classify(self, bundles: list[StepBundle]) -> str:
-            self.called = True
-            return "RECIPE_EDGE"
 
     classifier = _FixedClassifier()
     monkeypatch.setattr(aggregate, "get_recipe_classifier", lambda _path: classifier)

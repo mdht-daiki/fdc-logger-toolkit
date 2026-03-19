@@ -445,12 +445,7 @@ def build_processes_steppeak(
         recipe = classify_recipe_from_peaks(q, df2, dc_key=dc_key, cl2_key=cl2_key)
         a = q[0][0]
         b = q[3][1]
-        step_windows = [
-            (1, q[0][0], q[0][1]),
-            (2, q[1][0], q[1][1]),
-            (3, q[2][0], q[2][1]),
-            (4, q[3][0], q[3][1]),
-        ]
+        step_windows = [(step_idx + 1, p[0], p[1]) for step_idx, p in enumerate(q)]
         out.append(
             {
                 "cut_method": "steppeak",

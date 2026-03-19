@@ -493,7 +493,28 @@ def build_processes_steppeak(
                 split_ratio,
             )
             return out
+        if any(
+            (piece[1] - piece[0]).total_seconds() < MIN_CLASSIFICATION_WINDOW_SEC
+            for piece in split_pieces
+        ):
+            logger.warning(
+                "split_one_peak_into_two produced short window(s) "
+                "(split_step_no=%d, split_ratio=%r); skipping 3-step split.",
+                split_step_no + 1,
+                split_ratio,
+            )
+            return out
         q = list(remaining[:split_step_no]) + split_pieces + list(remaining[split_step_no + 1 :])
+        if any(
+            (window[1] - window[0]).total_seconds() < MIN_CLASSIFICATION_WINDOW_SEC for window in q
+        ):
+            logger.warning(
+                "3-step split produced non-classifiable window(s) "
+                "(split_step_no=%d, split_ratio=%r); skipping 3-step split.",
+                split_step_no + 1,
+                split_ratio,
+            )
+            return out
         recipe = classify_recipe_from_peaks(q, df2, dc_key=dc_key, cl2_key=cl2_key)
         a = q[0][0]
         b = q[-1][1]

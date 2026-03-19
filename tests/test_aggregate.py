@@ -988,3 +988,33 @@ def test_build_processes_steppeak_skips_split_when_peak_too_short(monkeypatch, c
 
     assert procs == []
     assert "piece(s) instead of 2" in caplog.text
+
+
+def test_build_processes_steppeak_skips_split_on_short_split_piece(monkeypatch, caplog) -> None:
+    """2分割できても一方が短すぎる場合は3-step splitをスキップする。"""
+    t0 = pd.Timestamp("2026-02-19T00:00:00")
+    # 3番目ピーク total=2s, ratio=0.1 -> cut=a となり (a,a) と (a,b) の2片になる
+    fake_peaks = [
+        (t0 + pd.Timedelta(seconds=1), t0 + pd.Timedelta(seconds=4)),
+        (t0 + pd.Timedelta(seconds=6), t0 + pd.Timedelta(seconds=9)),
+        (t0 + pd.Timedelta(seconds=11), t0 + pd.Timedelta(seconds=13)),
+    ]
+    monkeypatch.setattr(aggregate, "detect_steppeaks", lambda *a, **kw: fake_peaks)
+
+    df, _ = _recipe_d_3step_df()
+    cfg = {
+        "key_channels": {"dc_bias": "dc_bias", "cl2_flow": "cl2_flow"},
+        "steppeak": {
+            "dc_bias_on": 0.8,
+            "dc_bias_off": 0.4,
+            "cl2_flow_on": 5.0,
+            "split_step_no": 3,
+            "split_ratio": 0.1,
+        },
+    }
+
+    with caplog.at_level(logging.WARNING):
+        procs = aggregate.build_processes_steppeak(df, "TOOL_A", "CH1", cfg)
+
+    assert procs == []
+    assert "produced short window" in caplog.text

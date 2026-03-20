@@ -1,0 +1,85 @@
+name: Chart Threshold Change
+about: Threshold update request for chart parameters
+title: "[Chart] <tool/recipe> threshold update"
+labels: ["chart", "threshold-change"]
+body:
+  - type: input
+    id: tool
+    attributes:
+      label: Tool
+      placeholder: TOOL_A
+    validations:
+      required: true
+
+  - type: input
+    id: chamber
+    attributes:
+      label: Chamber
+      placeholder: CH1
+    validations:
+      required: true
+
+  - type: input
+    id: recipe
+    attributes:
+      label: Recipe
+      placeholder: RECIPE_A
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: parameter/step/feature_type and current->new thresholds
+      placeholder: |
+        parameter=dc_bias, step=2, feature_type=mean
+        warn_low: 2.40 -> 2.55
+        warn_high: 3.10 -> 2.85
+        crit_low: 2.20 -> 2.40
+        crit_high: 3.30 -> 3.00
+    validations:
+      required: true
+
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Risk
+      options:
+        - low
+        - medium
+        - high
+    validations:
+      required: true
+
+  - type: textarea
+    id: reason
+    attributes:
+      label: Reason
+      description: Why this change is needed
+    validations:
+      required: true
+
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation Plan
+      description: How to verify after deployment
+      placeholder: |
+        - replay last 7 days
+        - false positive trend check
+        - on-call acceptance
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: Discussion link is attached
+          required: true
+        - label: Rollback plan is defined
+          required: true
+        - label: YAML PR will be created
+          required: true

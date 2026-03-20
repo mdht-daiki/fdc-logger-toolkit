@@ -9,7 +9,18 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 def validate_timestamp_range(start_ts: datetime, end_ts: datetime) -> None:
-    """start/end のタイムゾーン形式と時系列順序を共通検証する。"""
+    """start/end のタイムゾーン形式と時系列順序を共通検証する。
+
+    この関数が保証すること:
+
+    - 両者が naive/aware の同一フォーマットであること（片方だけ aware は不可）
+    - `end_ts >= start_ts` であること
+
+    aware 同士であればオフセットが異なっていても許可される。
+    Python の `datetime` 比較は UTC 正規化後に行われるため、
+    例えば `2026-03-20T00:00:00Z` と `2026-03-20T09:00:01+09:00` は
+    UTC 基準で前後比較される。
+    """
     if (start_ts.tzinfo is None) != (end_ts.tzinfo is None):
         raise ValueError("start_ts and end_ts must use the same timezone format")
     if end_ts < start_ts:

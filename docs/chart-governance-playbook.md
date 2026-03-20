@@ -73,6 +73,11 @@ Discussion テンプレートに最低限含める項目:
 - `CODEOWNERS` の approver を必須化
 - CI で `tests/test_charts_seed.py` を必須チェックにする
 
+注記:
+
+- 現時点では上記ルールは「方針」であり、GitHub 側の branch protection / required checks への適用は未完了。
+- 実運用で強制する場合は、別 PR またはリポジトリ設定で required reviewers と required status checks を有効化する。
+
 PR 本文に最低限含める項目:
 
 1. 変更理由

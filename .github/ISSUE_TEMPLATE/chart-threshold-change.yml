@@ -1,5 +1,5 @@
 name: Chart Threshold Change
-about: Threshold update request for chart parameters
+description: Threshold update request for chart parameters
 title: "[Chart] <tool/recipe> threshold update"
 labels: ["chart", "threshold-change"]
 body:

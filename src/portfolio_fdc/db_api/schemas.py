@@ -8,11 +8,6 @@ from math import isfinite
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
-def _parse_iso8601(ts: str) -> datetime:
-    """ISO8601 文字列を `datetime` に変換する。`Z` は UTC として扱う。"""
-    return datetime.fromisoformat(ts.replace("Z", "+00:00"))
-
-
 class ProcessInfoIn(BaseModel):
     """`/processes` に投入するプロセス情報。"""
 
@@ -20,17 +15,15 @@ class ProcessInfoIn(BaseModel):
     tool_id: str
     chamber_id: str
     recipe_id: str
-    start_ts: str
-    end_ts: str
+    start_ts: datetime
+    end_ts: datetime
     raw_csv_path: str
 
     @model_validator(mode="after")
     def validate_time_range(self) -> ProcessInfoIn:
-        start = _parse_iso8601(self.start_ts)
-        end = _parse_iso8601(self.end_ts)
-        if (start.tzinfo is None) != (end.tzinfo is None):
+        if (self.start_ts.tzinfo is None) != (self.end_ts.tzinfo is None):
             raise ValueError("start_ts and end_ts must use the same timezone format")
-        if end < start:
+        if self.end_ts < self.start_ts:
             raise ValueError("end_ts must be greater than or equal to start_ts")
         return self
 
@@ -46,17 +39,15 @@ class StepWindowIn(BaseModel):
 
     process_id: str
     step_no: int
-    start_ts: str
-    end_ts: str
+    start_ts: datetime
+    end_ts: datetime
     source_channel: str
 
     @model_validator(mode="after")
     def validate_time_range(self) -> StepWindowIn:
-        start = _parse_iso8601(self.start_ts)
-        end = _parse_iso8601(self.end_ts)
-        if (start.tzinfo is None) != (end.tzinfo is None):
+        if (self.start_ts.tzinfo is None) != (self.end_ts.tzinfo is None):
             raise ValueError("start_ts and end_ts must use the same timezone format")
-        if end < start:
+        if self.end_ts < self.start_ts:
             raise ValueError("end_ts must be greater than or equal to start_ts")
         return self
 

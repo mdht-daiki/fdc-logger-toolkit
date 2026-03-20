@@ -40,15 +40,18 @@ def _process_row(p: ProcessInfoIn) -> tuple[str, str, str, str, str, str, str]:
         p.tool_id,
         p.chamber_id,
         p.recipe_id,
-        p.start_ts,
-        p.end_ts,
+        p.start_ts.isoformat(),
+        p.end_ts.isoformat(),
         p.raw_csv_path,
     )
 
 
 def _step_window_rows(items: list[StepWindowIn]) -> list[tuple[str, int, str, str, str]]:
     """`StepWindowIn` 一覧を StepWindows insert 用のタプル一覧へ変換する。"""
-    return [(w.process_id, w.step_no, w.start_ts, w.end_ts, w.source_channel) for w in items]
+    return [
+        (w.process_id, w.step_no, w.start_ts.isoformat(), w.end_ts.isoformat(), w.source_channel)
+        for w in items
+    ]
 
 
 def _parameter_rows(params: list[ParameterIn]) -> list[tuple[str, str, int, str, float]]:

@@ -445,12 +445,7 @@ def build_processes_steppeak(
         recipe = classify_recipe_from_peaks(q, df2, dc_key=dc_key, cl2_key=cl2_key)
         a = q[0][0]
         b = q[3][1]
-        step_windows = [
-            (1, q[0][0], q[0][1]),
-            (2, q[1][0], q[1][1]),
-            (3, q[2][0], q[2][1]),
-            (4, q[3][0], q[3][1]),
-        ]
+        step_windows = [(step_idx + 1, p[0], p[1]) for step_idx, p in enumerate(q)]
         out.append(
             {
                 "cut_method": "steppeak",
@@ -461,8 +456,78 @@ def build_processes_steppeak(
             }
         )
         i += 4
-    # handle 3-step recipes: placeholder logic (if you detect 3 peaks pattern, split one peak)
-    # You can implement: detect 3 peaks then split step2 into 2 using split_ratio to make 4 steps.
+    # handle 3-step recipes: 残余3ピークを split_step_no 番目で分割し4ステップ化する
+    remaining = peaks[i:]
+    if len(remaining) == 3:
+        raw_split_step_no = sp.get("split_step_no", 3)
+        raw_split_ratio = sp.get("split_ratio", 0.5)
+        try:
+            split_step_no = int(raw_split_step_no) - 1  # 1-indexed → 0-indexed
+            split_ratio = float(raw_split_ratio)
+            if not (0 <= split_step_no < len(remaining)):
+                logger.warning(
+                    "Configured split_step_no=%d (1-indexed) is out of range "
+                    "for %d remaining peaks; skipping 3-step split.",
+                    split_step_no + 1,
+                    len(remaining),
+                )
+                return out
+            if not (0 < split_ratio < 1):
+                raise ValueError(f"split_ratio={split_ratio!r} must satisfy 0 < ratio < 1")
+            split_pieces = split_one_peak_into_two(remaining[split_step_no], ratio=split_ratio)
+        except (TypeError, ValueError) as exc:
+            logger.warning(
+                "Invalid split parameters (split_step_no=%r, split_ratio=%r); "
+                "skipping 3-step split: %s",
+                raw_split_step_no,
+                raw_split_ratio,
+                exc,
+            )
+            return out
+        if len(split_pieces) != 2:
+            logger.warning(
+                "split_one_peak_into_two returned %d piece(s) instead of 2 "
+                "(split_step_no=%d, split_ratio=%r); skipping 3-step split.",
+                len(split_pieces),
+                split_step_no + 1,
+                split_ratio,
+            )
+            return out
+        if any(
+            (piece[1] - piece[0]).total_seconds() < MIN_CLASSIFICATION_WINDOW_SEC
+            for piece in split_pieces
+        ):
+            logger.warning(
+                "split_one_peak_into_two produced short window(s) "
+                "(split_step_no=%d, split_ratio=%r); skipping 3-step split.",
+                split_step_no + 1,
+                split_ratio,
+            )
+            return out
+        q = list(remaining[:split_step_no]) + split_pieces + list(remaining[split_step_no + 1 :])
+        if any(
+            (window[1] - window[0]).total_seconds() < MIN_CLASSIFICATION_WINDOW_SEC for window in q
+        ):
+            logger.warning(
+                "3-step split produced non-classifiable window(s) "
+                "(split_step_no=%d, split_ratio=%r); skipping 3-step split.",
+                split_step_no + 1,
+                split_ratio,
+            )
+            return out
+        recipe = classify_recipe_from_peaks(q, df2, dc_key=dc_key, cl2_key=cl2_key)
+        a = q[0][0]
+        b = q[-1][1]
+        step_windows = [(step_idx + 1, p[0], p[1]) for step_idx, p in enumerate(q)]
+        out.append(
+            {
+                "cut_method": "steppeak",
+                "recipe_id": recipe,
+                "process_start": a,
+                "process_end": b,
+                "step_windows": step_windows,
+            }
+        )
     return out
 
 

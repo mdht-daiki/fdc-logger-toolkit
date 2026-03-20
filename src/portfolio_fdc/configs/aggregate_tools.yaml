@@ -14,7 +14,7 @@ tools:
       cl2_flow_on: 5.0
       cl2_flow_off: 2.0
       # 3step→4stepへ分割する場合のルール（例）
-      split_step_no: 2
+      split_step_no: 3
       split_ratio: 0.7
   TOOL_B:
     chamber_id: CH1

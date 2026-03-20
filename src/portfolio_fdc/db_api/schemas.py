@@ -8,6 +8,14 @@ from math import isfinite
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
+def validate_timestamp_range(start_ts: datetime, end_ts: datetime) -> None:
+    """start/end のタイムゾーン形式と時系列順序を共通検証する。"""
+    if (start_ts.tzinfo is None) != (end_ts.tzinfo is None):
+        raise ValueError("start_ts and end_ts must use the same timezone format")
+    if end_ts < start_ts:
+        raise ValueError("end_ts must be greater than or equal to start_ts")
+
+
 class ProcessInfoIn(BaseModel):
     """`/processes` に投入するプロセス情報。"""
 
@@ -21,10 +29,7 @@ class ProcessInfoIn(BaseModel):
 
     @model_validator(mode="after")
     def validate_time_range(self) -> ProcessInfoIn:
-        if (self.start_ts.tzinfo is None) != (self.end_ts.tzinfo is None):
-            raise ValueError("start_ts and end_ts must use the same timezone format")
-        if self.end_ts < self.start_ts:
-            raise ValueError("end_ts must be greater than or equal to start_ts")
+        validate_timestamp_range(self.start_ts, self.end_ts)
         return self
 
 
@@ -45,10 +50,7 @@ class StepWindowIn(BaseModel):
 
     @model_validator(mode="after")
     def validate_time_range(self) -> StepWindowIn:
-        if (self.start_ts.tzinfo is None) != (self.end_ts.tzinfo is None):
-            raise ValueError("start_ts and end_ts must use the same timezone format")
-        if self.end_ts < self.start_ts:
-            raise ValueError("end_ts must be greater than or equal to start_ts")
+        validate_timestamp_range(self.start_ts, self.end_ts)
         return self
 
 

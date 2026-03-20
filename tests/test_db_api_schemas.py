@@ -78,12 +78,32 @@ def test_process_info_rejects_mixed_naive_and_aware() -> None:
         )
 
 
+def test_process_info_rejects_aware_then_naive() -> None:
+    with pytest.raises(ValidationError, match="same timezone format"):
+        ProcessInfoIn(
+            **_process_payload(
+                start_ts="2026-03-20T00:00:00+00:00",
+                end_ts="2026-03-20T00:00:01",
+            )
+        )
+
+
 def test_step_window_rejects_mixed_naive_and_aware() -> None:
     with pytest.raises(ValidationError, match="same timezone format"):
         StepWindowIn(
             **_step_payload(
                 start_ts="2026-03-20T00:00:00+09:00",
                 end_ts="2026-03-20T00:00:01",
+            )
+        )
+
+
+def test_step_window_rejects_naive_then_aware() -> None:
+    with pytest.raises(ValidationError, match="same timezone format"):
+        StepWindowIn(
+            **_step_payload(
+                start_ts="2026-03-20T00:00:00",
+                end_ts="2026-03-20T00:00:01+09:00",
             )
         )
 

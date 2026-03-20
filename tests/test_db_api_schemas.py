@@ -52,9 +52,20 @@ def test_validate_timestamp_range_allows_equal_boundary() -> None:
     validate_timestamp_range(ts, ts)
 
 
-def test_process_info_rejects_invalid_iso8601_string() -> None:
+@pytest.mark.parametrize("bad_field", ["start_ts", "end_ts"])
+def test_process_info_rejects_invalid_iso8601_string(bad_field: str) -> None:
+    payload = _process_payload(**{bad_field: "not-a-date"})
+
     with pytest.raises(ValidationError):
-        ProcessInfoIn(**_process_payload(start_ts="not-a-date"))
+        ProcessInfoIn(**payload)
+
+
+@pytest.mark.parametrize("bad_field", ["start_ts", "end_ts"])
+def test_step_window_rejects_invalid_iso8601_string(bad_field: str) -> None:
+    payload = _step_payload(**{bad_field: "not-a-date"})
+
+    with pytest.raises(ValidationError):
+        StepWindowIn(**payload)
 
 
 def test_process_info_rejects_mixed_naive_and_aware() -> None:

@@ -8,6 +8,12 @@ Chart 閾値変更を「レビュー必須」で安全に運用する。
 - Portable artifact: `src/portfolio_fdc/configs/charts_seed.yaml`（初回投入・復旧用。正本ではない）
 - Emergency change: DB 直変更は許可。`change_source='manual'` 必須、`ChartsHistory` 記録必須。後追い PR は努力義務（24h 以内目標）。
 
+注記（強制の実装境界）:
+
+- `change_source` 必須および `ChartsHistory` 記録必須は、アプリ/API 層で強制する（実装対象: `src/portfolio_fdc/db_api/*`、スキーマ定義は `src/portfolio_fdc/db_api/db.py`）。
+- API は `change_source` が欠落した更新リクエストを reject しなければならない。
+- DB レイヤの制約（NOT NULL/CHECK/trigger など）での強制は別途フォローアップ Issue で管理する。
+
 ## Branch Strategy
 
 - 方針整理: `chore/chart-governance-*`
@@ -89,14 +95,14 @@ PR 本文に最低限含める項目:
 
 ## Backlog
 
-| Issue | 内容                                                          |
-| ----- | ------------------------------------------------------------- |
-| #71   | design: Charts テーブル廃止・ChartsV2 正本確定                |
-| #72   | feat(tool): seed import ツール（初回投入・復旧用）            |
-| #73   | feat(tool): export ツール（active set 既定、set 指定対応）    |
-| #74   | feat(db_api): chart_sets/charts_v2/history エンドポイント復元 |
-| #75   | test: chart 管理フロー統合テスト                              |
-| #76   | feat(dashboard): read-only baseline                           |
+| Issue | 内容                                                                   |
+| ----- | ---------------------------------------------------------------------- |
+| #71   | implementation/migration/removal: 旧 Charts 参照コード撤去・データ移行 |
+| #72   | feat(tool): seed import ツール（初回投入・復旧用）                     |
+| #73   | feat(tool): export ツール（active set 既定、set 指定対応）             |
+| #74   | feat(db_api): chart_sets/charts_v2/history エンドポイント復元          |
+| #75   | test: chart 管理フロー統合テスト                                       |
+| #76   | feat(dashboard): read-only baseline                                    |
 
 ## Definition of Done (Threshold Change)
 

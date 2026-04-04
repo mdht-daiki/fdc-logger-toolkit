@@ -4,9 +4,9 @@
 
 Chart 閾値変更を「レビュー必須」で安全に運用する。
 
-- Source of truth: Git (`src/portfolio_fdc/configs/charts_seed.yaml`)
-- Runtime source: DB (`ChartsV2` + `ActiveChartSet`)
-- Emergency change: DB 直変更は許可。ただし必ず後追いで Git PR に反映する。
+- Source of truth: DB (`ChartsV2` + `ActiveChartSet`)
+- Portable artifact: `src/portfolio_fdc/configs/charts_seed.yaml`（初回投入・復旧用。正本ではない）
+- Emergency change: DB 直変更は許可。`change_source='manual'` 必須、`ChartsHistory` 記録必須。後追い PR は努力義務（24h 以内目標）。
 
 ## Branch Strategy
 
@@ -69,7 +69,8 @@ Discussion テンプレートに最低限含める項目:
 
 ## Pull Request Rules
 
-- `src/portfolio_fdc/configs/charts_seed.yaml` の変更は必ずレビュー 1 名以上
+- `src/portfolio_fdc/configs/charts_seed.yaml` の変更は必ずレビュー 1 名以上（初回投入・復旧用 YAML として管理）
+- `ChartsV2` の閾値変更 PR は `change_reason` を必ず本文に含める
 - `CODEOWNERS` の approver を必須化
 - CI で `tests/test_charts_seed.py` を必須チェックにする
 
@@ -86,12 +87,16 @@ PR 本文に最低限含める項目:
 4. ロールバック手順
 5. 検証結果
 
-## Initial Backlog
+## Backlog
 
-1. `charts_seed.yaml` -> `ChartsV2` import ツールを作る
-2. `ChartsV2` -> YAML export ツールを作る
-3. `ActiveChartSet` 切替 API を app 本体に戻す
-4. dashboard 編集を draft set 作成フローへ寄せる
+| Issue | 内容                                                          |
+| ----- | ------------------------------------------------------------- |
+| #71   | design: Charts テーブル廃止・ChartsV2 正本確定                |
+| #72   | feat(tool): seed import ツール（初回投入・復旧用）            |
+| #73   | feat(tool): export ツール（active set 既定、set 指定対応）    |
+| #74   | feat(db_api): chart_sets/charts_v2/history エンドポイント復元 |
+| #75   | test: chart 管理フロー統合テスト                              |
+| #76   | feat(dashboard): read-only baseline                           |
 
 ## Definition of Done (Threshold Change)
 

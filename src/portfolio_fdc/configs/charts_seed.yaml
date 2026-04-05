@@ -1,0 +1,211 @@
+charts:
+  - tool_id: TOOL_A
+    chamber_id: CH1
+    recipe_id: RECIPE_A
+    parameter: dc_bias
+    step_no: 1
+    feature_type: mean
+    warn_low: 1.85
+    warn_high: 2.15
+    crit_low: 1.7
+    crit_high: 2.3
+  - tool_id: TOOL_A
+    chamber_id: CH1
+    recipe_id: RECIPE_A
+    parameter: dc_bias
+    step_no: 2
+    feature_type: mean
+    warn_low: 2.55
+    warn_high: 2.85
+    crit_low: 2.4
+    crit_high: 3.0
+  - tool_id: TOOL_A
+    chamber_id: CH1
+    recipe_id: RECIPE_A
+    parameter: dc_bias
+    step_no: 3
+    feature_type: mean
+    warn_low: 2.25
+    warn_high: 2.55
+    crit_low: 2.1
+    crit_high: 2.7
+  - tool_id: TOOL_A
+    chamber_id: CH1
+    recipe_id: RECIPE_A
+    parameter: dc_bias
+    step_no: 4
+    feature_type: mean
+    warn_low: 1.65
+    warn_high: 1.95
+    crit_low: 1.5
+    crit_high: 2.1
+  - tool_id: TOOL_A
+    chamber_id: CH1
+    recipe_id: RECIPE_A
+    parameter: cl2_flow
+    step_no: 1
+    feature_type: mean
+    warn_low: 14.0
+    warn_high: 16.0
+    crit_low: 13.0
+    crit_high: 17.0
+  - tool_id: TOOL_A
+    chamber_id: CH1
+    recipe_id: RECIPE_A
+    parameter: cl2_flow
+    step_no: 2
+    feature_type: mean
+    warn_low: 19.0
+    warn_high: 21.0
+    crit_low: 18.0
+    crit_high: 22.0
+  - tool_id: TOOL_A
+    chamber_id: CH1
+    recipe_id: RECIPE_A
+    parameter: cl2_flow
+    step_no: 3
+    feature_type: mean
+    warn_low: 17.0
+    warn_high: 19.0
+    crit_low: 16.0
+    crit_high: 20.0
+  - tool_id: TOOL_A
+    chamber_id: CH1
+    recipe_id: RECIPE_A
+    parameter: cl2_flow
+    step_no: 4
+    feature_type: mean
+    warn_low: 11.0
+    warn_high: 13.0
+    crit_low: 10.0
+    crit_high: 14.0
+  - tool_id: TOOL_A
+    chamber_id: CH1
+    recipe_id: RECIPE_A
+    parameter: apc_pressure
+    step_no: 1
+    feature_type: mean
+    warn_low: 57.7
+    warn_high: 58.3
+    crit_low: 57.2
+    crit_high: 58.8
+  - tool_id: TOOL_A
+    chamber_id: CH1
+    recipe_id: RECIPE_A
+    parameter: apc_pressure
+    step_no: 2
+    feature_type: mean
+    warn_low: 57.7
+    warn_high: 58.3
+    crit_low: 57.2
+    crit_high: 58.8
+  - tool_id: TOOL_A
+    chamber_id: CH1
+    recipe_id: RECIPE_A
+    parameter: apc_pressure
+    step_no: 3
+    feature_type: mean
+    warn_low: 57.7
+    warn_high: 58.3
+    crit_low: 57.2
+    crit_high: 58.8
+  - tool_id: TOOL_A
+    chamber_id: CH1
+    recipe_id: RECIPE_A
+    parameter: apc_pressure
+    step_no: 4
+    feature_type: mean
+    warn_low: 57.7
+    warn_high: 58.3
+    crit_low: 57.2
+    crit_high: 58.8
+  - tool_id: TOOL_A
+    chamber_id: CH1
+    recipe_id: RECIPE_3STEP_C
+    parameter: dc_bias
+    step_no: 1
+    feature_type: mean
+    warn_low: 1.55
+    warn_high: 1.85
+    crit_low: 1.4
+    crit_high: 2.0
+  - tool_id: TOOL_A
+    chamber_id: CH1
+    recipe_id: RECIPE_3STEP_C
+    parameter: dc_bias
+    step_no: 2
+    feature_type: mean
+    warn_low: 2.05
+    warn_high: 2.35
+    crit_low: 1.9
+    crit_high: 2.5
+  - tool_id: TOOL_A
+    chamber_id: CH1
+    recipe_id: RECIPE_3STEP_C
+    parameter: dc_bias
+    step_no: 3
+    feature_type: mean
+    warn_low: 1.35
+    warn_high: 1.65
+    crit_low: 1.2
+    crit_high: 1.8
+  - tool_id: TOOL_A
+    chamber_id: CH1
+    recipe_id: RECIPE_3STEP_C
+    parameter: cl2_flow
+    step_no: 1
+    feature_type: mean
+    warn_low: 13.0
+    warn_high: 15.0
+    crit_low: 12.0
+    crit_high: 16.0
+  - tool_id: TOOL_A
+    chamber_id: CH1
+    recipe_id: RECIPE_3STEP_C
+    parameter: cl2_flow
+    step_no: 2
+    feature_type: mean
+    warn_low: 17.0
+    warn_high: 19.0
+    crit_low: 16.0
+    crit_high: 20.0
+  - tool_id: TOOL_A
+    chamber_id: CH1
+    recipe_id: RECIPE_3STEP_C
+    parameter: cl2_flow
+    step_no: 3
+    feature_type: mean
+    warn_low: 12.0
+    warn_high: 14.0
+    crit_low: 11.0
+    crit_high: 15.0
+  - tool_id: TOOL_A
+    chamber_id: CH1
+    recipe_id: RECIPE_3STEP_C
+    parameter: apc_pressure
+    step_no: 1
+    feature_type: mean
+    warn_low: 57.7
+    warn_high: 58.3
+    crit_low: 57.2
+    crit_high: 58.8
+  - tool_id: TOOL_A
+    chamber_id: CH1
+    recipe_id: RECIPE_3STEP_C
+    parameter: apc_pressure
+    step_no: 2
+    feature_type: mean
+    warn_low: 57.7
+    warn_high: 58.3
+    crit_low: 57.2
+    crit_high: 58.8
+  - tool_id: TOOL_A
+    chamber_id: CH1
+    recipe_id: RECIPE_3STEP_C
+    parameter: apc_pressure
+    step_no: 3
+    feature_type: mean
+    warn_low: 57.7
+    warn_high: 58.3
+    crit_low: 57.2
+    crit_high: 58.8

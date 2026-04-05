@@ -53,6 +53,25 @@
 - ガバナンス決定を変更する場合は、同じ PR で `docs/decision-log.md` を更新する
 - アーキテクチャやガバナンスを変更する PR の説明には、理由・影響範囲・ロールバック計画を含める
 
+## 運用フロー規約（Git / Issue / Discussion）
+
+### ブランチと PR
+
+- `main` への直接コミットは原則禁止。変更は必ず作業ブランチで行い、PR レビューを経由して取り込む。
+- docs のみの変更でも同様に PR を作成する。
+- 誤って `main` にコミットした場合は、コミットを作業ブランチへ移してからローカル `main` を `origin/main` に戻す。
+
+### Discussion の分割方針
+
+- 論点が複数モジュール（judge / api / dashboard）に派生する場合は、責務ごとに Discussion または Issue を分割する。
+- judge 本体の設計論点と、db_api endpoint 要件、dashboard URL/表示要件は同一スレッドに混在させない。
+- 分割した場合は、元のトラッキング Issue にリンクを集約し、どこで最終決定するかを明記する。
+
+### 決定事項の反映
+
+- Discussion 分割や責務境界の合意を行った場合は、同一 PR で `docs/decision-log.md` に記録する。
+- dashboard 連携契約（例: URL スキーマ、judge 結果表示契約）を変更した場合は、同一 PR で `docs/dashboard-architecture-playbook.md` も更新する。
+
 ## 設計原則
 
 - モジュールごとに責務を分離する

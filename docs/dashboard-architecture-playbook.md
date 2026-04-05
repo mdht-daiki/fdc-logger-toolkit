@@ -55,6 +55,15 @@ API 設計方針（Discussion #93）:
 - dashboard から SQLite ファイルへ直接接続
 - dashboard から judge モジュールを直接 import/call
 
+実装前提（Issue #98）:
+
+db_api は以下の read endpoint を実装する必要があります（現在未実装）:
+- Chart 定義・active set: `GET /charts`, `GET /charts/active`
+- judge 結果: `GET /judge/results`, `GET /judge/results/{result_id}`（ロット・ウェハ等トレース情報含む）
+- 変更履歴: `GET /charts/history`
+
+dashboard の実装は上記 read endpoint 完成を前提としています。
+
 ## Judge Result Integration
 
 judge 連携は「直接実行」ではなく「結果参照」を原則とする。

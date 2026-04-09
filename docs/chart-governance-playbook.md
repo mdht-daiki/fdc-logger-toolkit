@@ -112,6 +112,42 @@ PR 本文に最低限含める項目:
 4. ロールバック手順
 5. 検証結果
 
+## Seed Recovery and Conflict Resolution
+
+### Seed Re-initialization Procedure
+
+Disaster recovery フローは以下に従う：
+
+1. **事象検知**：DB 利用不可を確認
+2. **復旧開始決定**：役割ベース（例: Infrastructure Lead）が承認
+3. **Seed ロード**：
+   - `src/portfolio_fdc/configs/charts_seed.yaml` から ChartsV2 を初期化
+   - レコード作成時に ChartsHistory に `change_source='seed_recovery'` と timestamp を記録
+4. **Post-restore Reconciliation**：
+   - PR 履歴をトレース（マージ時刻の新しい順）
+   - Seed ロード後の差分を再適用（主に emergency change と通常 PR による変更）
+5. **検証**：
+   - ChartsHistory 件数と期待値の照合
+   - Active set ID の確認
+   - Dashboard での表示確認
+
+### DB-Seed Conflict Rules
+
+| 状況                          | 優先度    | 動作                                        |
+| ----------------------------- | --------- | ------------------------------------------- |
+| DB 利用可（Platform time）    | DB 100%   | Seed は参照しない。DB を読む                |
+| DB 利用不可（Recovery phase） | Seed 100% | Seed からロード。PR 履歴で再適用            |
+| Seed YAML 更新（通常）        | -         | DB には影響しない。Documentation 的価値のみ |
+| Export at active state        | -         | DB → YAML export。次回復旧時の seed になる  |
+
+### Role-Based Recovery Approval
+
+- **Recovery Initiator**：Infrastructure Lead が復旧開始を判定・決定
+- **Recovery Executor**：API または admin tool で seed ロードを実行
+- **Reconciliation Lead**：PR 履歴から post-restore 差分を検証・再適用指示
+
+いずれの役割も個人名ではなく role で定義し、複数人が兼任可能な状態を保つ。
+
 ## Backlog
 
 | Issue | 内容                                                                   |

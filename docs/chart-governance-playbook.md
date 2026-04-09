@@ -6,13 +6,31 @@ Chart 閾値変更を「レビュー必須」で安全に運用する。
 
 - Source of truth: DB (`ChartsV2` + `ActiveChartSet`)
 - Portable artifact: `src/portfolio_fdc/configs/charts_seed.yaml`（初回投入・復旧用。正本ではない）
-- Emergency change: DB 直変更は許可。`change_source='manual'` 必須、`ChartsHistory` 記録必須。後追い PR は努力義務（24h 以内目標）。
+- Emergency change: dashboard/API からの緊急変更を許可。後追い PR は努力義務（24h 以内または翌営業日内目標）。
+
+通常運用と緊急運用:
+
+- 通常変更: PR 必須（レビュー承認後に反映）
+- 緊急変更: 即時反映を許可（例外ルート）
+- 緊急変更後: 事後 PR と追認は努力義務として運用する
+
+緊急変更の権限と範囲:
+
+- 実行者と追認者は個人名ではなく役割で定義する
+- 緊急変更で許可する対象は chart 閾値・chart set 運用に限定する
+- DB スキーマ変更や大量一括変更は緊急例外ルートの対象外とする
+
+緊急変更時の監査と通知:
+
+- 自動必須記録: 変更者、変更時刻、変更対象、変更差分
+- 後追い入力可: reason、承認コメント、関連 Issue/PR
+- 緊急変更イベント発生時は運用通知（メール等）を送信する
 
 注記（強制の実装境界）:
 
-- `change_source` 必須および `ChartsHistory` 記録必須は、アプリ/API 層で強制する（実装対象: `src/portfolio_fdc/db_api/*`、スキーマ定義は `src/portfolio_fdc/db_api/db.py`）。
-- API は `change_source` が欠落した更新リクエストを reject しなければならない。
-- DB レイヤの制約（NOT NULL/CHECK/trigger など）での強制は別途フォローアップ Issue で管理する。
+- 自動必須記録（変更者/時刻/対象/差分）はアプリ/API 層で強制する（実装対象: `src/portfolio_fdc/db_api/*`、スキーマ定義は `src/portfolio_fdc/db_api/db.py`）。
+- reason や承認コメントは緊急時の後追い入力を許可する（運用努力義務）。
+- DB レイヤの制約（NOT NULL/CHECK/trigger など）での厳格強制は別途フォローアップ Issue で管理する。
 
 ## Branch Strategy
 
@@ -79,6 +97,7 @@ Discussion テンプレートに最低限含める項目:
 - `ChartsV2` の閾値変更 PR は `change_reason` を必ず本文に含める
 - `CODEOWNERS` の approver を必須化
 - CI で `tests/test_charts_seed.py` を必須チェックにする
+- 緊急変更は例外ルートとして即時反映を許可し、事後 PR の作成と追認を行う
 
 注記:
 

@@ -2,6 +2,7 @@
 language: "ja"
 
 reviews:
+  review_status: false
   high_level_summary: true
   high_level_summary_instructions: "Short bullets. Mention risks and test gaps."
   auto_review:

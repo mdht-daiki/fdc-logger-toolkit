@@ -34,7 +34,7 @@ seed 初期化トリガーと DB-seed 競合時の優先ルールが明示的で
 - docs: architecture.md に「Seed Recovery and Conflict Resolution」セクションを追加
 - docs: chart-governance-playbook.md に「Seed Recovery and Conflict Resolution」セクションを追加
 - DB: ChartsHistory に `change_source` カラムに `'seed_recovery'` 値を許可する実装
-- API: Seed ロード endpoint（Issue #72 の実装対象）で change_source を自動설정する
+- API: Seed ロード endpoint（Issue #72 の実装対象）で change_source を自動設定する
 - Ops: Disaster recovery playbook でロール定義と手順を明記する
 
 ## 2026-04-09: #102 変更ガバナンス方針の最終確定（通常PR必須 + 緊急変更例外）

@@ -1,5 +1,42 @@
 # Decision Log
 
+## 2026-04-10: #104 正本データの扱い（DB正本 + seed復旧用）
+
+### Context
+
+Issue #102 で変更ガバナンスが確定したことに伴い、次のステップとして
+「正本データの扱い」を明確化する必要があった。
+Chart の runtime 正本は DB（ChartsV2 + ActiveChartSet）であり、
+seed（charts_seed.yaml）は災害復旧用のアーティファクトと位置づけられていたが、
+seed 初期化トリガーと DB-seed 競合時の優先ルールが明示的でなかった。
+
+### Decision
+
+正本データとして以下の方針を採用する：
+
+1. **Runtime 正本は DB のみ** → Seed は参照しない（初期起動時以外）
+2. **Seed 再初期化トリガーは 3 条件に限定** → DB 喪失、破損、利用不可スナップショット
+3. **DB-Seed 優先ルール**
+   - Runtime（平時）：DB を 100% 優先。Seed は読まない
+   - Recovery（復旧フェーズ）：Seed をロード後、PR 履歴で差分を再適用
+4. **Seed ロード時の監査記録** → `change_source='seed_recovery'` で ChartsHistory に記録
+5. **復旧完全性検証** → ChartsHistory 件数 + PR 履歴 + Active set ID で整合確認
+
+### Why
+
+- Runtime を DB のみに統一することで、緊急変更・API 更新・UI 編集が混在する運用を一本化できる
+- Seed 再初期化を 3 条件に限定することで、乱開始を防ぎ、計算可能な復旧フローを確立できる
+- 優先ルールを明示することで、復旧フェーズでの実装判断を機械的にできる
+- ChartsHistory + PR 履歴で復旧後の状態を検証できるため、復旧ミスを早期に検出できる
+
+### Consequence
+
+- docs: architecture.md に「Seed Recovery and Conflict Resolution」セクションを追加
+- docs: chart-governance-playbook.md に「Seed Recovery and Conflict Resolution」セクションを追加
+- DB: ChartsHistory に `change_source` カラムに `'seed_recovery'` 値を許可する実装
+- API: Seed ロード endpoint（Issue #72 の実装対象）で change_source を自動設定する
+- Ops: Disaster recovery playbook でロール定義と手順を明記する
+
 ## 2026-04-09: #102 変更ガバナンス方針の最終確定（通常PR必須 + 緊急変更例外）
 
 ### Context

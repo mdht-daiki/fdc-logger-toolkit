@@ -17,6 +17,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "httpx>=0.28",
+  "import-linter>=2.3",
   "pytest>=8",
   "ruff>=0.6",
   "mypy>=1.10",
@@ -44,6 +45,27 @@ markers = [
   "integration: end-to-end style tests combining generators and scraper",
   "slow: heavy tests that generate large files or run longer",
 ]
+
+[tool.importlinter]
+root_packages = ["portfolio_fdc"]
+
+[[tool.importlinter.contracts]]
+name = "dashboard must not import judge"
+type = "forbidden"
+source_modules = ["portfolio_fdc.dashboard"]
+forbidden_modules = ["portfolio_fdc.judge"]
+
+[[tool.importlinter.contracts]]
+name = "judge must not import dashboard"
+type = "forbidden"
+source_modules = ["portfolio_fdc.judge"]
+forbidden_modules = ["portfolio_fdc.dashboard"]
+
+[[tool.importlinter.contracts]]
+name = "main ingest must not import dashboard or judge"
+type = "forbidden"
+source_modules = ["portfolio_fdc.main"]
+forbidden_modules = ["portfolio_fdc.dashboard", "portfolio_fdc.judge"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

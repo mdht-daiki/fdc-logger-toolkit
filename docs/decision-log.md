@@ -1,5 +1,43 @@
 # Decision Log
 
+## 2026-04-11: #106 モジュール境界の機械的担保と API 許可範囲の運用ルール実装
+
+### Context
+
+Discussion #90 と PR #92 / #100 で、モジュール境界方針
+（dashboard -> api のみ許可、dashboard -> judge 禁止、judge -> dashboard 禁止）は
+合意済みだったが、コードベースで違反を検知する機械的仕組みは未実装だった。
+また、ingest/judge/dashboard/ops が api を呼ぶ際の許可範囲が
+運用手順として明文化されておらず、将来の境界逸脱リスクが残っていた。
+
+### Decision
+
+システムとして以下を実装する。
+
+1. import 境界は `import-linter` で機械検証する
+2. `pyproject.toml` に禁止依存契約を定義する
+   - dashboard must not import judge
+   - judge must not import dashboard
+   - main ingest must not import dashboard or judge
+3. `.pre-commit-config.yaml` に import-linter フックを追加する
+4. `scripts/run_import_linter.py` を追加し、`src` 配下を安定的に解析可能にする
+5. `docs/db-api-endpoints.md` に `Consumer Permission Scope` を追加し、
+   ingest/judge/dashboard/ops-audit の許可/禁止範囲を明記する
+
+### Why
+
+- 方針だけでなく機械検証を導入することで、実装拡張時の境界逸脱を早期に検出できる
+- pre-commit フックによりローカル段階で違反を止められる
+- API 許可範囲を文書化することで、モジュール責務を運用と実装の両面で一致できる
+- 将来の judge/dashboard 実装拡張時にも境界ルールを継続適用しやすい
+
+### Consequence
+
+- モジュール依存違反は import-linter 契約違反として検出される
+- 開発フローに pre-commit での境界チェックが追加される
+- endpoint ごとの consumer 許可範囲が docs 上で参照可能になる
+- CI 必須化（GitHub Actions で import-linter 実行）はフォローアップタスクとして管理する（追跡: Issue #108）
+
 ## 2026-04-10: #104 正本データの扱い（DB正本 + seed復旧用）
 
 ### Context

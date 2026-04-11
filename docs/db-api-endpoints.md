@@ -97,6 +97,22 @@
 3. 変更なし更新（no-op）の扱い
 4. system job 更新との競合
 
+#### Threshold consistency (Issue #109)
+
+以下は API 契約としての必須テスト（mandatory contract tests）とする。
+
+1. `UCL < LCL` を拒否し、validation error を返す
+2. `UCL == LCL`（equal 不許可ルール時）を拒否し、validation error を返す
+3. 負のしきい値（仕様で不許可の項目）を拒否し、validation error を返す
+4. 数値以外（文字列/NaN/inf 等）を拒否し、validation error を返す
+5. 許容範囲外（min/max を超過）のしきい値を拒否し、validation error を返す
+6. 変更なし更新（同一値送信）は no-op として扱う（履歴を増やさないことを確認）
+
+期待挙動:
+
+- validation error の場合は 4xx（入力不正）として返し、更新を実行しない
+- no-op の場合は成功応答を返しつつ、`ChartsHistory` を追加しない
+
 注記:
 
 - 競合検出と冪等性は別責務として検証する。

@@ -41,3 +41,20 @@
 - dashboard の read path は `db_api` 経由のみとする（Discussion #93）。
 - dashboard 実装前提の read endpoint は Issue #98 で追跡している。
 - 変更ガバナンス endpoint は Issue #102 の合意を前提に設計・実装する。
+
+## Consumer Permission Scope
+
+モジュール境界（dashboard -> api のみ、dashboard -> judge 禁止、judge -> dashboard 禁止）を維持するため、
+各 consumer の許可範囲を以下で定義する。
+
+| Consumer  | Allowed Scope                                                                                                         | Disallowed Scope                                                                                     |
+| --------- | --------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| ingest    | `POST /processes`, `POST /step_windows/bulk`, `POST /parameters/bulk`, `POST /aggregate/write`, `DELETE /processes/*` | dashboard 向け read endpoint、governance endpoint                                                    |
+| judge     | `GET /charts`, `GET /charts/active`, `GET /charts/history`, judge 結果の write endpoint（実装時）                     | dashboard 専用集計 read endpoint、governance endpoint                                                |
+| dashboard | `GET /charts*`, `GET /judge/results*`, `POST/GET /governance/*`                                                       | ingest write endpoint（`/processes*`, `/step_windows/bulk`, `/parameters/bulk`, `/aggregate/write`） |
+| ops/audit | `GET /governance/*`, `POST /governance/*`（approve/apply/ratify/retry）                                               | ingest の通常データ投入 endpoint                                                                     |
+
+検証方針:
+
+1. import 境界は `import-linter` で CI と pre-commit で機械検出する。
+2. endpoint 権限は API スキーマ実装時にテスト（認可・認証）で検証する。

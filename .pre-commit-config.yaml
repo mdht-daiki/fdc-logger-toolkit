@@ -23,3 +23,13 @@ repos:
           - PyYAML>=6.0
           - types-PyYAML>=6.0.12
           - types-requests>=2.32.0
+
+  - repo: local
+    hooks:
+      - id: import-linter
+        name: import-linter
+        entry: python scripts/run_import_linter.py
+        language: python
+        additional_dependencies:
+          - import-linter>=2.3
+        pass_filenames: false

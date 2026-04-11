@@ -58,3 +58,44 @@
 
 1. import 境界は `import-linter` で pre-commit で機械検出する（CI での強制は未実装・フォローアップ: Issue #108）。
 2. endpoint 権限は API スキーマ実装時にテスト（認可・認証）で検証する。
+
+## Must-Test Cases for API Contract
+
+しきい値更新 API（planned endpoint）を実装する際、以下のケースを最小必須テストとする。
+
+### Normal Update
+
+1. `expected_version` 一致で更新成功する
+2. 成功時に `version` が 1 増加する
+3. `ChartsHistory` に 1 件追加される
+
+### Conflict Handling
+
+1. stale `expected_version` で更新失敗する
+2. `409 Conflict` を返す
+3. 競合時は `ChartsHistory` を追加しない
+4. `409` レスポンスに最新状態（`current.version`, `current.updated_at` など）を含める
+
+### Idempotent Retry
+
+1. 同一 `Idempotency-Key` で再送した場合、二重更新しない
+2. `ChartsHistory` が二重記録されない
+
+### Emergency Update
+
+1. emergency 権限なしでは拒否する
+2. emergency 権限ありでは強制更新を許可する
+3. `reason` 必須を検証する
+4. `ChartsHistory` に `is_emergency=true` を記録する
+
+### Boundary and Edge Cases
+
+1. 対象 chart が存在しない場合のエラー
+2. archived/disabled chart の更新挙動
+3. 変更なし更新（no-op）の扱い
+4. system job 更新との競合
+
+注記:
+
+- 競合検出と冪等性は別責務として検証する。
+- 競合検出は `expected_version` 比較、冪等性は `Idempotency-Key` で担保する。

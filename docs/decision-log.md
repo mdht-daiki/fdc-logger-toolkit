@@ -1,5 +1,39 @@
 # Decision Log
 
+## 2026-04-11: #109 しきい値更新 API 契約の確定方針（競合制御・監査・必須テスト）
+
+### Context
+
+dashboard の read path と API 契約の基本方針（db_api 固定、機能単位 API、集約 read は api 側、当面バージョニングなし）は
+Discussion #93 / Issue #86 / Issue #98 で決定済みだが、
+しきい値更新 API の具体契約（入力バリデーション、競合時挙動、監査情報、テスト要件）は未確定だった。
+また、運用上重要な chart 変更で静かな上書き（LWW 常態化）を避ける必要があるため、
+通常更新と緊急更新の契約分離を明示化する必要があった。
+
+### Decision
+
+API 契約の確定方針として以下を採用する。
+
+1. 通常更新は `expected_version` を用いた楽観ロックを標準とし、不一致時は `409 Conflict` を返す
+2. 緊急更新は通常更新と契約を分離し、権限チェック + reason 必須の上で例外運用を許可する
+3. 競合時の `409` 応答には最新状態（current.version/current.updated_at など）を含める
+4. API で使用する timestamp 文字列表現は UTC、ISO 8601、ミリ秒精度（`YYYY-MM-DDTHH:mm:ss.SSSZ`）を採用する
+5. 監査情報は API 側で自動必須項目を記録し、後追い入力可項目は別扱いにする
+6. 必須テストケース（Normal/Conflict/Idempotent/Emergency/Edge）を契約テストとして維持する
+
+### Why
+
+- SQLite の排他制御は物理整合性を守るが、編集意図の整合性（ロストアップデート防止）は別途保証が必要
+- しきい値変更は judge 判定とアラート挙動に直結するため、静かな上書きより明示的競合検出が安全
+- 通常更新と緊急更新を分離することで、運用安全性と即応性を同時に満たせる
+- テスト観点を先に固定することで、実装後の契約逸脱を防げる
+
+### Consequence
+
+- しきい値更新 API 実装は Issue #109 の契約（expected_version/409/timestamp/監査）に従う
+- `docs/db-api-endpoints.md` の Must-Test Cases を API 契約テストの基準として扱う
+- 緊急更新 API は権限・理由・履歴フラグを含む仕様で別途実装する
+
 ## 2026-04-11: #106 モジュール境界の機械的担保と API 許可範囲の運用ルール実装
 
 ### Context

@@ -47,14 +47,14 @@
 モジュール境界（dashboard -> api のみ、dashboard -> judge 禁止、judge -> dashboard 禁止）を維持するため、
 各 consumer の許可範囲を以下で定義する。
 
-| Consumer  | Allowed Scope                                                                                                         | Disallowed Scope                                                                                     |
-| --------- | --------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| ingest    | `POST /processes`, `POST /step_windows/bulk`, `POST /parameters/bulk`, `POST /aggregate/write`, `DELETE /processes/*` | dashboard 向け read endpoint、governance endpoint                                                    |
-| judge     | `GET /charts`, `GET /charts/active`, `GET /charts/history`, judge 結果の write endpoint（実装時）                     | dashboard 専用集計 read endpoint、governance endpoint                                                |
-| dashboard | `GET /charts*`, `GET /judge/results*`, `POST/GET /governance/*`                                                       | ingest write endpoint（`/processes*`, `/step_windows/bulk`, `/parameters/bulk`, `/aggregate/write`） |
-| ops/audit | `GET /governance/*`, `POST /governance/*`（approve/apply/ratify/retry）                                               | ingest の通常データ投入 endpoint                                                                     |
+| Consumer  | Allowed Scope                                                                                                                                                                                                                                                                                        | Disallowed Scope                                                                                   |
+| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| ingest    | `POST /processes`, `POST /step_windows/bulk`, `POST /parameters/bulk`, `POST /aggregate/write`, `DELETE /processes/*`                                                                                                                                                                                | dashboard 向け read endpoint、governance endpoint                                                  |
+| judge     | `GET /charts`, `GET /charts/active`, judge 結果の write endpoint（実装時）                                                                                                                                                                                                                           | `GET /charts/history`（dashboard/ops 専用）、dashboard 専用集計 read endpoint、governance endpoint |
+| dashboard | `GET /charts*`, `GET /charts/history`, `GET /judge/results*`, `POST /governance/change-requests`, `POST /governance/emergency-changes`                                                                                                                                                               | `GET /governance/*`、governance approve/apply/ratify/retry endpoint、ingest write endpoint         |
+| ops/audit | `GET /governance/change-requests`, `GET /governance/audit-events`, `POST /governance/change-requests`, `POST /governance/change-requests/{id}/approve`, `POST /governance/change-requests/{id}/apply`, `POST /governance/emergency-changes/{id}/ratify`, `POST /governance/notifications/{id}/retry` | ingest の通常データ投入 endpoint                                                                   |
 
 検証方針:
 
-1. import 境界は `import-linter` で CI と pre-commit で機械検出する。
+1. import 境界は `import-linter` で pre-commit で機械検出する（CI での強制は未実装・フォローアップ: Issue #108）。
 2. endpoint 権限は API スキーマ実装時にテスト（認可・認証）で検証する。

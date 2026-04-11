@@ -36,7 +36,7 @@ Discussion #90 と PR #92 / #100 で、モジュール境界方針
 - モジュール依存違反は import-linter 契約違反として検出される
 - 開発フローに pre-commit での境界チェックが追加される
 - endpoint ごとの consumer 許可範囲が docs 上で参照可能になる
-- CI 必須化（GitHub Actions で import-linter 実行）はフォローアップタスクとして管理する
+- CI 必須化（GitHub Actions で import-linter 実行）はフォローアップタスクとして管理する（追跡: Issue #108）
 
 ## 2026-04-10: #104 正本データの扱い（DB正本 + seed復旧用）
 

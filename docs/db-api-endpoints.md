@@ -68,6 +68,7 @@
 1. `expected_version` 一致で更新成功する
 2. 成功時に `version` が 1 増加する
 3. `ChartsHistory` に 1 件追加される
+4. 成功レスポンスに含まれる `current.updated_at` が UTC の ISO 8601 かつミリ秒固定精度（`YYYY-MM-DDTHH:mm:ss.SSSZ`）であることを検証する
 
 ### Conflict Handling
 
@@ -75,6 +76,7 @@
 2. `409 Conflict` を返す
 3. 競合時は `ChartsHistory` を追加しない
 4. `409` レスポンスに最新状態（`current.version`, `current.updated_at` など）を含める
+5. `409` レスポンスの `current.updated_at` が UTC の ISO 8601 かつミリ秒固定精度（`YYYY-MM-DDTHH:mm:ss.SSSZ`）であることを検証する
 
 ### Idempotent Retry
 

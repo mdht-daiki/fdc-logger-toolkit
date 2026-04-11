@@ -17,7 +17,7 @@ API 契約の確定方針として以下を採用する。
 1. 通常更新は `expected_version` を用いた楽観ロックを標準とし、不一致時は `409 Conflict` を返す
 2. 緊急更新は通常更新と契約を分離し、権限チェック + reason 必須の上で例外運用を許可する
 3. 競合時の `409` 応答には最新状態（current.version/current.updated_at など）を含める
-4. API で使用する timestamp 文字列表現は UTC + ISO 8601 + 精度固定で統一する
+4. API で使用する timestamp 文字列表現は UTC、ISO 8601、ミリ秒精度（`YYYY-MM-DDTHH:mm:ss.SSSZ`）を採用する
 5. 監査情報は API 側で自動必須項目を記録し、後追い入力可項目は別扱いにする
 6. 必須テストケース（Normal/Conflict/Idempotent/Emergency/Edge）を契約テストとして維持する
 

@@ -18,7 +18,8 @@ Discussion #90 と PR #97 で「契約テスト・統合テスト・表示受け
 3. しきい値変更フロー（更新 -> 履歴記録 -> active set 反映 -> judge 参照）は統合テストを必須とする
 4. dashboard については表示ロジックを UI 実装に閉じず、`NG > WARN > OK` 優先順位と color band ルールを受け入れテストで固定する
 5. 回帰防止対象は既存 ingest/db_api の主要挙動を優先し、削除 API 新旧整合、bulk 空入力、step_no/feature_value バリデーション、aggregate 投稿フロー成立を必須回帰セットとする
-6. 新機能追加時は「契約テスト 1 件 + 統合テスト 1 件 + 回帰影響の有無判定」を PR の DoD に含める
+6. 新機能追加時は「契約テスト 1 件 + 統合テスト 1 件 + 回帰影響判定（影響なしの場合は根拠を明記）」を PR の DoD として必須化する
+   例: dashboard の判定表示追加では、契約テスト（judge results レスポンス）1 件 + 統合テスト（しきい値変更後の表示反映）1 件 + 既存表示ルールへの回帰影響判定を PR 説明に記載する
 
 ### Why
 
@@ -31,6 +32,7 @@ Discussion #90 と PR #97 で「契約テスト・統合テスト・表示受け
 - docs に test tier（契約/統合/受け入れ/回帰）を明示し、実装前提として扱う
 - db_api/judge/dashboard の各実装 Issue では、上記 test tier のどこを満たすかを受け入れ条件に記載する
 - 具体テストケースの追加と CI 組み込みはフォローアップ Issue #115 で追跡する
+- レビュー時は PR 説明・関連 Issue・関連 Discussion と実装内容の整合を必ず確認する
 
 ## 2026-04-12: 論点6 DB運用と並行制御（SQLite lock/retry/timeout/recovery）
 

@@ -15,7 +15,7 @@ Phase 1 の judge 判定ルールとして以下を採用する。
 
 1. 各 Chart は warning / critical のしきい値区分を持つ
 2. warning, critical のいずれの逸脱でもメールアラートを送信する
-3. critical 指定の Chart で逸脱した場合は、停止 API（例: `http://example.com/equipment/stop`）を呼び出して装置停止をトリガーする
+3. critical 指定の Chart で逸脱した場合は、停止 API を呼び出して装置停止をトリガーする（例: `https://example.com/equipment/stop` はプレースホルダ。実装時は実環境の HTTPS endpoint を使用）
 4. suppression は「重複通知抑制」を意味し、装置停止そのものを抑制する意味では使わない
 5. suppression の初期方針は「同一インシデント中の同一内容メールの重複送信を抑制する」に限定し、停止判断ロジックとは分離する
 

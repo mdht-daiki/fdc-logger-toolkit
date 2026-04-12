@@ -113,6 +113,33 @@ URL 契約トラッキング（Discussion #94）:
 - マージ後 active 化 API 実行
 - 変更履歴と判定結果の事後確認
 
+## Test Strategy
+
+dashboard 関連テストは以下の 4 層で管理する。
+
+1. 契約テスト（db_api 境界）
+
+- `GET /charts*`, `GET /judge/results*`, `GET /charts/history` のレスポンス契約を固定する
+- 必須項目、エラー形式、timestamp 形式、互換要件（deprecated endpoint ヘッダ）を検証する
+
+2. 統合テスト（しきい値変更フロー）
+
+- しきい値更新 -> 履歴記録 -> active set 反映 -> judge 参照結果の連鎖を検証する
+- 更新後に dashboard 参照結果が契約どおり変化することを確認する
+
+3. 受け入れテスト（表示ルール）
+
+- 優先順位 `NG > WARN > OK` が表示判定に反映されること
+- color band（Center/Warning/Critical）が仕様どおり表示されること
+- hover/click で判定結果 + 処理開始時間 + ロット ID（取得可能ならウェハ ID）を表示できること
+
+4. 回帰テスト
+
+- 既存 ingest/db_api 連携の最小成功フローを壊さないこと
+- 新規 UI 機能追加時に既存表示規約が後退しないこと
+
+PR で dashboard 契約や表示仕様を変更する場合は、上記いずれかのテスト更新を同一 PR に含める。
+
 ## Non-Goals
 
 - dashboard から judge の直接実行

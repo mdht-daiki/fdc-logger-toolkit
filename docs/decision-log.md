@@ -1,5 +1,40 @@
 # Decision Log
 
+## 2026-04-12: 論点6 DB運用と並行制御（SQLite lock/retry/timeout/recovery）
+
+### Context
+
+db_api は SQLite を正本として運用するが、ロック競合時の再試行方針、
+タイムアウト/バックオフ値、障害時の整合性回復手順が実装前に明文化されていなかった。
+運用での停止時間を抑えつつ、部分反映や二重反映を避けるため、
+並行制御ポリシーを先に固定する必要があった。
+
+### Decision
+
+論点6の方針として以下を採用する。
+
+1. SQLite lock（`database is locked` 相当）のみを一時競合としてリトライ対象とする
+2. `attempts` は総試行回数（初回 attempt を含む）と定義し、write 系 3 attempts、read 系 2 attempts を上限とする
+3. バックオフは指数型（100ms, 300ms, 900ms）を基本とし、各回に小さなジッターを付与する
+4. 接続レベルの busy timeout は 3000ms を標準値とする
+5. 要求全体の E2E 予算は write 系 10 秒、read 系 5 秒を優先制約とする（attempt 上限より優先）
+6. 総経過時間が E2E 予算に到達した時点で即時打ち切りし、追加 attempt は行わない
+7. 各 attempt の開始前に、busy timeout + バックオフ + ジッターを含む見積実行時間が残予算内かを確認し、残時間不足なら次 attempt をスキップして失敗を返す
+8. 障害時はトランザクション rollback を前提に、失敗分類（lock timeout/validation/unexpected）ごとの再実行手順を runbook 化する
+
+### Why
+
+- lock 競合は一時事象であることが多く、限定的リトライで成功率を上げられる
+- 恒久エラーまで再試行すると回復しない処理の遅延と障害拡大を招く
+- timeout とバックオフを固定することで、API 応答性と DB 負荷のバランスを取りやすい
+- rollback と復旧手順を先に定義することで、障害時の判断ブレを減らせる
+
+### Consequence
+
+- db_api 実装は lock 判定・再試行・タイムアウト制御を組み込む
+- 運用手順として障害分類別の再実行/手動介入条件を runbook に追記する
+- retry/backoff 実装とテスト（競合再現、上限到達、復旧手順検証）はフォローアップ Issue #113 で追跡する
+
 ## 2026-04-12: 論点5 judge のアラート判定ルール仕様凍結（Phase 1）
 
 ### Context

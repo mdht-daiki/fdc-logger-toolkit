@@ -1,5 +1,39 @@
 # Decision Log
 
+## 2026-04-12: 論点7 テスト戦略の粒度固定（契約/統合/回帰）
+
+### Context
+
+Discussion #90 と PR #97 で「契約テスト・統合テスト・表示受け入れテストが必要」という認識は共有済みだったが、
+どの境界を最低限の必須範囲にするか、しきい値変更フローの統合テストを必須にするか、
+および既存挙動の回帰防止対象が未確定だった。
+実装前に test scope を固定しない場合、API/judge/dashboard の分業境界でテスト抜けが発生しやすい。
+
+### Decision
+
+論点7の方針として以下を採用する。
+
+1. 最低限の契約テスト範囲は `db_api` 契約を中心に固定し、consumer 別に ingest/judge/dashboard の入出力契約を検証する
+2. 契約テストは HTTP status、必須フィールド、エラー形式、timestamp 形式、互換ヘッダ（deprecated endpoint 含む）を対象にする
+3. しきい値変更フロー（更新 -> 履歴記録 -> active set 反映 -> judge 参照）は統合テストを必須とする
+4. dashboard については表示ロジックを UI 実装に閉じず、`NG > WARN > OK` 優先順位と color band ルールを受け入れテストで固定する
+5. 回帰防止対象は既存 ingest/db_api の主要挙動を優先し、削除 API 新旧整合、bulk 空入力、step_no/feature_value バリデーション、aggregate 投稿フロー成立を必須回帰セットとする
+6. 新機能追加時は「契約テスト 1 件 + 統合テスト 1 件 + 回帰影響判定（影響なしの場合は根拠を明記）」を PR の DoD として必須化する
+   例: dashboard の判定表示追加では、契約テスト（judge results レスポンス）1 件 + 統合テスト（しきい値変更後の表示反映）1 件 + 既存表示ルールへの回帰影響判定を PR 説明に記載する
+
+### Why
+
+- API 契約の固定が先にないと、judge/dashboard 実装の進行とともに境界仕様が揺れやすい
+- しきい値変更は判定挙動に直結するため、単体ではなく end-to-end に近い統合確認が必要
+- 既存挙動の回帰点を明示することで、機能追加時の非意図的変更を早期検出できる
+
+### Consequence
+
+- docs に test tier（契約/統合/受け入れ/回帰）を明示し、実装前提として扱う
+- db_api/judge/dashboard の各実装 Issue では、上記 test tier のどこを満たすかを受け入れ条件に記載する
+- 具体テストケースの追加と CI 組み込みはフォローアップ Issue #115 で追跡する
+- レビュー時は PR 説明・関連 Issue・関連 Discussion と実装内容の整合を必ず確認する
+
 ## 2026-04-12: 論点6 DB運用と並行制御（SQLite lock/retry/timeout/recovery）
 
 ### Context

@@ -156,6 +156,9 @@ PR で dashboard 契約や表示仕様を変更する場合は「契約テスト
 3. 本ドキュメント
 4. docs/db-api-endpoints.md（API 契約に変更がある場合）
 
+dashboard 連携契約（read path、URL スキーマ、表示契約、judge 結果参照契約）を変更する場合は、
+本ドキュメント（`docs/dashboard-architecture-playbook.md`）の更新を同一 PR で必須とする。
+
 PR 説明には理由、影響範囲、ロールバック方針を含める。
 
 レビュー時チェック:

@@ -23,11 +23,11 @@ Out of Scope
 
 Child Issues
 
-- [ ] Child - GET /charts
-- [ ] Child - GET /charts/active
-- [ ] Child - GET /charts/history
-- [ ] Child - GET /judge/results
-- [ ] Child - GET /judge/results/{result_id}
+- [ ] #129 Child - GET /charts
+- [ ] #130 Child - GET /charts/active
+- [ ] #131 Child - GET /charts/history
+- [ ] #132 Child - GET /judge/results
+- [ ] #133 Child - GET /judge/results/{result_id}
 
 Definition of Done
 
@@ -38,5 +38,5 @@ Definition of Done
 
 Notes for Tracking
 
-- 子Issue作成後、上記チェックボックスを #番号付きリンクに置換する。
+- チェックボックスは子Issue番号リンク（#129–#133）で管理中。各Issueのクローズで進捗を追跡する。
 - 最終決定や仕様変更が出た場合は docs/decision-log.md に同一PRで反映する。

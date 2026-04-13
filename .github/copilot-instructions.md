@@ -67,6 +67,26 @@
 - judge 本体の設計論点と、db_api endpoint 要件、dashboard URL/表示要件は同一スレッドに混在させない。
 - 分割した場合は、元のトラッキング Issue にリンクを集約し、どこで最終決定するかを明記する。
 
+### 分割リンク運用テンプレート
+
+分割時は以下のテンプレートを使用する。
+
+1. トラッキング Issue 本文テンプレート
+
+- 対象論点: `<短い論点名>`
+- 最終決定先: `<Issue or Discussion URL>`
+- 分割スレッド:
+  - judge 本体設計: `<URL>`
+  - db_api endpoint 要件: `<URL>`
+  - dashboard 表示要件: `<URL>`
+- 未解決項目: `<箇条書き>`
+
+2. 各分割スレッド冒頭テンプレート
+
+- 親トラッキング Issue: `<URL>`
+- 本スレッドの責務範囲: `<judge|db_api|dashboard>`
+- 最終決定は親トラッキング Issue に集約する
+
 ### 決定事項の反映
 
 - Discussion 分割や責務境界の合意を行った場合は、同一 PR で `docs/decision-log.md` に記録する。

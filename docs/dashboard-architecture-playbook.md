@@ -57,14 +57,43 @@ API 設計方針（Discussion #93）:
 
 実装前提（Issue #98）:
 
-db_api は以下の read endpoint を実装する必要があります（現在未実装）:
-
-- Chart 定義・active set: `GET /charts`, `GET /charts/active`
-- judge 結果: `GET /judge/results`, `GET /judge/results/{result_id}`（ロット・ウェハ等トレース情報含む）
-- 変更履歴: `GET /charts/history`
-
-dashboard の実装は上記 read endpoint 完成を前提としています。
+db_api は以下の read endpoint を実装する必要があります。
+Phase 1 の契約詳細は `docs/db-api-minimum-contract.md` を参照します。
 実装済み/計画中 endpoint の一覧は `docs/db-api-endpoints.md` を参照します。
+
+### Phase 1 Endpoint Contract Summary
+
+dashboard および judge の実装者は以下の契約を基準として実装・テストする。
+契約内容を変更する場合は `docs/db-api-minimum-contract.md` を同一 PR で更新し、
+下記 Contract Test 要件を再実行すること。
+レビュー時は ingest / dashboard / judge / api 間の結合リスクを評価すること。
+
+#### 対象 Endpoint（Phase 1）
+
+| Endpoint                         | 用途                         | Consumer          |
+| -------------------------------- | ---------------------------- | ----------------- |
+| `GET /charts`                    | chart 定義一覧               | dashboard / judge |
+| `GET /charts/active`             | active chart set と有効閾値  | dashboard / judge |
+| `GET /charts/history`            | 閾値変更履歴                 | dashboard / ops   |
+| `GET /judge/results`             | 判定結果一覧                 | dashboard         |
+| `GET /judge/results/{result_id}` | 判定結果詳細（ドリルダウン） | dashboard         |
+
+#### Key Contract Points
+
+- **Response Envelope**: 成功時 `{"ok": true, "data": ...}`、失敗時 `{"ok": false, "error": {"code": ..., "message": ..., "details": ...}}`。`/judge/results/{result_id}` の `data` は object。
+- **Timestamp**: 全フィールドで UTC / ISO 8601 / ミリ秒固定精度（例: `2026-04-14T00:00:00.000Z`）。
+- **Status codes**: 200 正常 / 400 クエリ不正 / 404 対象なし / 422 バリデーション不正 / 500 内部エラー。
+- **Payload 例**: `docs/db-api-minimum-contract.md` の各 endpoint セクションを参照。
+
+#### Contract Test Requirements
+
+dashboard または judge の実装者は、上記 5 endpoint の契約を変更する PR において
+`docs/db-api-minimum-contract.md` の **Minimum Test Matrix** に委譲し、以下を最低限実施すること。
+
+1. 各 endpoint の 200 と主要 4xx（400/404/422 の該当ケース）の契約テストを追加・更新する
+2. timestamp 形式（UTC ISO 8601 ミリ秒固定精度）の検証を含める
+3. しきい値変更後の判定結果参照が反映される連鎖の統合テストを追加・更新する
+4. 既存 ingest write endpoint への非影響を回帰確認する
 
 ## Judge Result Integration
 

@@ -76,6 +76,7 @@
 - 対象論点: `<短い論点名>`
 - 最終決定先: `<Issue or Discussion URL>`
 - 分割スレッド:
+  - 該当する分割スレッドのみ記載してください（不要な項目は削除し、必要に応じて項目を追加）
   - judge 本体設計: `<URL>`
   - db_api endpoint 要件: `<URL>`
   - dashboard 表示要件: `<URL>`

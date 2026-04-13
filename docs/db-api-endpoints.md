@@ -41,6 +41,7 @@
 - dashboard の read path は `db_api` 経由のみとする（Discussion #93）。
 - dashboard 実装前提の read endpoint は Issue #98 で追跡している。
 - 変更ガバナンス endpoint は Issue #102 の合意を前提に設計・実装する。
+- Phase 1 の最小 read 契約は `docs/db-api-minimum-contract.md` を実装基準とする。
 
 ## Consumer Permission Scope
 

@@ -176,6 +176,12 @@ Seed から復旧する条件は以下の 3 つに限定する：
 6. モジュール境界や依存規約を変更した場合はこのドキュメントを更新する
 7. ガバナンス決定を変更した場合は `docs/decision-log.md` を更新する
 
+## ドキュメント更新ルール（論点8）
+
+1. 境界変更（モジュール責務/依存方向）を行う PR では、`docs/architecture.md` を同一 PR で更新する
+2. ガバナンス変更（承認フロー/緊急運用/監査ルール）を行う PR では、`docs/decision-log.md` を同一 PR で更新する
+3. dashboard 連携契約変更（read path、URL スキーマ、表示契約、judge 結果参照契約）を行う PR では、`docs/dashboard-architecture-playbook.md` を同一 PR で更新する
+
 ## テスト戦略（実装前固定）
 
 1. テスト層は「契約テスト」「統合テスト」「受け入れテスト」「回帰テスト」に分離して管理する
@@ -192,6 +198,7 @@ Seed から復旧する条件は以下の 3 つに限定する：
 - 影響するモジュール
 - 依存方向に変化があるか
 - ドキュメント更新が含まれているか（`docs/architecture.md`、`docs/decision-log.md`）
+- dashboard 連携契約変更がある場合、`docs/dashboard-architecture-playbook.md` が同一 PR で更新されているか
 - API 契約を変更した場合、`docs/db-api-endpoints.md` が更新されているか
 - ロールバックと検証の方針
 - PR 説明・関連 Issue・関連 Discussion が実装内容と整合しているか

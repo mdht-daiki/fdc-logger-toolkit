@@ -585,6 +585,16 @@ def test_get_charts_returns_empty_envelope_when_no_match(client: TestClient) -> 
     assert body["data"] == []
 
 
+def test_get_charts_accepts_step_no_zero(client: TestClient) -> None:
+    """step_no=0 は ge=0 の境界値として 422 にならないことを確認する。"""
+    res = client.get("/charts", params={"step_no": 0})
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["ok"] is True
+    assert isinstance(body["data"], list)
+
+
 def test_get_charts_rejects_negative_step_no(client: TestClient) -> None:
     """step_no が負数のとき 422 を返すことを確認する。"""
     res = client.get("/charts", params={"step_no": -1})
@@ -605,3 +615,25 @@ def test_to_utc_millis_truncates_microseconds_not_rounds() -> None:
     """updated_at 正規化は四捨五入ではなくミリ秒切り捨てであることを確認する。"""
     assert _to_utc_millis("2026-04-14T00:00:00.123999+00:00") == "2026-04-14T00:00:00.123Z"
     assert _to_utc_millis("2026-04-14T00:00:00.123500+00:00") == "2026-04-14T00:00:00.123Z"
+
+
+def test_to_utc_millis_normalizes_year_boundary() -> None:
+    """年越し直前のタイムスタンプを UTC ミリ秒固定に正規化することを確認する。"""
+    assert _to_utc_millis("2025-12-31T23:59:59.999999+00:00") == "2025-12-31T23:59:59.999Z"
+
+
+def test_to_utc_millis_converts_positive_offset_to_utc() -> None:
+    """正のタイムゾーンオフセット（例: +09:00 JST）を UTC に変換することを確認する。"""
+    # 2026-04-14T10:00:00.500+09:00 == 2026-04-14T01:00:00.500Z
+    assert _to_utc_millis("2026-04-14T10:00:00.500000+09:00") == "2026-04-14T01:00:00.500Z"
+
+
+def test_to_utc_millis_converts_negative_offset_to_utc() -> None:
+    """負のタイムゾーンオフセット（例: -05:00 EST）を UTC に変換することを確認する。"""
+    # 2026-04-14T00:00:00.000-05:00 == 2026-04-14T05:00:00.000Z
+    assert _to_utc_millis("2026-04-14T00:00:00.000000-05:00") == "2026-04-14T05:00:00.000Z"
+
+
+def test_to_utc_millis_treats_naive_datetime_as_utc() -> None:
+    """タイムゾーン情報のない naive datetime は UTC として扱うことを確認する。"""
+    assert _to_utc_millis("2026-04-14T12:00:00.000000") == "2026-04-14T12:00:00.000Z"

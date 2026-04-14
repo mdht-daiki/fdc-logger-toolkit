@@ -442,6 +442,27 @@ def test_db_api_legacy_delete_preserves_migration_headers_on_error(
     )
 
 
+def test_db_api_process_write_returns_503_on_runner_timeout(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """DBTaskRunner タイムアウトは一時障害として 503 へ分類する。"""
+
+    class TimeoutRunner:
+        def submit(self, *args, **kwargs):
+            _ = args, kwargs
+            raise TimeoutError("task timed out: write")
+
+    monkeypatch.setattr(db_app, "_get_or_create_runner", lambda _app: TimeoutRunner())
+
+    process_id = f"runner_timeout_{uuid4().hex}"
+    payload = build_process_payload(process_id)
+    res = client.post("/processes", json=payload)
+
+    assert res.status_code == 503
+    assert res.json()["detail"] == "Service temporarily unavailable"
+
+
 def test_db_api_delete_by_path_accepts_process_id_with_slash(client: TestClient) -> None:
     """`/processes/{process_id:path}` が `/` を含む process_id を削除できることを確認する。"""
     process_id = f"tool/A/{uuid4().hex}"

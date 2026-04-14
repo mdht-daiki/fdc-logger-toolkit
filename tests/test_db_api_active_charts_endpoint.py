@@ -298,3 +298,21 @@ def test_get_active_charts_returns_503_on_operational_error(
 
     assert res.status_code == 503
     assert res.json()["detail"] == "Database temporarily unavailable"
+
+
+def test_get_active_charts_returns_500_on_database_error(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """DB処理系の DatabaseError は 500 へ分類されることを確認する。"""
+
+    def fail_active_query(*args, **kwargs):
+        _ = args, kwargs
+        raise sqlite3.IntegrityError("constraint failed")
+
+    monkeypatch.setattr(db_app._chart_repository, "find_active_chart_set", fail_active_query)
+
+    res = client.get("/charts/active")
+
+    assert res.status_code == 500
+    assert res.json()["detail"] == "Database operation failed"

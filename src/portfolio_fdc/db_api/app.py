@@ -143,6 +143,15 @@ def get_runner(request: Request) -> DBTaskRunner:
     return _runner_from_request(request)
 
 
+def _is_runner_unavailable_error(error: Exception) -> bool:
+    """DBTaskRunner 停止/タイムアウト起因の一時的障害かを判定する。"""
+    if isinstance(error, TimeoutError):
+        return True
+    if not isinstance(error, RuntimeError):
+        return False
+    return str(error).startswith("DBTaskRunner")
+
+
 def _raise_api_error(
     *,
     operation: str,
@@ -151,6 +160,13 @@ def _raise_api_error(
 ) -> NoReturn:
     """内部例外をログに残しつつ、クライアント向けには安全なエラーを返す。"""
     logger.exception("%s failed: %s", operation, type(error).__name__)
+
+    if _is_runner_unavailable_error(error):
+        raise HTTPException(
+            status_code=503,
+            detail="Service temporarily unavailable",
+            headers=headers,
+        ) from error
 
     if isinstance(error, sqlite3.OperationalError):
         raise HTTPException(

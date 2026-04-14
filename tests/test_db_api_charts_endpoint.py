@@ -239,6 +239,24 @@ def _assert_all_rows_match(data: list[dict[str, object]], key: str, expected: ob
     assert all(item.get(key) == expected for item in data)
 
 
+def _assert_validation_error_envelope(
+    response_body: dict[str, object],
+    *,
+    expected_loc_fragment: str,
+) -> None:
+    """共通 422 エラーフォーマットを検証する。"""
+    assert response_body["ok"] is False
+    error = response_body["error"]
+    assert isinstance(error, dict)
+    assert error["code"] == "VALIDATION_ERROR"
+    assert error["message"] == "Validation error"
+    details = error["details"]
+    assert isinstance(details, dict)
+    issues = details["issues"]
+    assert isinstance(issues, list)
+    assert any(expected_loc_fragment in str(issue.get("loc", [])) for issue in issues)
+
+
 def _insert_chart_history(
     chart_set_id: int,
     *,
@@ -303,6 +321,10 @@ def test_get_charts_returns_chart_rows_with_contract_fields(client: TestClient) 
         tool_active: (1.4, 2.6),
         tool_inactive: (1.0, 2.0),
     }
+    expected_critical_ranges = {
+        tool_active: (1.2, 2.8),
+        tool_inactive: (0.8, 2.2),
+    }
     expected_updated_at = {
         tool_active: "2026-04-14T00:00:00.000Z",
         tool_inactive: "2026-04-14T00:00:00.000Z",
@@ -326,12 +348,15 @@ def test_get_charts_returns_chart_rows_with_contract_fields(client: TestClient) 
             assert row["step_no"] == 1
             assert row["feature_type"] == "mean"
             expected_warning_lcl, expected_warning_ucl = expected_warning_ranges[row["tool_id"]]
+            expected_critical_lcl, expected_critical_ucl = expected_critical_ranges[row["tool_id"]]
             assert isinstance(row["warning_lcl"], float)
             assert isinstance(row["warning_ucl"], float)
             assert row["warning_lcl"] == expected_warning_lcl
             assert row["warning_ucl"] == expected_warning_ucl
-            assert row["lcl"] == row["critical_lcl"]
-            assert row["ucl"] == row["critical_ucl"]
+            assert row["critical_lcl"] == expected_critical_lcl
+            assert row["critical_ucl"] == expected_critical_ucl
+            assert row["lcl"] == expected_critical_lcl
+            assert row["ucl"] == expected_critical_ucl
             assert isinstance(row["version"], int)
             assert row["version"] >= 1
             assert row["updated_at"] == expected_updated_at[row["tool_id"]]
@@ -365,9 +390,9 @@ def test_get_charts_computes_version_from_history_count(client: TestClient) -> N
 
         assert res.status_code == 200
         data = res.json()["data"]
-        assert data
+        assert len(data) == 1
         assert all(item["tool_id"] == tool_active for item in data)
-        assert any(item["version"] == 3 for item in data)
+        assert data[0]["version"] == 3
     finally:
         _cleanup_seeded_chart_rows(seeded)
 
@@ -470,3 +495,4 @@ def test_get_charts_rejects_negative_step_no(client: TestClient) -> None:
     res = client.get("/charts", params={"step_no": -1})
 
     assert res.status_code == 422
+    _assert_validation_error_envelope(res.json(), expected_loc_fragment="step_no")

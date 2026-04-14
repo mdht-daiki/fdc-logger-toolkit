@@ -17,6 +17,9 @@ from typing import Annotated, cast
 from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 
 from .aggregate_repository import (
     delete_process,
@@ -97,6 +100,24 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 app = FastAPI(title="db_api", version="0.1.0", lifespan=lifespan)
+
+
+@app.exception_handler(RequestValidationError)
+async def handle_request_validation_error(request: Request, exc: RequestValidationError):
+    """FastAPI の入力バリデーション例外を共通エラーフォーマットへ変換する。"""
+    logger.warning("Validation error on %s %s", request.method, request.url.path)
+    issues = jsonable_encoder(exc.errors())
+    return JSONResponse(
+        status_code=422,
+        content={
+            "ok": False,
+            "error": {
+                "code": "VALIDATION_ERROR",
+                "message": "Validation error",
+                "details": {"issues": issues},
+            },
+        },
+    )
 
 
 @app.middleware("http")

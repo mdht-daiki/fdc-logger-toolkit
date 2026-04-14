@@ -388,7 +388,7 @@ def test_db_api_aggregate_write_returns_500_on_runner_error(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`/aggregate/write` 実行時例外が HTTP 500 と detail に変換されることを確認する。"""
+    """`/aggregate/write` 実行時例外が安全な HTTP 500 detail に変換されることを確認する。"""
     process_id = f"agg_err_{uuid4().hex}"
 
     def fail_atomic(*args, **kwargs):
@@ -414,7 +414,7 @@ def test_db_api_aggregate_write_returns_500_on_runner_error(
     res = client.post("/aggregate/write", json=payload)
 
     assert res.status_code == 500
-    assert "forced aggregate write failure" in res.json()["detail"]
+    assert res.json()["detail"] == "Internal server error"
 
 
 def test_db_api_legacy_delete_preserves_migration_headers_on_error(
@@ -434,7 +434,7 @@ def test_db_api_legacy_delete_preserves_migration_headers_on_error(
     res = client.request("DELETE", "/processes", json={"process_id": process_id})
 
     assert res.status_code == 500
-    assert "forced delete failure" in res.json()["detail"]
+    assert res.json()["detail"] == "Internal server error"
     assert_legacy_migration_headers(
         res.headers,
         process_id,

@@ -7,13 +7,14 @@
 from __future__ import annotations
 
 import logging
+import sqlite3
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from datetime import UTC, datetime
 from email.utils import format_datetime
 from threading import Lock
-from typing import Annotated, cast
+from typing import Annotated, NoReturn, cast
 from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
@@ -142,6 +143,36 @@ def get_runner(request: Request) -> DBTaskRunner:
     return _runner_from_request(request)
 
 
+def _raise_api_error(
+    *,
+    operation: str,
+    error: Exception,
+    headers: dict[str, str] | None = None,
+) -> NoReturn:
+    """内部例外をログに残しつつ、クライアント向けには安全なエラーを返す。"""
+    logger.exception("%s failed: %s", operation, type(error).__name__)
+
+    if isinstance(error, sqlite3.OperationalError):
+        raise HTTPException(
+            status_code=503,
+            detail="Database temporarily unavailable",
+            headers=headers,
+        ) from error
+
+    if isinstance(error, sqlite3.DatabaseError):
+        raise HTTPException(
+            status_code=500,
+            detail="Database operation failed",
+            headers=headers,
+        ) from error
+
+    raise HTTPException(
+        status_code=500,
+        detail="Internal server error",
+        headers=headers,
+    ) from error
+
+
 RunnerDep = Annotated[DBTaskRunner, Depends(get_runner)]
 _chart_repository = ChartRepository()
 
@@ -195,8 +226,7 @@ def get_charts(
         rows = _chart_repository.find_charts(criteria)
         return {"ok": True, "data": [asdict(row) for row in rows]}
     except Exception as e:
-        logger.exception("Failed to fetch charts")
-        raise HTTPException(status_code=500, detail="Internal server error") from e
+        _raise_api_error(operation="GET /charts", error=e)
 
 
 @app.get("/charts/active")
@@ -230,8 +260,7 @@ def get_active_charts(
         data = _chart_repository.find_active_chart_set(criteria)
         return {"ok": True, "data": asdict(data)}
     except Exception as e:
-        logger.exception("Failed to fetch active charts")
-        raise HTTPException(status_code=500, detail="Internal server error") from e
+        _raise_api_error(operation="GET /charts/active", error=e)
 
 
 @app.post("/processes")
@@ -241,7 +270,7 @@ def create_process(p: ProcessInfoIn, runner: RunnerDep):
         runner.submit("write", lambda: write_process(p))
         return {"ok": True}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        _raise_api_error(operation="POST /processes", error=e)
 
 
 @app.delete("/processes/{process_id:path}")
@@ -251,7 +280,7 @@ def remove_process_by_path(process_id: str, runner: RunnerDep):
         deleted = runner.submit("write", lambda: delete_process(process_id))
         return {"ok": True, "deleted": deleted}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        _raise_api_error(operation="DELETE /processes/{process_id}", error=e)
 
 
 @app.delete("/processes")
@@ -267,7 +296,7 @@ def remove_process_legacy(
         deleted = runner.submit("write", lambda: delete_process(req.process_id))
         return {"ok": True, "deleted": deleted}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e), headers=headers) from e
+        _raise_api_error(operation="DELETE /processes", error=e, headers=headers)
 
 
 @app.post("/step_windows/bulk")
@@ -277,7 +306,7 @@ def create_step_windows_bulk(items: list[StepWindowIn], runner: RunnerDep):
         inserted = runner.submit("write", lambda: write_step_windows_bulk(items))
         return {"ok": True, "inserted": inserted}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        _raise_api_error(operation="POST /step_windows/bulk", error=e)
 
 
 @app.post("/parameters/bulk")
@@ -287,7 +316,7 @@ def create_parameters_bulk(params: list[ParameterIn], runner: RunnerDep):
         n = runner.submit("write", lambda: write_parameters_bulk(params))
         return {"ok": True, "inserted": n}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        _raise_api_error(operation="POST /parameters/bulk", error=e)
 
 
 @app.post("/aggregate/write")
@@ -297,4 +326,4 @@ def create_aggregate_write(payload: AggregateWriteIn, runner: RunnerDep):
         result = runner.submit("write", lambda: write_aggregate_atomic(payload))
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        _raise_api_error(operation="POST /aggregate/write", error=e)

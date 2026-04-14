@@ -10,6 +10,7 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 
+from portfolio_fdc.db_api import app as db_app
 from portfolio_fdc.db_api.db import MAIN_DB, _init_schema
 from tests.test_utils import assert_validation_error_envelope
 
@@ -246,6 +247,10 @@ def test_get_active_charts_returns_empty_object_when_active_chart_set_missing(
     client: TestClient,
     seeded_active_chart_rows: SeededActiveChartsContext,
 ) -> None:
+    # Intentionally delete the shared ActiveChartSet(id=1) row for this test case.
+    # The seeded fixture restores it during teardown via INSERT OR REPLACE cleanup.
+    # If charts endpoint tests ever run in parallel against the same DB, this shared-state
+    # mutation could race with them; today the suite runs serially, so this remains acceptable.
     con = sqlite3.connect(MAIN_DB.as_posix())
     try:
         con.execute("DELETE FROM ActiveChartSet WHERE id = 1")
@@ -275,3 +280,21 @@ def test_get_active_charts_rejects_invalid_string_filters(
 
     assert res.status_code == 422
     assert_validation_error_envelope(res.json(), expected_loc_fragment=query_key)
+
+
+def test_get_active_charts_returns_503_on_operational_error(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """DB接続系の OperationalError は 503 へ分類されることを確認する。"""
+
+    def fail_active_query(*args, **kwargs):
+        _ = args, kwargs
+        raise sqlite3.OperationalError("unable to open database file")
+
+    monkeypatch.setattr(db_app._chart_repository, "find_active_chart_set", fail_active_query)
+
+    res = client.get("/charts/active")
+
+    assert res.status_code == 503
+    assert res.json()["detail"] == "Database temporarily unavailable"

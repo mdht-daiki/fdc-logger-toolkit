@@ -68,7 +68,16 @@ class ChartRepository:
                 c.warn_high,
                 c.crit_low,
                 c.crit_high,
-                c.updated_at
+                c.updated_at,
+                CASE
+                    WHEN EXISTS (
+                        SELECT 1
+                        FROM ActiveChartSet active
+                        WHERE active.id = 1
+                          AND active.chart_set_id = c.chart_set_id
+                    ) THEN 1
+                    ELSE 0
+                END AS is_active
             FROM ChartsV2 c
     """
 
@@ -119,15 +128,7 @@ class ChartRepository:
             fc.crit_low,
             fc.crit_high,
             fc.updated_at,
-            CASE
-                WHEN EXISTS (
-                    SELECT 1
-                    FROM ActiveChartSet active
-                    WHERE active.id = 1
-                      AND active.chart_set_id = fc.chart_set_id
-                ) THEN 1
-                ELSE 0
-            END AS is_active,
+            fc.is_active,
             COALESCE(hv.version, 1) AS version
         FROM filtered_charts fc
         LEFT JOIN history_versions hv
@@ -183,12 +184,7 @@ class ChartRepository:
             params,
         )
         if criteria.active_only:
-            where_clauses.append(
-                "EXISTS ("
-                "SELECT 1 FROM ActiveChartSet active "
-                "WHERE active.id = 1 AND active.chart_set_id = c.chart_set_id"
-                ")"
-            )
+            where_clauses.append("is_active = 1")
 
         if where_clauses:
             sql += " WHERE " + " AND ".join(where_clauses)

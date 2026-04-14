@@ -575,6 +575,16 @@ def test_get_charts_returns_empty_for_non_matching_combined_filters(
     assert data == []
 
 
+def test_get_charts_returns_empty_envelope_when_no_match(client: TestClient) -> None:
+    """一致するチャートがない場合に ok:true / data:[] を返すことを確認する。"""
+    res = client.get("/charts", params={"tool_id": "TOOL_NONEXISTENT_BOUNDARY"})
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["ok"] is True
+    assert body["data"] == []
+
+
 def test_get_charts_rejects_negative_step_no(client: TestClient) -> None:
     """step_no が負数のとき 422 を返すことを確認する。"""
     res = client.get("/charts", params={"step_no": -1})

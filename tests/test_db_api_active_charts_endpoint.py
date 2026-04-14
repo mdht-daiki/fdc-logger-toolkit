@@ -54,7 +54,7 @@ def _create_chart_set_with_charts(
 
 
 @pytest.fixture
-def seeded_active_chart_rows() -> Iterator[SeededActiveChartsContext]:
+def seeded_active_charts_context() -> Iterator[SeededActiveChartsContext]:
     _init_schema(MAIN_DB)
     con = sqlite3.connect(MAIN_DB.as_posix())
     context: SeededActiveChartsContext | None = None
@@ -188,9 +188,9 @@ def seeded_active_chart_rows() -> Iterator[SeededActiveChartsContext]:
 
 def test_get_active_charts_returns_active_chart_set_payload(
     client: TestClient,
-    seeded_active_chart_rows: SeededActiveChartsContext,
+    seeded_active_charts_context: SeededActiveChartsContext,
 ) -> None:
-    seeded = seeded_active_chart_rows
+    seeded = seeded_active_charts_context
 
     res = client.get("/charts/active")
 
@@ -225,8 +225,8 @@ def test_get_active_charts_returns_active_chart_set_payload(
         assert isinstance(chart["critical_lcl"], (int, float))
         assert isinstance(chart["critical_ucl"], (int, float))
 
-    tool_scoped = [chart for chart in charts if chart["parameter"] in {"dc_bias", "cl2_flow"}]
-    assert len(tool_scoped) == 2
+    param_scoped = [chart for chart in charts if chart["parameter"] in {"dc_bias", "cl2_flow"}]
+    assert len(param_scoped) == 2
     first = next(chart for chart in charts if chart["parameter"] == "dc_bias")
     assert re.fullmatch(r"CHART_\d+", first["chart_id"])
     assert first["step_no"] == 1
@@ -239,9 +239,9 @@ def test_get_active_charts_returns_active_chart_set_payload(
 
 def test_get_active_charts_filters_by_tool_chamber_and_recipe(
     client: TestClient,
-    seeded_active_chart_rows: SeededActiveChartsContext,
+    seeded_active_charts_context: SeededActiveChartsContext,
 ) -> None:
-    seeded = seeded_active_chart_rows
+    seeded = seeded_active_charts_context
 
     by_tool = client.get("/charts/active", params={"tool_id": seeded.active_tool_id})
     assert by_tool.status_code == 200
@@ -261,7 +261,7 @@ def test_get_active_charts_filters_by_tool_chamber_and_recipe(
 
 def test_get_active_charts_excludes_inactive_chart_set_rows(
     client: TestClient,
-    seeded_active_chart_rows: SeededActiveChartsContext,
+    seeded_active_charts_context: SeededActiveChartsContext,
 ) -> None:
     res = client.get("/charts/active", params={"chamber_id": "CH_ACTIVE"})
 

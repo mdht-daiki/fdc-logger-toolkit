@@ -22,7 +22,7 @@
 | `POST`   | `/step_windows/bulk`                                | ingest write   | implemented | ingest          | source: `db_api/app.py` | `StepWindow` を一括保存                      |
 | `POST`   | `/parameters/bulk`                                  | ingest write   | implemented | ingest          | source: `db_api/app.py` | `Parameter` を一括保存                       |
 | `POST`   | `/aggregate/write`                                  | ingest write   | implemented | ingest          | source: `db_api/app.py` | Process/StepWindow/Parameter を原子的に保存  |
-| `GET`    | `/charts`                                           | dashboard read | planned     | dashboard/judge | Issue #98               | chart 定義一覧                               |
+| `GET`    | `/charts`                                           | dashboard read | implemented | dashboard/judge | source: `db_api/app.py` | chart 定義一覧                               |
 | `GET`    | `/charts/active`                                    | dashboard read | planned     | dashboard/judge | Issue #98               | active chart set と閾値                      |
 | `GET`    | `/charts/history`                                   | dashboard read | planned     | dashboard/ops   | Issue #98               | chart 変更履歴                               |
 | `GET`    | `/judge/results`                                    | dashboard read | planned     | dashboard       | Issue #98               | 判定結果一覧                                 |

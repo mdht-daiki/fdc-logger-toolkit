@@ -9,13 +9,14 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from dataclasses import asdict
 from datetime import UTC, datetime
 from email.utils import format_datetime
 from threading import Lock
 from typing import Annotated, cast
 from urllib.parse import quote
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 
 from .aggregate_repository import (
     delete_process,
@@ -24,6 +25,7 @@ from .aggregate_repository import (
     write_process,
     write_step_windows_bulk,
 )
+from .chart_repository import ChartRepository, ChartsQueryCriteria
 from .db import MAIN_DB, TEMP_DB
 from .schemas import (
     AggregateWriteIn,
@@ -117,6 +119,34 @@ def get_runner(request: Request) -> DBTaskRunner:
 
 
 RunnerDep = Annotated[DBTaskRunner, Depends(get_runner)]
+_chart_repository = ChartRepository()
+
+
+@app.get("/charts")
+def get_charts(
+    tool_id: str | None = None,
+    chamber_id: str | None = None,
+    recipe_id: str | None = None,
+    parameter: str | None = None,
+    step_no: int | None = Query(default=None, ge=0),
+    feature_type: str | None = None,
+    active_only: bool = False,
+):
+    """Chart 定義一覧を返す。"""
+    criteria = ChartsQueryCriteria(
+        tool_id=tool_id,
+        chamber_id=chamber_id,
+        recipe_id=recipe_id,
+        parameter=parameter,
+        step_no=step_no,
+        feature_type=feature_type,
+        active_only=active_only,
+    )
+    try:
+        rows = _chart_repository.find_charts(criteria)
+        return {"ok": True, "data": [asdict(row) for row in rows]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.post("/processes")

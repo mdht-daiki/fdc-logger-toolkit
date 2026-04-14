@@ -42,6 +42,8 @@
 - dashboard 実装前提の read endpoint は Issue #98 で追跡している。
 - 変更ガバナンス endpoint は Issue #102 の合意を前提に設計・実装する。
 - Phase 1 の最小 read 契約は `docs/db-api-minimum-contract.md` を実装基準とする。
+- `GET /charts` の文字列クエリ（`tool_id` 等）は `^[A-Za-z0-9_./:-]+$`（1..128 文字）を許可形式とする。
+- API の timestamp 正規化は UTC ISO 8601 ミリ秒固定で、マイクロ秒以下は切り捨てとする。
 
 ## Consumer Permission Scope
 

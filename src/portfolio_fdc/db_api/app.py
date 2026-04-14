@@ -43,6 +43,8 @@ logger = logging.getLogger(__name__)
 _runner_lock = Lock()
 LEGACY_DELETE_PROCESSES_SUNSET_AT = datetime(2026, 6, 30, 23, 59, 59, tzinfo=UTC)
 LEGACY_DELETE_PROCESSES_SUNSET = format_datetime(LEGACY_DELETE_PROCESSES_SUNSET_AT, usegmt=True)
+CHARTS_FILTER_PATTERN = r"^[A-Za-z0-9_./:-]+$"
+CHARTS_FILTER_MAX_LENGTH = 128
 
 
 def _legacy_delete_headers(process_id: str | None) -> dict[str, str]:
@@ -146,12 +148,37 @@ _chart_repository = ChartRepository()
 
 @app.get("/charts")
 def get_charts(
-    tool_id: str | None = None,
-    chamber_id: str | None = None,
-    recipe_id: str | None = None,
-    parameter: str | None = None,
+    tool_id: str | None = Query(
+        default=None,
+        min_length=1,
+        max_length=CHARTS_FILTER_MAX_LENGTH,
+        pattern=CHARTS_FILTER_PATTERN,
+    ),
+    chamber_id: str | None = Query(
+        default=None,
+        min_length=1,
+        max_length=CHARTS_FILTER_MAX_LENGTH,
+        pattern=CHARTS_FILTER_PATTERN,
+    ),
+    recipe_id: str | None = Query(
+        default=None,
+        min_length=1,
+        max_length=CHARTS_FILTER_MAX_LENGTH,
+        pattern=CHARTS_FILTER_PATTERN,
+    ),
+    parameter: str | None = Query(
+        default=None,
+        min_length=1,
+        max_length=CHARTS_FILTER_MAX_LENGTH,
+        pattern=CHARTS_FILTER_PATTERN,
+    ),
     step_no: int | None = Query(default=None, ge=0),
-    feature_type: str | None = None,
+    feature_type: str | None = Query(
+        default=None,
+        min_length=1,
+        max_length=CHARTS_FILTER_MAX_LENGTH,
+        pattern=CHARTS_FILTER_PATTERN,
+    ),
     active_only: bool = False,
 ):
     """Chart 定義一覧を返す。"""

@@ -10,6 +10,7 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 
+from portfolio_fdc.db_api.chart_repository import _to_utc_millis
 from portfolio_fdc.db_api.db import MAIN_DB, _init_schema
 from tests.test_utils import assert_validation_error_envelope
 
@@ -533,3 +534,17 @@ def test_get_charts_rejects_negative_step_no(client: TestClient) -> None:
 
     assert res.status_code == 422
     assert_validation_error_envelope(res.json(), expected_loc_fragment="step_no")
+
+
+def test_get_charts_rejects_invalid_tool_id_pattern(client: TestClient) -> None:
+    """tool_id が許可されない形式のとき 422 を返すことを確認する。"""
+    res = client.get("/charts", params={"tool_id": "TOOL INVALID"})
+
+    assert res.status_code == 422
+    assert_validation_error_envelope(res.json(), expected_loc_fragment="tool_id")
+
+
+def test_to_utc_millis_truncates_microseconds_not_rounds() -> None:
+    """updated_at 正規化は四捨五入ではなくミリ秒切り捨てであることを確認する。"""
+    assert _to_utc_millis("2026-04-14T00:00:00.123999+00:00") == "2026-04-14T00:00:00.123Z"
+    assert _to_utc_millis("2026-04-14T00:00:00.123500+00:00") == "2026-04-14T00:00:00.123Z"

@@ -528,6 +528,53 @@ def test_get_charts_supports_feature_type_filter(
     _assert_all_rows_match(data, "feature_type", "mean")
 
 
+def test_get_charts_supports_combined_chamber_and_recipe_filters(
+    client: TestClient,
+    seeded_chart_rows_for_filter_tests: SeededChartsContext,
+) -> None:
+    """chamber_id と recipe_id の同時指定で AND 条件が機能することを確認する。"""
+    seeded = seeded_chart_rows_for_filter_tests
+    tool_match = seeded.tool_primary
+    tool_other = seeded.tool_secondary
+
+    res = client.get(
+        "/charts",
+        params={
+            "chamber_id": "CH_FILTER_MATCH",
+            "recipe_id": "RECIPE_FILTER_MATCH",
+        },
+    )
+
+    assert res.status_code == 200
+    data = [item for item in res.json()["data"] if item["tool_id"] in {tool_match, tool_other}]
+    assert len(data) == 1
+    assert data[0]["tool_id"] == tool_match
+    assert data[0]["chamber_id"] == "CH_FILTER_MATCH"
+    assert data[0]["recipe_id"] == "RECIPE_FILTER_MATCH"
+
+
+def test_get_charts_returns_empty_for_non_matching_combined_filters(
+    client: TestClient,
+    seeded_chart_rows_for_filter_tests: SeededChartsContext,
+) -> None:
+    """同時指定条件が交差しない場合、該当データが返らないことを確認する。"""
+    seeded = seeded_chart_rows_for_filter_tests
+    tool_match = seeded.tool_primary
+    tool_other = seeded.tool_secondary
+
+    res = client.get(
+        "/charts",
+        params={
+            "chamber_id": "CH_FILTER_MATCH",
+            "recipe_id": "RECIPE_FILTER_OTHER",
+        },
+    )
+
+    assert res.status_code == 200
+    data = [item for item in res.json()["data"] if item["tool_id"] in {tool_match, tool_other}]
+    assert data == []
+
+
 def test_get_charts_rejects_negative_step_no(client: TestClient) -> None:
     """step_no が負数のとき 422 を返すことを確認する。"""
     res = client.get("/charts", params={"step_no": -1})

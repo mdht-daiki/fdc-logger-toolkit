@@ -146,24 +146,42 @@ class ChartRepository:
         where_clauses: list[str] = []
         params: list[Any] = []
 
-        if criteria.tool_id is not None:
-            where_clauses.append("c.tool_id = ?")
-            params.append(criteria.tool_id)
-        if criteria.chamber_id is not None:
-            where_clauses.append("c.chamber_id = ?")
-            params.append(criteria.chamber_id)
-        if criteria.recipe_id is not None:
-            where_clauses.append("c.recipe_id = ?")
-            params.append(criteria.recipe_id)
-        if criteria.parameter is not None:
-            where_clauses.append("c.parameter = ?")
-            params.append(criteria.parameter)
-        if criteria.step_no is not None:
-            where_clauses.append("c.step_no = ?")
-            params.append(criteria.step_no)
-        if criteria.feature_type is not None:
-            where_clauses.append("c.feature_type = ?")
-            params.append(criteria.feature_type)
+        self._append_filter_condition(
+            criteria.tool_id,
+            "c.tool_id = ?",
+            where_clauses,
+            params,
+        )
+        self._append_filter_condition(
+            criteria.chamber_id,
+            "c.chamber_id = ?",
+            where_clauses,
+            params,
+        )
+        self._append_filter_condition(
+            criteria.recipe_id,
+            "c.recipe_id = ?",
+            where_clauses,
+            params,
+        )
+        self._append_filter_condition(
+            criteria.parameter,
+            "c.parameter = ?",
+            where_clauses,
+            params,
+        )
+        self._append_filter_condition(
+            criteria.step_no,
+            "c.step_no = ?",
+            where_clauses,
+            params,
+        )
+        self._append_filter_condition(
+            criteria.feature_type,
+            "c.feature_type = ?",
+            where_clauses,
+            params,
+        )
         if criteria.active_only:
             where_clauses.append(
                 "EXISTS ("
@@ -189,6 +207,19 @@ class ChartRepository:
             con.close()
 
         return [self._to_chart_view(row) for row in rows]
+
+    @staticmethod
+    def _append_filter_condition(
+        value: Any,
+        sql_fragment: str,
+        where_clauses: list[str],
+        params: list[Any],
+    ) -> None:
+        """値が存在する場合のみ WHERE 条件とパラメータを追加する。"""
+        if value is None:
+            return
+        where_clauses.append(sql_fragment)
+        params.append(value)
 
     @staticmethod
     def _to_chart_view(row: tuple[Any, ...]) -> ChartView:

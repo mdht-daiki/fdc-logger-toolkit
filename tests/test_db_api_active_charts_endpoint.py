@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from portfolio_fdc.db_api import app as db_app
+from portfolio_fdc.db_api.chart_repository import ActiveChartSetView
 from portfolio_fdc.db_api.db import MAIN_DB, _init_schema
 from tests.test_utils import assert_validation_error_envelope
 
@@ -245,18 +246,21 @@ def test_get_active_charts_excludes_inactive_chart_set_rows(
 
 def test_get_active_charts_returns_empty_object_when_active_chart_set_missing(
     client: TestClient,
-    seeded_active_chart_rows: SeededActiveChartsContext,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # Intentionally delete the shared ActiveChartSet(id=1) row for this test case.
-    # The seeded fixture restores it during teardown via INSERT OR REPLACE cleanup.
-    # If charts endpoint tests ever run in parallel against the same DB, this shared-state
-    # mutation could race with them; today the suite runs serially, so this remains acceptable.
-    con = sqlite3.connect(MAIN_DB.as_posix())
-    try:
-        con.execute("DELETE FROM ActiveChartSet WHERE id = 1")
-        con.commit()
-    finally:
-        con.close()
+    def return_missing_active_chart_set(*args, **kwargs):
+        _ = args, kwargs
+        return ActiveChartSetView(
+            active_chart_set_id=None,
+            activated_at=None,
+            charts=[],
+        )
+
+    monkeypatch.setattr(
+        db_app._chart_repository,
+        "find_active_chart_set",
+        return_missing_active_chart_set,
+    )
 
     res = client.get("/charts/active")
 

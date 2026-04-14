@@ -9,13 +9,17 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from dataclasses import asdict
 from datetime import UTC, datetime
 from email.utils import format_datetime
 from threading import Lock
 from typing import Annotated, cast
 from urllib.parse import quote
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 
 from .aggregate_repository import (
     delete_process,
@@ -24,7 +28,8 @@ from .aggregate_repository import (
     write_process,
     write_step_windows_bulk,
 )
-from .db import MAIN_DB, TEMP_DB
+from .chart_repository import ChartRepository, ChartsQueryCriteria
+from .db import MAIN_DB, TEMP_DB, _init_schema
 from .schemas import (
     AggregateWriteIn,
     ParameterIn,
@@ -38,6 +43,8 @@ logger = logging.getLogger(__name__)
 _runner_lock = Lock()
 LEGACY_DELETE_PROCESSES_SUNSET_AT = datetime(2026, 6, 30, 23, 59, 59, tzinfo=UTC)
 LEGACY_DELETE_PROCESSES_SUNSET = format_datetime(LEGACY_DELETE_PROCESSES_SUNSET_AT, usegmt=True)
+CHARTS_FILTER_PATTERN = r"^[A-Za-z0-9_./:-]+$"
+CHARTS_FILTER_MAX_LENGTH = 128
 
 
 def _legacy_delete_headers(process_id: str | None) -> dict[str, str]:
@@ -75,6 +82,7 @@ def _get_or_create_runner(app: FastAPI) -> DBTaskRunner:
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """FastAPI の起動/終了時に DBTaskRunner のライフサイクルを管理する。"""
     try:
+        _init_schema(MAIN_DB)
         yield
     finally:
         runner: DBTaskRunner | None = None
@@ -94,6 +102,24 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 app = FastAPI(title="db_api", version="0.1.0", lifespan=lifespan)
+
+
+@app.exception_handler(RequestValidationError)
+async def handle_request_validation_error(request: Request, exc: RequestValidationError):
+    """FastAPI の入力バリデーション例外を共通エラーフォーマットへ変換する。"""
+    logger.warning("Validation error on %s %s", request.method, request.url.path)
+    issues = jsonable_encoder(exc.errors())
+    return JSONResponse(
+        status_code=422,
+        content={
+            "ok": False,
+            "error": {
+                "code": "VALIDATION_ERROR",
+                "message": "Validation error",
+                "details": {"issues": issues},
+            },
+        },
+    )
 
 
 @app.middleware("http")
@@ -117,6 +143,60 @@ def get_runner(request: Request) -> DBTaskRunner:
 
 
 RunnerDep = Annotated[DBTaskRunner, Depends(get_runner)]
+_chart_repository = ChartRepository()
+
+
+@app.get("/charts")
+def get_charts(
+    tool_id: str | None = Query(
+        default=None,
+        min_length=1,
+        max_length=CHARTS_FILTER_MAX_LENGTH,
+        pattern=CHARTS_FILTER_PATTERN,
+    ),
+    chamber_id: str | None = Query(
+        default=None,
+        min_length=1,
+        max_length=CHARTS_FILTER_MAX_LENGTH,
+        pattern=CHARTS_FILTER_PATTERN,
+    ),
+    recipe_id: str | None = Query(
+        default=None,
+        min_length=1,
+        max_length=CHARTS_FILTER_MAX_LENGTH,
+        pattern=CHARTS_FILTER_PATTERN,
+    ),
+    parameter: str | None = Query(
+        default=None,
+        min_length=1,
+        max_length=CHARTS_FILTER_MAX_LENGTH,
+        pattern=CHARTS_FILTER_PATTERN,
+    ),
+    step_no: int | None = Query(default=None, ge=0),
+    feature_type: str | None = Query(
+        default=None,
+        min_length=1,
+        max_length=CHARTS_FILTER_MAX_LENGTH,
+        pattern=CHARTS_FILTER_PATTERN,
+    ),
+    active_only: bool = False,
+):
+    """Chart 定義一覧を返す。"""
+    criteria = ChartsQueryCriteria(
+        tool_id=tool_id,
+        chamber_id=chamber_id,
+        recipe_id=recipe_id,
+        parameter=parameter,
+        step_no=step_no,
+        feature_type=feature_type,
+        active_only=active_only,
+    )
+    try:
+        rows = _chart_repository.find_charts(criteria)
+        return {"ok": True, "data": [asdict(row) for row in rows]}
+    except Exception as e:
+        logger.exception("Failed to fetch charts")
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @app.post("/processes")

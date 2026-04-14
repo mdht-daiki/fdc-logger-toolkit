@@ -54,6 +54,7 @@ dashboard read-only baseline と judge 最小実装に必要な API 契約を、
 
 - 形式: `YYYY-MM-DDTHH:mm:ss.SSSZ`
 - 例: `2026-04-14T00:00:00.000Z`
+- ミリ秒化ルール: マイクロ秒以下は切り捨て（round half-up ではない）
 
 ### Status Code Policy
 
@@ -80,6 +81,17 @@ dashboard read-only baseline と judge 最小実装に必要な API 契約を、
 - `step_no`
 - `feature_type`
 - `active_only` (bool)
+
+クエリ検証ルール:
+
+- `step_no` は `>= 0`
+- 文字列フィルタ（`tool_id`, `chamber_id`, `recipe_id`, `parameter`, `feature_type`）は `1..128` 文字
+- 文字列フィルタは `^[A-Za-z0-9_./:-]+$` のみ許可（空白や制御文字は不可）
+
+フィールド意味（互換注記）:
+
+- `lcl` / `ucl` は後方互換のための互換フィールドであり、現在は `critical_lcl` / `critical_ucl` と同値を返す
+- 新規実装では `warning_*` と `critical_*` の明示フィールド参照を優先する
 
 成功レスポンス例:
 

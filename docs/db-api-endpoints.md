@@ -22,7 +22,7 @@
 | `POST`   | `/step_windows/bulk`                                | ingest write   | implemented | ingest          | source: `db_api/app.py` | `StepWindow` を一括保存                      |
 | `POST`   | `/parameters/bulk`                                  | ingest write   | implemented | ingest          | source: `db_api/app.py` | `Parameter` を一括保存                       |
 | `POST`   | `/aggregate/write`                                  | ingest write   | implemented | ingest          | source: `db_api/app.py` | Process/StepWindow/Parameter を原子的に保存  |
-| `GET`    | `/charts`                                           | dashboard read | planned     | dashboard/judge | Issue #98               | chart 定義一覧                               |
+| `GET`    | `/charts`                                           | dashboard read | implemented | dashboard/judge | source: `db_api/app.py` | chart 定義一覧                               |
 | `GET`    | `/charts/active`                                    | dashboard read | planned     | dashboard/judge | Issue #98               | active chart set と閾値                      |
 | `GET`    | `/charts/history`                                   | dashboard read | planned     | dashboard/ops   | Issue #98               | chart 変更履歴                               |
 | `GET`    | `/judge/results`                                    | dashboard read | planned     | dashboard       | Issue #98               | 判定結果一覧                                 |
@@ -42,6 +42,8 @@
 - dashboard 実装前提の read endpoint は Issue #98 で追跡している。
 - 変更ガバナンス endpoint は Issue #102 の合意を前提に設計・実装する。
 - Phase 1 の最小 read 契約は `docs/db-api-minimum-contract.md` を実装基準とする。
+- `GET /charts` の文字列クエリ（`tool_id` 等）は `^[A-Za-z0-9_./:-]+$`（1..128 文字）を許可形式とする。
+- API の timestamp 正規化は UTC ISO 8601 ミリ秒固定で、マイクロ秒以下は切り捨てとする。
 
 ## Consumer Permission Scope
 

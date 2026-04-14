@@ -14,6 +14,7 @@ from pydantic import ValidationError
 from portfolio_fdc.db_api import app as db_app
 from portfolio_fdc.db_api.db import MAIN_DB
 from portfolio_fdc.db_api.schemas import ParameterIn
+from tests.test_utils import assert_validation_error_envelope
 
 pytestmark = pytest.mark.integration
 
@@ -176,8 +177,7 @@ def test_db_api_parameters_bulk_rejects_negative_step_no(client: TestClient) -> 
     res = client.post("/parameters/bulk", json=payload)
 
     assert res.status_code == 422
-    details = res.json()["detail"]
-    assert any("step_no" in item.get("loc", []) for item in details)
+    assert_validation_error_envelope(res.json(), expected_loc_fragment="step_no")
 
 
 def test_parameter_in_rejects_non_finite_feature_value() -> None:
@@ -378,9 +378,9 @@ def test_db_api_aggregate_write_rejects_mismatched_process_id(client: TestClient
     res = client.post("/aggregate/write", json=payload)
 
     assert res.status_code == 422
-    details = res.json()["detail"]
-    assert any(
-        "process_id must match process.process_id" in item.get("msg", "") for item in details
+    assert_validation_error_envelope(
+        res.json(),
+        expected_message_fragment="process_id must match process.process_id",
     )
 
 

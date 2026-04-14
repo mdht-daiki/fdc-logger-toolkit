@@ -45,6 +45,11 @@
 - `GET /charts` の文字列クエリ（`tool_id` 等）は `^[A-Za-z0-9_./:-]+$`（1..128 文字）を許可形式とする。
 - API の timestamp 正規化は UTC ISO 8601 ミリ秒固定で、マイクロ秒以下は切り捨てとする。
 
+## Read-only Endpoint Access Pattern
+
+- `GET /charts*` 系は read-only のため `_connect(MAIN_DB)` で直接接続し、`DBTaskRunner` 経由は不要
+- `DBTaskRunner` は write タスク直列化・排他制御専用で、read では並行接続をサポート
+
 ## Consumer Permission Scope
 
 モジュール境界（dashboard -> api のみ、dashboard -> judge 禁止、judge -> dashboard 禁止）を維持するため、

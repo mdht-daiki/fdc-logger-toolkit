@@ -48,40 +48,89 @@ class ChartView:
 class ChartRepository:
     """ChartsV2 から chart 一覧を取得するリポジトリ。"""
 
-    _BASE_SQL = """
+    _FILTERED_CHARTS_CTE = """
+        WITH filtered_charts AS (
+            SELECT
+                c.id,
+                c.chart_set_id,
+                c.tool_id,
+                c.chamber_id,
+                c.recipe_id,
+                c.parameter,
+                c.step_no,
+                c.feature_type,
+                c.warn_low,
+                c.warn_high,
+                c.crit_low,
+                c.crit_high,
+                c.updated_at
+            FROM ChartsV2 c
+    """
+
+    _HISTORY_VERSIONS_CTE = """
+        ),
+        history_versions AS (
+            SELECT
+                h.chart_set_id,
+                h.tool_id,
+                h.chamber_id,
+                h.recipe_id,
+                h.parameter,
+                h.step_no,
+                h.feature_type,
+                COUNT(*) + 1 AS version
+            FROM ChartsHistory h
+            INNER JOIN filtered_charts fc
+                ON h.chart_set_id = fc.chart_set_id
+               AND h.tool_id = fc.tool_id
+               AND h.chamber_id = fc.chamber_id
+               AND h.recipe_id = fc.recipe_id
+               AND h.parameter = fc.parameter
+               AND h.step_no = fc.step_no
+               AND h.feature_type = fc.feature_type
+            GROUP BY
+                h.chart_set_id,
+                h.tool_id,
+                h.chamber_id,
+                h.recipe_id,
+                h.parameter,
+                h.step_no,
+                h.feature_type
+        )
+    """
+
+    _SELECT_SQL = """
         SELECT
-            c.id,
-            c.chart_set_id,
-            c.tool_id,
-            c.chamber_id,
-            c.recipe_id,
-            c.parameter,
-            c.step_no,
-            c.feature_type,
-            c.warn_low,
-            c.warn_high,
-            c.crit_low,
-            c.crit_high,
-            c.updated_at,
-            CASE WHEN a.chart_set_id = c.chart_set_id THEN 1 ELSE 0 END AS is_active,
-            (
-                SELECT COUNT(*)
-                FROM ChartsHistory h
-                WHERE h.chart_set_id = c.chart_set_id
-                  AND h.tool_id = c.tool_id
-                  AND h.chamber_id = c.chamber_id
-                  AND h.recipe_id = c.recipe_id
-                  AND h.parameter = c.parameter
-                  AND h.step_no = c.step_no
-                  AND h.feature_type = c.feature_type
-            ) + 1 AS version
-        FROM ChartsV2 c
+            fc.id,
+            fc.chart_set_id,
+            fc.tool_id,
+            fc.chamber_id,
+            fc.recipe_id,
+            fc.parameter,
+            fc.step_no,
+            fc.feature_type,
+            fc.warn_low,
+            fc.warn_high,
+            fc.crit_low,
+            fc.crit_high,
+            fc.updated_at,
+            CASE WHEN a.chart_set_id = fc.chart_set_id THEN 1 ELSE 0 END AS is_active,
+            COALESCE(hv.version, 1) AS version
+        FROM filtered_charts fc
         LEFT JOIN ActiveChartSet a ON a.id = 1
+        LEFT JOIN history_versions hv
+            ON hv.chart_set_id = fc.chart_set_id
+           AND hv.tool_id = fc.tool_id
+           AND hv.chamber_id = fc.chamber_id
+           AND hv.recipe_id = fc.recipe_id
+           AND hv.parameter = fc.parameter
+           AND hv.step_no = fc.step_no
+           AND hv.feature_type = fc.feature_type
     """
 
     def find_charts(self, criteria: ChartsQueryCriteria) -> list[ChartView]:
         """条件に一致する chart 一覧を返す。"""
-        sql = self._BASE_SQL
+        sql = self._FILTERED_CHARTS_CTE
         where_clauses: list[str] = []
         params: list[Any] = []
 
@@ -104,14 +153,21 @@ class ChartRepository:
             where_clauses.append("c.feature_type = ?")
             params.append(criteria.feature_type)
         if criteria.active_only:
-            where_clauses.append("a.chart_set_id = c.chart_set_id")
+            where_clauses.append(
+                "EXISTS ("
+                "SELECT 1 FROM ActiveChartSet active "
+                "WHERE active.id = 1 AND active.chart_set_id = c.chart_set_id"
+                ")"
+            )
 
         if where_clauses:
             sql += " WHERE " + " AND ".join(where_clauses)
 
+        sql += self._HISTORY_VERSIONS_CTE
+        sql += self._SELECT_SQL
         sql += (
-            " ORDER BY c.chart_set_id, c.tool_id, c.chamber_id, c.recipe_id,"
-            " c.parameter, c.step_no, c.feature_type"
+            " ORDER BY fc.chart_set_id, fc.tool_id, fc.chamber_id, fc.recipe_id,"
+            " fc.parameter, fc.step_no, fc.feature_type"
         )
 
         con = _connect(MAIN_DB)

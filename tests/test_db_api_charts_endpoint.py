@@ -142,6 +142,10 @@ def _cleanup_seeded_chart_rows(context: SeededChartsContext) -> None:
 
         for chart_set_id in context.chart_set_ids:
             con.execute(
+                "DELETE FROM ChartsHistory WHERE chart_set_id = ?",
+                (chart_set_id,),
+            )
+            con.execute(
                 "DELETE FROM ChartsV2 WHERE chart_set_id = ?",
                 (chart_set_id,),
             )
@@ -235,6 +239,58 @@ def _assert_all_rows_match(data: list[dict[str, object]], key: str, expected: ob
     assert all(item.get(key) == expected for item in data)
 
 
+def _insert_chart_history(
+    chart_set_id: int,
+    *,
+    tool_id: str,
+    chamber_id: str,
+    recipe_id: str,
+    parameter: str,
+    step_no: int,
+    feature_type: str,
+    count: int,
+) -> None:
+    """指定 chart key に対応する履歴レコードを件数分だけ投入する。"""
+    con = sqlite3.connect(MAIN_DB.as_posix())
+    try:
+        for index in range(count):
+            con.execute(
+                """
+                INSERT INTO ChartsHistory(
+                    chart_set_id, tool_id, chamber_id, recipe_id, parameter,
+                    step_no, feature_type, old_warn_low, old_warn_high,
+                    old_crit_low, old_crit_high, new_warn_low, new_warn_high,
+                    new_crit_low, new_crit_high, changed_at, changed_by,
+                    change_reason, change_source
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    chart_set_id,
+                    tool_id,
+                    chamber_id,
+                    recipe_id,
+                    parameter,
+                    step_no,
+                    feature_type,
+                    1.0,
+                    2.0,
+                    0.8,
+                    2.2,
+                    1.1,
+                    2.1,
+                    0.9,
+                    2.3,
+                    f"2026-04-14T00:00:0{index}Z",
+                    "tester",
+                    "history-seed",
+                    "test",
+                ),
+            )
+        con.commit()
+    finally:
+        con.close()
+
+
 def test_get_charts_returns_chart_rows_with_contract_fields(client: TestClient) -> None:
     """GET /charts が契約フィールドを返すことを確認する。"""
     seeded = _seed_chart_rows_for_get_charts()
@@ -271,6 +327,34 @@ def test_get_charts_returns_chart_rows_with_contract_fields(client: TestClient) 
         inactive_row = next(item for item in rows if item["tool_id"] == tool_inactive)
         assert active_row["is_active"] is True
         assert inactive_row["is_active"] is False
+    finally:
+        _cleanup_seeded_chart_rows(seeded)
+
+
+def test_get_charts_computes_version_from_history_count(client: TestClient) -> None:
+    """version が履歴件数 + 1 で返ることを確認する。"""
+    seeded = _seed_chart_rows_for_get_charts()
+    tool_active = seeded.tool_primary
+    active_set_id = seeded.chart_set_ids[0]
+    try:
+        _insert_chart_history(
+            active_set_id,
+            tool_id=tool_active,
+            chamber_id="CH1",
+            recipe_id="RECIPE_A",
+            parameter="dc_bias",
+            step_no=1,
+            feature_type="mean",
+            count=2,
+        )
+
+        res = client.get("/charts", params={"tool_id": tool_active})
+
+        assert res.status_code == 200
+        data = res.json()["data"]
+        assert data
+        assert all(item["tool_id"] == tool_active for item in data)
+        assert any(item["version"] == 3 for item in data)
     finally:
         _cleanup_seeded_chart_rows(seeded)
 

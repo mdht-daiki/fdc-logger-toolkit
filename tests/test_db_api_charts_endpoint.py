@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import uuid4
@@ -32,6 +32,12 @@ class SeededChartsContext:
     chart_set_ids: tuple[int, ...]
 
 
+SeedBuilder = Callable[
+    [sqlite3.Connection, str, str],
+    tuple[str, str, tuple[int, ...], int],
+]
+
+
 def _create_chart_set_with_charts(
     con: sqlite3.Connection,
     *,
@@ -55,20 +61,14 @@ def _create_chart_set_with_charts(
 @pytest.fixture
 def seeded_chart_rows_for_get_charts() -> Iterator[SeededChartsContext]:
     """GET /charts テスト用に active/inactive の 2 chart を投入する。"""
-    _init_schema(MAIN_DB)
-    con = sqlite3.connect(MAIN_DB.as_posix())
-    try:
-        now = datetime.now(UTC).isoformat()
-        suffix = uuid4().hex
+
+    def _build_seed(
+        con: sqlite3.Connection,
+        now: str,
+        suffix: str,
+    ) -> tuple[str, str, tuple[int, ...], int]:
         tool_active = f"TOOL_GET_CHARTS_ACTIVE_{suffix}"
         tool_inactive = f"TOOL_GET_CHARTS_INACTIVE_{suffix}"
-
-        prev_active_row = con.execute(
-            "SELECT chart_set_id FROM ActiveChartSet WHERE id = 1"
-        ).fetchone()
-        if prev_active_row is None:
-            raise RuntimeError("ActiveChartSet row with id=1 is required")
-        prev_active_set_id = int(prev_active_row[0])
 
         active_set_id = _create_chart_set_with_charts(
             con,
@@ -116,25 +116,9 @@ def seeded_chart_rows_for_get_charts() -> Iterator[SeededChartsContext]:
                 )
             ],
         )
+        return tool_active, tool_inactive, (active_set_id, inactive_set_id), active_set_id
 
-        con.execute(
-            "INSERT OR REPLACE INTO ActiveChartSet(id, chart_set_id, updated_at, updated_by)"
-            " VALUES (1, ?, ?, ?)",
-            (active_set_id, now, "test"),
-        )
-
-        con.commit()
-        context = SeededChartsContext(
-            tool_primary=tool_active,
-            tool_secondary=tool_inactive,
-            restore_active_set_id=prev_active_set_id,
-            chart_set_ids=(active_set_id, inactive_set_id),
-        )
-        yield context
-    finally:
-        con.close()
-        if "context" in locals():
-            _cleanup_seeded_chart_rows(context)
+    yield from _seed_chart_rows_fixture(_build_seed)
 
 
 def _cleanup_seeded_chart_rows(context: SeededChartsContext) -> None:
@@ -169,20 +153,14 @@ def _cleanup_seeded_chart_rows(context: SeededChartsContext) -> None:
 @pytest.fixture
 def seeded_chart_rows_for_filter_tests() -> Iterator[SeededChartsContext]:
     """各クエリフィルタ検証用に属性が異なる 2 chart を投入する。"""
-    _init_schema(MAIN_DB)
-    con = sqlite3.connect(MAIN_DB.as_posix())
-    try:
-        now = datetime.now(UTC).isoformat()
-        suffix = uuid4().hex
+
+    def _build_seed(
+        con: sqlite3.Connection,
+        now: str,
+        suffix: str,
+    ) -> tuple[str, str, tuple[int, ...], int]:
         tool_match = f"TOOL_FILTER_MATCH_{suffix}"
         tool_other = f"TOOL_FILTER_OTHER_{suffix}"
-
-        prev_active_row = con.execute(
-            "SELECT chart_set_id FROM ActiveChartSet WHERE id = 1"
-        ).fetchone()
-        if prev_active_row is None:
-            raise RuntimeError("ActiveChartSet row with id=1 is required")
-        prev_active_set_id = int(prev_active_row[0])
 
         chart_set_id = _create_chart_set_with_charts(
             con,
@@ -223,24 +201,52 @@ def seeded_chart_rows_for_filter_tests() -> Iterator[SeededChartsContext]:
                 ),
             ],
         )
+        return tool_match, tool_other, (chart_set_id,), chart_set_id
+
+    yield from _seed_chart_rows_fixture(_build_seed)
+
+
+def _seed_chart_rows_fixture(seed_builder: SeedBuilder) -> Iterator[SeededChartsContext]:
+    """Chart seed fixture の共通セットアップ/teardown を提供する。"""
+    _init_schema(MAIN_DB)
+    con = sqlite3.connect(MAIN_DB.as_posix())
+    context: SeededChartsContext | None = None
+    try:
+        now = datetime.now(UTC).isoformat()
+        suffix = uuid4().hex
+
+        prev_active_row = con.execute(
+            "SELECT chart_set_id FROM ActiveChartSet WHERE id = 1"
+        ).fetchone()
+        if prev_active_row is None:
+            raise RuntimeError("ActiveChartSet row with id=1 is required")
+        prev_active_set_id = int(prev_active_row[0])
+
+        (
+            tool_primary,
+            tool_secondary,
+            chart_set_ids,
+            active_chart_set_id,
+        ) = seed_builder(con, now, suffix)
 
         con.execute(
             "INSERT OR REPLACE INTO ActiveChartSet(id, chart_set_id, updated_at, updated_by)"
             " VALUES (1, ?, ?, ?)",
-            (chart_set_id, now, "test"),
+            (active_chart_set_id, now, "test"),
+        )
+
+        context = SeededChartsContext(
+            tool_primary=tool_primary,
+            tool_secondary=tool_secondary,
+            restore_active_set_id=prev_active_set_id,
+            chart_set_ids=chart_set_ids,
         )
 
         con.commit()
-        context = SeededChartsContext(
-            tool_primary=tool_match,
-            tool_secondary=tool_other,
-            restore_active_set_id=prev_active_set_id,
-            chart_set_ids=(chart_set_id,),
-        )
         yield context
     finally:
         con.close()
-        if "context" in locals():
+        if context is not None:
             _cleanup_seeded_chart_rows(context)
 
 

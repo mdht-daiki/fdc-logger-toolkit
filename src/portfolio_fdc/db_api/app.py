@@ -26,7 +26,7 @@ from .aggregate_repository import (
     write_step_windows_bulk,
 )
 from .chart_repository import ChartRepository, ChartsQueryCriteria
-from .db import MAIN_DB, TEMP_DB
+from .db import MAIN_DB, TEMP_DB, _init_schema
 from .schemas import (
     AggregateWriteIn,
     ParameterIn,
@@ -77,6 +77,7 @@ def _get_or_create_runner(app: FastAPI) -> DBTaskRunner:
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """FastAPI の起動/終了時に DBTaskRunner のライフサイクルを管理する。"""
     try:
+        _init_schema(MAIN_DB)
         yield
     finally:
         runner: DBTaskRunner | None = None
@@ -146,7 +147,8 @@ def get_charts(
         rows = _chart_repository.find_charts(criteria)
         return {"ok": True, "data": [asdict(row) for row in rows]}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        logger.exception("Failed to fetch charts")
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @app.post("/processes")

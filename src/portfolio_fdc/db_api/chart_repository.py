@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from .db import MAIN_DB, _connect, _init_schema
+from .db import MAIN_DB, _connect
 
 
 @dataclass(frozen=True)
@@ -81,7 +81,6 @@ class ChartRepository:
 
     def find_charts(self, criteria: ChartsQueryCriteria) -> list[ChartView]:
         """条件に一致する chart 一覧を返す。"""
-        _init_schema(MAIN_DB)
         sql = self._BASE_SQL
         where_clauses: list[str] = []
         params: list[Any] = []

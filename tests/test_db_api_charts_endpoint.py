@@ -139,6 +139,101 @@ def _cleanup_seeded_chart_rows(
         con.close()
 
 
+def _seed_chart_rows_for_filter_tests() -> tuple[str, str, int]:
+    """各クエリフィルタ検証用に属性が異なる 2 chart を投入する。"""
+    _init_schema(MAIN_DB)
+    con = sqlite3.connect(MAIN_DB.as_posix())
+    try:
+        now = datetime.now(UTC).isoformat()
+        suffix = uuid4().hex
+        tool_match = f"TOOL_FILTER_MATCH_{suffix}"
+        tool_other = f"TOOL_FILTER_OTHER_{suffix}"
+
+        prev_active_row = con.execute(
+            "SELECT chart_set_id FROM ActiveChartSet WHERE id = 1"
+        ).fetchone()
+        if prev_active_row is None:
+            raise RuntimeError("ActiveChartSet row with id=1 is required")
+        prev_active_set_id = int(prev_active_row[0])
+
+        con.execute(
+            "INSERT INTO ChartSet(name, note, created_at, created_by) VALUES (?, ?, ?, ?)",
+            (f"filter_set_{suffix}", "test", now, "test"),
+        )
+        chart_set_id = int(con.execute("SELECT last_insert_rowid()").fetchone()[0])
+
+        con.execute(
+            "INSERT OR REPLACE INTO ActiveChartSet(id, chart_set_id, updated_at, updated_by)"
+            " VALUES (1, ?, ?, ?)",
+            (chart_set_id, now, "test"),
+        )
+
+        con.execute(
+            """
+            INSERT INTO ChartsV2(
+                chart_set_id, tool_id, chamber_id, recipe_id, parameter,
+                step_no, feature_type, warn_low, warn_high, crit_low, crit_high,
+                updated_at, updated_by, update_reason, update_source
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                chart_set_id,
+                tool_match,
+                "CH_FILTER_MATCH",
+                "RECIPE_FILTER_MATCH",
+                "dc_bias",
+                2,
+                "mean",
+                1.4,
+                2.6,
+                1.2,
+                2.8,
+                "2026-04-14T00:00:00Z",
+                "tester",
+                "test-seed",
+                "test",
+            ),
+        )
+
+        con.execute(
+            """
+            INSERT INTO ChartsV2(
+                chart_set_id, tool_id, chamber_id, recipe_id, parameter,
+                step_no, feature_type, warn_low, warn_high, crit_low, crit_high,
+                updated_at, updated_by, update_reason, update_source
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                chart_set_id,
+                tool_other,
+                "CH_FILTER_OTHER",
+                "RECIPE_FILTER_OTHER",
+                "cl2_flow",
+                3,
+                "max",
+                10.0,
+                20.0,
+                9.0,
+                21.0,
+                "2026-04-14T00:00:00Z",
+                "tester",
+                "test-seed",
+                "test",
+            ),
+        )
+
+        con.commit()
+        return tool_match, tool_other, prev_active_set_id
+    finally:
+        con.close()
+
+
+def _assert_all_rows_match(data: list[dict[str, object]], key: str, expected: object) -> None:
+    """返却された全要素が指定キーの期待値を満たすことを確認する。"""
+    assert data
+    assert all(item.get(key) == expected for item in data)
+
+
 def test_get_charts_returns_chart_rows_with_contract_fields(client: TestClient) -> None:
     """GET /charts が契約フィールドを返すことを確認する。"""
     tool_active, tool_inactive, restore_active_set_id = _seed_chart_rows_for_get_charts()
@@ -183,26 +278,78 @@ def test_get_charts_supports_tool_filter_and_active_only(client: TestClient) -> 
     try:
         filtered = client.get("/charts", params={"tool_id": tool_active})
         assert filtered.status_code == 200
-        filtered_data = [
-            item
-            for item in filtered.json()["data"]
-            if item["tool_id"] in {tool_active, tool_inactive}
-        ]
-        assert len(filtered_data) == 1
-        assert filtered_data[0]["tool_id"] == tool_active
+        filtered_data = filtered.json()["data"]
+        assert all(item["tool_id"] == tool_active for item in filtered_data)
+        assert all(item["tool_id"] != tool_inactive for item in filtered_data)
 
         active_only = client.get("/charts", params={"active_only": True})
         assert active_only.status_code == 200
-        active_only_data = [
-            item
-            for item in active_only.json()["data"]
-            if item["tool_id"] in {tool_active, tool_inactive}
-        ]
-        assert len(active_only_data) == 1
-        assert active_only_data[0]["tool_id"] == tool_active
-        assert active_only_data[0]["is_active"] is True
+        active_only_data = active_only.json()["data"]
+        assert all(item["is_active"] is True for item in active_only_data)
+        assert any(item["tool_id"] == tool_active for item in active_only_data)
+        assert all(item["tool_id"] != tool_inactive for item in active_only_data)
     finally:
         _cleanup_seeded_chart_rows(tool_active, tool_inactive, restore_active_set_id)
+
+
+def test_get_charts_supports_chamber_filter(client: TestClient) -> None:
+    """chamber_id フィルタが機能することを確認する。"""
+    tool_match, tool_other, restore_active_set_id = _seed_chart_rows_for_filter_tests()
+    try:
+        res = client.get("/charts", params={"chamber_id": "CH_FILTER_MATCH"})
+        assert res.status_code == 200
+        data = [item for item in res.json()["data"] if item["tool_id"] in {tool_match, tool_other}]
+        _assert_all_rows_match(data, "chamber_id", "CH_FILTER_MATCH")
+    finally:
+        _cleanup_seeded_chart_rows(tool_match, tool_other, restore_active_set_id)
+
+
+def test_get_charts_supports_recipe_filter(client: TestClient) -> None:
+    """recipe_id フィルタが機能することを確認する。"""
+    tool_match, tool_other, restore_active_set_id = _seed_chart_rows_for_filter_tests()
+    try:
+        res = client.get("/charts", params={"recipe_id": "RECIPE_FILTER_MATCH"})
+        assert res.status_code == 200
+        data = [item for item in res.json()["data"] if item["tool_id"] in {tool_match, tool_other}]
+        _assert_all_rows_match(data, "recipe_id", "RECIPE_FILTER_MATCH")
+    finally:
+        _cleanup_seeded_chart_rows(tool_match, tool_other, restore_active_set_id)
+
+
+def test_get_charts_supports_parameter_filter(client: TestClient) -> None:
+    """parameter フィルタが機能することを確認する。"""
+    tool_match, tool_other, restore_active_set_id = _seed_chart_rows_for_filter_tests()
+    try:
+        res = client.get("/charts", params={"parameter": "dc_bias"})
+        assert res.status_code == 200
+        data = [item for item in res.json()["data"] if item["tool_id"] in {tool_match, tool_other}]
+        _assert_all_rows_match(data, "parameter", "dc_bias")
+    finally:
+        _cleanup_seeded_chart_rows(tool_match, tool_other, restore_active_set_id)
+
+
+def test_get_charts_supports_positive_step_no_filter(client: TestClient) -> None:
+    """step_no 正数フィルタが機能することを確認する。"""
+    tool_match, tool_other, restore_active_set_id = _seed_chart_rows_for_filter_tests()
+    try:
+        res = client.get("/charts", params={"step_no": 2})
+        assert res.status_code == 200
+        data = [item for item in res.json()["data"] if item["tool_id"] in {tool_match, tool_other}]
+        _assert_all_rows_match(data, "step_no", 2)
+    finally:
+        _cleanup_seeded_chart_rows(tool_match, tool_other, restore_active_set_id)
+
+
+def test_get_charts_supports_feature_type_filter(client: TestClient) -> None:
+    """feature_type フィルタが機能することを確認する。"""
+    tool_match, tool_other, restore_active_set_id = _seed_chart_rows_for_filter_tests()
+    try:
+        res = client.get("/charts", params={"feature_type": "mean"})
+        assert res.status_code == 200
+        data = [item for item in res.json()["data"] if item["tool_id"] in {tool_match, tool_other}]
+        _assert_all_rows_match(data, "feature_type", "mean")
+    finally:
+        _cleanup_seeded_chart_rows(tool_match, tool_other, restore_active_set_id)
 
 
 def test_get_charts_rejects_negative_step_no(client: TestClient) -> None:

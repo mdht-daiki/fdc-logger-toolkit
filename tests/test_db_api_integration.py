@@ -14,6 +14,7 @@ from pydantic import ValidationError
 from portfolio_fdc.db_api import app as db_app
 from portfolio_fdc.db_api.db import MAIN_DB
 from portfolio_fdc.db_api.schemas import ParameterIn
+from tests.test_utils import assert_validation_error_envelope
 
 pytestmark = pytest.mark.integration
 
@@ -49,28 +50,6 @@ def assert_legacy_migration_headers(
     else:
         expected_link = f'</processes/{quote(process_id, safe="")}>; rel="successor-version"'
     assert response_headers.get("Link") == expected_link
-
-
-def assert_validation_error_envelope(
-    response_body: dict[str, object],
-    *,
-    expected_loc_fragment: str | None = None,
-    expected_message_fragment: str | None = None,
-) -> None:
-    """共通 422 エラーフォーマットを検証する。"""
-    assert response_body["ok"] is False
-    error = response_body["error"]
-    assert isinstance(error, dict)
-    assert error["code"] == "VALIDATION_ERROR"
-    assert error["message"] == "Validation error"
-    details = error["details"]
-    assert isinstance(details, dict)
-    issues = details["issues"]
-    assert isinstance(issues, list)
-    if expected_loc_fragment is not None:
-        assert any(expected_loc_fragment in str(issue.get("loc", [])) for issue in issues)
-    if expected_message_fragment is not None:
-        assert any(expected_message_fragment in str(issue.get("msg", "")) for issue in issues)
 
 
 def test_db_api_minimum_flow_for_aggregate_contract(

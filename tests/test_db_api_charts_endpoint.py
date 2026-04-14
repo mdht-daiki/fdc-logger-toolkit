@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 
 from portfolio_fdc.db_api.db import MAIN_DB, _init_schema
+from tests.test_utils import assert_validation_error_envelope
 
 _INSERT_CHART_SQL = """
     INSERT INTO ChartsV2(
@@ -49,7 +52,8 @@ def _create_chart_set_with_charts(
     return chart_set_id
 
 
-def _seed_chart_rows_for_get_charts() -> SeededChartsContext:
+@pytest.fixture
+def seeded_chart_rows_for_get_charts() -> Iterator[SeededChartsContext]:
     """GET /charts テスト用に active/inactive の 2 chart を投入する。"""
     _init_schema(MAIN_DB)
     con = sqlite3.connect(MAIN_DB.as_posix())
@@ -120,14 +124,17 @@ def _seed_chart_rows_for_get_charts() -> SeededChartsContext:
         )
 
         con.commit()
-        return SeededChartsContext(
+        context = SeededChartsContext(
             tool_primary=tool_active,
             tool_secondary=tool_inactive,
             restore_active_set_id=prev_active_set_id,
             chart_set_ids=(active_set_id, inactive_set_id),
         )
+        yield context
     finally:
         con.close()
+        if "context" in locals():
+            _cleanup_seeded_chart_rows(context)
 
 
 def _cleanup_seeded_chart_rows(context: SeededChartsContext) -> None:
@@ -239,24 +246,6 @@ def _assert_all_rows_match(data: list[dict[str, object]], key: str, expected: ob
     assert all(item.get(key) == expected for item in data)
 
 
-def _assert_validation_error_envelope(
-    response_body: dict[str, object],
-    *,
-    expected_loc_fragment: str,
-) -> None:
-    """共通 422 エラーフォーマットを検証する。"""
-    assert response_body["ok"] is False
-    error = response_body["error"]
-    assert isinstance(error, dict)
-    assert error["code"] == "VALIDATION_ERROR"
-    assert error["message"] == "Validation error"
-    details = error["details"]
-    assert isinstance(details, dict)
-    issues = details["issues"]
-    assert isinstance(issues, list)
-    assert any(expected_loc_fragment in str(issue.get("loc", [])) for issue in issues)
-
-
 def _insert_chart_history(
     chart_set_id: int,
     *,
@@ -312,9 +301,12 @@ def _insert_chart_history(
         con.close()
 
 
-def test_get_charts_returns_chart_rows_with_contract_fields(client: TestClient) -> None:
+def test_get_charts_returns_chart_rows_with_contract_fields(
+    client: TestClient,
+    seeded_chart_rows_for_get_charts: SeededChartsContext,
+) -> None:
     """GET /charts が契約フィールドを返すことを確認する。"""
-    seeded = _seed_chart_rows_for_get_charts()
+    seeded = seeded_chart_rows_for_get_charts
     tool_active = seeded.tool_primary
     tool_inactive = seeded.tool_secondary
     expected_warning_ranges = {
@@ -329,95 +321,93 @@ def test_get_charts_returns_chart_rows_with_contract_fields(client: TestClient) 
         tool_active: "2026-04-14T00:00:00.000Z",
         tool_inactive: "2026-04-14T00:00:00.000Z",
     }
-    try:
-        res = client.get("/charts")
+    res = client.get("/charts")
 
-        assert res.status_code == 200
-        body = res.json()
-        assert body["ok"] is True
+    assert res.status_code == 200
+    body = res.json()
+    assert body["ok"] is True
 
-        rows = [item for item in body["data"] if item["tool_id"] in {tool_active, tool_inactive}]
-        assert len(rows) == 2
+    rows = [item for item in body["data"] if item["tool_id"] in {tool_active, tool_inactive}]
+    assert len(rows) == 2
 
-        for row in rows:
-            assert re.fullmatch(r"CHART_\d+", row["chart_id"])
-            assert isinstance(row["chart_set_id"], int)
-            assert row["chamber_id"] == "CH1"
-            assert row["recipe_id"] == "RECIPE_A"
-            assert row["parameter"] == "dc_bias"
-            assert row["step_no"] == 1
-            assert row["feature_type"] == "mean"
-            expected_warning_lcl, expected_warning_ucl = expected_warning_ranges[row["tool_id"]]
-            expected_critical_lcl, expected_critical_ucl = expected_critical_ranges[row["tool_id"]]
-            assert isinstance(row["warning_lcl"], float)
-            assert isinstance(row["warning_ucl"], float)
-            assert row["warning_lcl"] == expected_warning_lcl
-            assert row["warning_ucl"] == expected_warning_ucl
-            assert row["critical_lcl"] == expected_critical_lcl
-            assert row["critical_ucl"] == expected_critical_ucl
-            assert row["lcl"] == expected_critical_lcl
-            assert row["ucl"] == expected_critical_ucl
-            assert isinstance(row["version"], int)
-            assert row["version"] >= 1
-            assert row["updated_at"] == expected_updated_at[row["tool_id"]]
+    for row in rows:
+        assert re.fullmatch(r"CHART_\d+", row["chart_id"])
+        assert isinstance(row["chart_set_id"], int)
+        assert row["chamber_id"] == "CH1"
+        assert row["recipe_id"] == "RECIPE_A"
+        assert row["parameter"] == "dc_bias"
+        assert row["step_no"] == 1
+        assert row["feature_type"] == "mean"
+        expected_warning_lcl, expected_warning_ucl = expected_warning_ranges[row["tool_id"]]
+        expected_critical_lcl, expected_critical_ucl = expected_critical_ranges[row["tool_id"]]
+        assert isinstance(row["warning_lcl"], float)
+        assert isinstance(row["warning_ucl"], float)
+        assert row["warning_lcl"] == expected_warning_lcl
+        assert row["warning_ucl"] == expected_warning_ucl
+        assert row["critical_lcl"] == expected_critical_lcl
+        assert row["critical_ucl"] == expected_critical_ucl
+        assert row["lcl"] == expected_critical_lcl
+        assert row["ucl"] == expected_critical_ucl
+        assert isinstance(row["version"], int)
+        assert row["version"] >= 1
+        assert row["updated_at"] == expected_updated_at[row["tool_id"]]
 
-        active_row = next(item for item in rows if item["tool_id"] == tool_active)
-        inactive_row = next(item for item in rows if item["tool_id"] == tool_inactive)
-        assert active_row["is_active"] is True
-        assert inactive_row["is_active"] is False
-    finally:
-        _cleanup_seeded_chart_rows(seeded)
+    active_row = next(item for item in rows if item["tool_id"] == tool_active)
+    inactive_row = next(item for item in rows if item["tool_id"] == tool_inactive)
+    assert active_row["is_active"] is True
+    assert inactive_row["is_active"] is False
 
 
-def test_get_charts_computes_version_from_history_count(client: TestClient) -> None:
+def test_get_charts_computes_version_from_history_count(
+    client: TestClient,
+    seeded_chart_rows_for_get_charts: SeededChartsContext,
+) -> None:
     """version が履歴件数 + 1 で返ることを確認する。"""
-    seeded = _seed_chart_rows_for_get_charts()
+    seeded = seeded_chart_rows_for_get_charts
     tool_active = seeded.tool_primary
     active_set_id = seeded.chart_set_ids[0]
-    try:
-        _insert_chart_history(
-            active_set_id,
-            tool_id=tool_active,
-            chamber_id="CH1",
-            recipe_id="RECIPE_A",
-            parameter="dc_bias",
-            step_no=1,
-            feature_type="mean",
-            count=2,
-        )
+    _insert_chart_history(
+        active_set_id,
+        tool_id=tool_active,
+        chamber_id="CH1",
+        recipe_id="RECIPE_A",
+        parameter="dc_bias",
+        step_no=1,
+        feature_type="mean",
+        count=2,
+    )
 
-        res = client.get("/charts", params={"tool_id": tool_active})
+    res = client.get("/charts", params={"tool_id": tool_active})
 
-        assert res.status_code == 200
-        data = res.json()["data"]
-        assert len(data) == 1
-        assert all(item["tool_id"] == tool_active for item in data)
-        assert data[0]["version"] == 3
-    finally:
-        _cleanup_seeded_chart_rows(seeded)
+    assert res.status_code == 200
+    data = res.json()["data"]
+    assert len(data) == 1
+    assert all(item["tool_id"] == tool_active for item in data)
+    assert data[0]["version"] == 3
 
 
-def test_get_charts_supports_tool_filter_and_active_only(client: TestClient) -> None:
+def test_get_charts_supports_tool_filter_and_active_only(
+    client: TestClient,
+    seeded_chart_rows_for_get_charts: SeededChartsContext,
+) -> None:
     """tool_id フィルタと active_only フィルタが機能することを確認する。"""
-    seeded = _seed_chart_rows_for_get_charts()
+    seeded = seeded_chart_rows_for_get_charts
     tool_active = seeded.tool_primary
     tool_inactive = seeded.tool_secondary
-    try:
-        filtered = client.get("/charts", params={"tool_id": tool_active})
-        assert filtered.status_code == 200
-        filtered_data = filtered.json()["data"]
-        assert filtered_data
-        assert all(item["tool_id"] == tool_active for item in filtered_data)
-        assert all(item["tool_id"] != tool_inactive for item in filtered_data)
 
-        active_only = client.get("/charts", params={"active_only": True})
-        assert active_only.status_code == 200
-        active_only_data = active_only.json()["data"]
-        assert all(item["is_active"] is True for item in active_only_data)
-        assert any(item["tool_id"] == tool_active for item in active_only_data)
-        assert all(item["tool_id"] != tool_inactive for item in active_only_data)
-    finally:
-        _cleanup_seeded_chart_rows(seeded)
+    filtered = client.get("/charts", params={"tool_id": tool_active})
+    assert filtered.status_code == 200
+    filtered_data = filtered.json()["data"]
+    assert filtered_data
+    assert all(item["tool_id"] == tool_active for item in filtered_data)
+    assert all(item["tool_id"] != tool_inactive for item in filtered_data)
+
+    active_only = client.get("/charts", params={"active_only": True})
+    assert active_only.status_code == 200
+    active_only_data = active_only.json()["data"]
+    assert all(item["is_active"] is True for item in active_only_data)
+    assert any(item["tool_id"] == tool_active for item in active_only_data)
+    assert all(item["tool_id"] != tool_inactive for item in active_only_data)
 
 
 def test_get_charts_supports_chamber_filter(client: TestClient) -> None:
@@ -495,4 +485,4 @@ def test_get_charts_rejects_negative_step_no(client: TestClient) -> None:
     res = client.get("/charts", params={"step_no": -1})
 
     assert res.status_code == 422
-    _assert_validation_error_envelope(res.json(), expected_loc_fragment="step_no")
+    assert_validation_error_envelope(res.json(), expected_loc_fragment="step_no")

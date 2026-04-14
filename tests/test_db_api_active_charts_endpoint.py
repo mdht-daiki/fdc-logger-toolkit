@@ -29,6 +29,8 @@ class SeededActiveChartsContext:
     active_chart_set_id: int
     inactive_chart_set_id: int
     restore_active_set_id: int
+    restore_active_updated_at: str
+    restore_active_updated_by: str | None
     active_tool_id: str
     active_other_tool_id: str
     inactive_tool_id: str
@@ -60,11 +62,13 @@ def seeded_active_chart_rows() -> Iterator[SeededActiveChartsContext]:
         now = datetime.now(UTC).isoformat()
         suffix = uuid4().hex
         prev_active_row = con.execute(
-            "SELECT chart_set_id FROM ActiveChartSet WHERE id = 1"
+            "SELECT chart_set_id, updated_at, updated_by FROM ActiveChartSet WHERE id = 1"
         ).fetchone()
         if prev_active_row is None:
             raise RuntimeError("ActiveChartSet row with id=1 is required")
         restore_active_set_id = int(prev_active_row[0])
+        restore_active_updated_at = str(prev_active_row[1])
+        restore_active_updated_by = None if prev_active_row[2] is None else str(prev_active_row[2])
 
         active_tool_id = f"TOOL_ACTIVE_PRIMARY_{suffix}"
         active_other_tool_id = f"TOOL_ACTIVE_SECONDARY_{suffix}"
@@ -145,6 +149,8 @@ def seeded_active_chart_rows() -> Iterator[SeededActiveChartsContext]:
             active_chart_set_id=active_chart_set_id,
             inactive_chart_set_id=inactive_chart_set_id,
             restore_active_set_id=restore_active_set_id,
+            restore_active_updated_at=restore_active_updated_at,
+            restore_active_updated_by=restore_active_updated_by,
             active_tool_id=active_tool_id,
             active_other_tool_id=active_other_tool_id,
             inactive_tool_id=inactive_tool_id,
@@ -161,8 +167,8 @@ def seeded_active_chart_rows() -> Iterator[SeededActiveChartsContext]:
                     ") VALUES (1, ?, ?, ?)",
                     (
                         context.restore_active_set_id,
-                        datetime.now(UTC).isoformat(),
-                        "test-cleanup",
+                        context.restore_active_updated_at,
+                        context.restore_active_updated_by,
                     ),
                 )
                 for chart_set_id in (context.active_chart_set_id, context.inactive_chart_set_id):
@@ -197,6 +203,28 @@ def test_get_active_charts_returns_active_chart_set_payload(
 
     charts = data["charts"]
     assert len(charts) == 2
+    required_keys = {
+        "chart_id",
+        "parameter",
+        "step_no",
+        "feature_type",
+        "warning_lcl",
+        "warning_ucl",
+        "critical_lcl",
+        "critical_ucl",
+    }
+    for chart in charts:
+        assert required_keys.issubset(chart.keys())
+        assert isinstance(chart["chart_id"], str)
+        assert re.fullmatch(r"CHART_\d+", chart["chart_id"])
+        assert isinstance(chart["parameter"], str)
+        assert isinstance(chart["step_no"], int)
+        assert isinstance(chart["feature_type"], str)
+        assert isinstance(chart["warning_lcl"], (int, float))
+        assert isinstance(chart["warning_ucl"], (int, float))
+        assert isinstance(chart["critical_lcl"], (int, float))
+        assert isinstance(chart["critical_ucl"], (int, float))
+
     tool_scoped = [chart for chart in charts if chart["parameter"] in {"dc_bias", "cl2_flow"}]
     assert len(tool_scoped) == 2
     first = next(chart for chart in charts if chart["parameter"] == "dc_bias")

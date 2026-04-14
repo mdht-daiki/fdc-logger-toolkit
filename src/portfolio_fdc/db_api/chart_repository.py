@@ -23,6 +23,15 @@ class ChartsQueryCriteria:
 
 
 @dataclass(frozen=True)
+class ActiveChartsQueryCriteria:
+    """`GET /charts/active` の検索条件を保持する DTO。"""
+
+    tool_id: str | None = None
+    chamber_id: str | None = None
+    recipe_id: str | None = None
+
+
+@dataclass(frozen=True)
 class ChartView:
     """`GET /charts` レスポンス 1 件分の DTO。
 
@@ -50,8 +59,51 @@ class ChartView:
     is_active: bool
 
 
+@dataclass(frozen=True)
+class ActiveChartView:
+    """`GET /charts/active` の charts 配列 1 件分の DTO。"""
+
+    chart_id: str
+    parameter: str
+    step_no: int
+    feature_type: str
+    warning_lcl: float | None
+    warning_ucl: float | None
+    critical_lcl: float | None
+    critical_ucl: float | None
+
+
+@dataclass(frozen=True)
+class ActiveChartSetView:
+    """`GET /charts/active` レスポンス data の DTO。"""
+
+    active_chart_set_id: int | None
+    activated_at: str | None
+    charts: list[ActiveChartView]
+
+
 class ChartRepository:
     """ChartsV2 から chart 一覧を取得するリポジトリ。"""
+
+    _ACTIVE_CHART_SET_SQL = """
+        SELECT chart_set_id, updated_at
+        FROM ActiveChartSet
+        WHERE id = 1
+    """
+
+    _ACTIVE_CHARTS_SQL = """
+        SELECT
+            c.id,
+            c.parameter,
+            c.step_no,
+            c.feature_type,
+            c.warn_low,
+            c.warn_high,
+            c.crit_low,
+            c.crit_high
+        FROM ChartsV2 c
+        WHERE c.chart_set_id = ?
+    """
 
     _FILTERED_CHARTS_CTE = """
         WITH filtered_charts AS (
@@ -204,6 +256,58 @@ class ChartRepository:
 
         return [self._to_chart_view(row) for row in rows]
 
+    def find_active_chart_set(self, criteria: ActiveChartsQueryCriteria) -> ActiveChartSetView:
+        """active chart set とその charts 一覧を返す。"""
+        con = _connect(MAIN_DB)
+        try:
+            active_row = con.execute(self._ACTIVE_CHART_SET_SQL).fetchone()
+            if active_row is None:
+                return ActiveChartSetView(
+                    active_chart_set_id=None,
+                    activated_at=None,
+                    charts=[],
+                )
+
+            active_chart_set_id = int(active_row[0])
+            activated_at = _to_utc_millis(str(active_row[1]))
+
+            sql = self._ACTIVE_CHARTS_SQL
+            where_clauses: list[str] = []
+            params: list[Any] = [active_chart_set_id]
+
+            self._append_filter_condition(
+                criteria.tool_id,
+                "c.tool_id = ?",
+                where_clauses,
+                params,
+            )
+            self._append_filter_condition(
+                criteria.chamber_id,
+                "c.chamber_id = ?",
+                where_clauses,
+                params,
+            )
+            self._append_filter_condition(
+                criteria.recipe_id,
+                "c.recipe_id = ?",
+                where_clauses,
+                params,
+            )
+
+            if where_clauses:
+                sql += " AND " + " AND ".join(where_clauses)
+
+            sql += " ORDER BY c.parameter, c.step_no, c.feature_type"
+            rows = con.execute(sql, tuple(params)).fetchall()
+        finally:
+            con.close()
+
+        return ActiveChartSetView(
+            active_chart_set_id=active_chart_set_id,
+            activated_at=activated_at,
+            charts=[self._to_active_chart_view(row) for row in rows],
+        )
+
     @staticmethod
     def _append_filter_condition(
         value: Any,
@@ -257,6 +361,31 @@ class ChartRepository:
             updated_at=_to_utc_millis(str(updated_at)),
             version=int(version),
             is_active=bool(is_active),
+        )
+
+    @staticmethod
+    def _to_active_chart_view(row: tuple[Any, ...]) -> ActiveChartView:
+        """DB 行を `ActiveChartView` へ変換する。"""
+        (
+            chart_pk,
+            parameter,
+            step_no,
+            feature_type,
+            warn_low,
+            warn_high,
+            crit_low,
+            crit_high,
+        ) = row
+
+        return ActiveChartView(
+            chart_id=f"CHART_{int(chart_pk)}",
+            parameter=str(parameter),
+            step_no=int(step_no),
+            feature_type=str(feature_type),
+            warning_lcl=_to_float_or_none(warn_low),
+            warning_ucl=_to_float_or_none(warn_high),
+            critical_lcl=_to_float_or_none(crit_low),
+            critical_ucl=_to_float_or_none(crit_high),
         )
 
 

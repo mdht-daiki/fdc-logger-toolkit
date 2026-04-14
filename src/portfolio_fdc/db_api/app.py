@@ -28,7 +28,7 @@ from .aggregate_repository import (
     write_process,
     write_step_windows_bulk,
 )
-from .chart_repository import ChartRepository, ChartsQueryCriteria
+from .chart_repository import ActiveChartsQueryCriteria, ChartRepository, ChartsQueryCriteria
 from .db import MAIN_DB, TEMP_DB, _init_schema
 from .schemas import (
     AggregateWriteIn,
@@ -196,6 +196,41 @@ def get_charts(
         return {"ok": True, "data": [asdict(row) for row in rows]}
     except Exception as e:
         logger.exception("Failed to fetch charts")
+        raise HTTPException(status_code=500, detail="Internal server error") from e
+
+
+@app.get("/charts/active")
+def get_active_charts(
+    tool_id: str | None = Query(
+        default=None,
+        min_length=1,
+        max_length=CHARTS_FILTER_MAX_LENGTH,
+        pattern=CHARTS_FILTER_PATTERN,
+    ),
+    chamber_id: str | None = Query(
+        default=None,
+        min_length=1,
+        max_length=CHARTS_FILTER_MAX_LENGTH,
+        pattern=CHARTS_FILTER_PATTERN,
+    ),
+    recipe_id: str | None = Query(
+        default=None,
+        min_length=1,
+        max_length=CHARTS_FILTER_MAX_LENGTH,
+        pattern=CHARTS_FILTER_PATTERN,
+    ),
+):
+    """active chart set と有効閾値一覧を返す。"""
+    criteria = ActiveChartsQueryCriteria(
+        tool_id=tool_id,
+        chamber_id=chamber_id,
+        recipe_id=recipe_id,
+    )
+    try:
+        data = _chart_repository.find_active_chart_set(criteria)
+        return {"ok": True, "data": asdict(data)}
+    except Exception as e:
+        logger.exception("Failed to fetch active charts")
         raise HTTPException(status_code=500, detail="Internal server error") from e
 
 

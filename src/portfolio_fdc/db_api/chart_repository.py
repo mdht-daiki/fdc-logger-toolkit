@@ -119,10 +119,17 @@ class ChartRepository:
             fc.crit_low,
             fc.crit_high,
             fc.updated_at,
-            CASE WHEN a.chart_set_id = fc.chart_set_id THEN 1 ELSE 0 END AS is_active,
+            CASE
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM ActiveChartSet active
+                    WHERE active.id = 1
+                      AND active.chart_set_id = fc.chart_set_id
+                ) THEN 1
+                ELSE 0
+            END AS is_active,
             COALESCE(hv.version, 1) AS version
         FROM filtered_charts fc
-        LEFT JOIN ActiveChartSet a ON a.id = 1
         LEFT JOIN history_versions hv
             ON hv.chart_set_id = fc.chart_set_id
            AND hv.tool_id = fc.tool_id

@@ -420,6 +420,38 @@ def test_get_charts_supports_tool_filter_and_active_only(
     assert all(item["tool_id"] != tool_inactive for item in active_only_data)
 
 
+def test_get_charts_handles_missing_active_chart_set_row(
+    client: TestClient,
+    seeded_chart_rows_for_get_charts: SeededChartsContext,
+) -> None:
+    """ActiveChartSet 未設定時は is_active=False, active_onlyは空になることを確認する。"""
+    seeded = seeded_chart_rows_for_get_charts
+    tool_active = seeded.tool_primary
+    tool_inactive = seeded.tool_secondary
+
+    con = sqlite3.connect(MAIN_DB.as_posix())
+    try:
+        con.execute("DELETE FROM ActiveChartSet WHERE id = 1")
+        con.commit()
+    finally:
+        con.close()
+
+    res = client.get("/charts")
+    assert res.status_code == 200
+    data = [item for item in res.json()["data"] if item["tool_id"] in {tool_active, tool_inactive}]
+    assert len(data) == 2
+    assert all(item["is_active"] is False for item in data)
+
+    active_only = client.get("/charts", params={"active_only": True})
+    assert active_only.status_code == 200
+    active_only_data = [
+        item
+        for item in active_only.json()["data"]
+        if item["tool_id"] in {tool_active, tool_inactive}
+    ]
+    assert active_only_data == []
+
+
 def test_get_charts_supports_chamber_filter(
     client: TestClient,
     seeded_chart_rows_for_filter_tests: SeededChartsContext,

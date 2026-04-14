@@ -166,7 +166,8 @@ def _cleanup_seeded_chart_rows(context: SeededChartsContext) -> None:
         con.close()
 
 
-def _seed_chart_rows_for_filter_tests() -> SeededChartsContext:
+@pytest.fixture
+def seeded_chart_rows_for_filter_tests() -> Iterator[SeededChartsContext]:
     """各クエリフィルタ検証用に属性が異なる 2 chart を投入する。"""
     _init_schema(MAIN_DB)
     con = sqlite3.connect(MAIN_DB.as_posix())
@@ -230,14 +231,17 @@ def _seed_chart_rows_for_filter_tests() -> SeededChartsContext:
         )
 
         con.commit()
-        return SeededChartsContext(
+        context = SeededChartsContext(
             tool_primary=tool_match,
             tool_secondary=tool_other,
             restore_active_set_id=prev_active_set_id,
             chart_set_ids=(chart_set_id,),
         )
+        yield context
     finally:
         con.close()
+        if "context" in locals():
+            _cleanup_seeded_chart_rows(context)
 
 
 def _assert_all_rows_match(data: list[dict[str, object]], key: str, expected: object) -> None:
@@ -410,74 +414,79 @@ def test_get_charts_supports_tool_filter_and_active_only(
     assert all(item["tool_id"] != tool_inactive for item in active_only_data)
 
 
-def test_get_charts_supports_chamber_filter(client: TestClient) -> None:
+def test_get_charts_supports_chamber_filter(
+    client: TestClient,
+    seeded_chart_rows_for_filter_tests: SeededChartsContext,
+) -> None:
     """chamber_id フィルタが機能することを確認する。"""
-    seeded = _seed_chart_rows_for_filter_tests()
+    seeded = seeded_chart_rows_for_filter_tests
     tool_match = seeded.tool_primary
     tool_other = seeded.tool_secondary
-    try:
-        res = client.get("/charts", params={"chamber_id": "CH_FILTER_MATCH"})
-        assert res.status_code == 200
-        data = [item for item in res.json()["data"] if item["tool_id"] in {tool_match, tool_other}]
-        _assert_all_rows_match(data, "chamber_id", "CH_FILTER_MATCH")
-    finally:
-        _cleanup_seeded_chart_rows(seeded)
+
+    res = client.get("/charts", params={"chamber_id": "CH_FILTER_MATCH"})
+    assert res.status_code == 200
+    data = [item for item in res.json()["data"] if item["tool_id"] in {tool_match, tool_other}]
+    _assert_all_rows_match(data, "chamber_id", "CH_FILTER_MATCH")
 
 
-def test_get_charts_supports_recipe_filter(client: TestClient) -> None:
+def test_get_charts_supports_recipe_filter(
+    client: TestClient,
+    seeded_chart_rows_for_filter_tests: SeededChartsContext,
+) -> None:
     """recipe_id フィルタが機能することを確認する。"""
-    seeded = _seed_chart_rows_for_filter_tests()
+    seeded = seeded_chart_rows_for_filter_tests
     tool_match = seeded.tool_primary
     tool_other = seeded.tool_secondary
-    try:
-        res = client.get("/charts", params={"recipe_id": "RECIPE_FILTER_MATCH"})
-        assert res.status_code == 200
-        data = [item for item in res.json()["data"] if item["tool_id"] in {tool_match, tool_other}]
-        _assert_all_rows_match(data, "recipe_id", "RECIPE_FILTER_MATCH")
-    finally:
-        _cleanup_seeded_chart_rows(seeded)
+
+    res = client.get("/charts", params={"recipe_id": "RECIPE_FILTER_MATCH"})
+    assert res.status_code == 200
+    data = [item for item in res.json()["data"] if item["tool_id"] in {tool_match, tool_other}]
+    _assert_all_rows_match(data, "recipe_id", "RECIPE_FILTER_MATCH")
 
 
-def test_get_charts_supports_parameter_filter(client: TestClient) -> None:
+def test_get_charts_supports_parameter_filter(
+    client: TestClient,
+    seeded_chart_rows_for_filter_tests: SeededChartsContext,
+) -> None:
     """parameter フィルタが機能することを確認する。"""
-    seeded = _seed_chart_rows_for_filter_tests()
+    seeded = seeded_chart_rows_for_filter_tests
     tool_match = seeded.tool_primary
     tool_other = seeded.tool_secondary
-    try:
-        res = client.get("/charts", params={"parameter": "dc_bias"})
-        assert res.status_code == 200
-        data = [item for item in res.json()["data"] if item["tool_id"] in {tool_match, tool_other}]
-        _assert_all_rows_match(data, "parameter", "dc_bias")
-    finally:
-        _cleanup_seeded_chart_rows(seeded)
+
+    res = client.get("/charts", params={"parameter": "dc_bias"})
+    assert res.status_code == 200
+    data = [item for item in res.json()["data"] if item["tool_id"] in {tool_match, tool_other}]
+    _assert_all_rows_match(data, "parameter", "dc_bias")
 
 
-def test_get_charts_supports_positive_step_no_filter(client: TestClient) -> None:
+def test_get_charts_supports_positive_step_no_filter(
+    client: TestClient,
+    seeded_chart_rows_for_filter_tests: SeededChartsContext,
+) -> None:
     """step_no 正数フィルタが機能することを確認する。"""
-    seeded = _seed_chart_rows_for_filter_tests()
+    seeded = seeded_chart_rows_for_filter_tests
     tool_match = seeded.tool_primary
     tool_other = seeded.tool_secondary
-    try:
-        res = client.get("/charts", params={"step_no": 2})
-        assert res.status_code == 200
-        data = [item for item in res.json()["data"] if item["tool_id"] in {tool_match, tool_other}]
-        _assert_all_rows_match(data, "step_no", 2)
-    finally:
-        _cleanup_seeded_chart_rows(seeded)
+
+    res = client.get("/charts", params={"step_no": 2})
+    assert res.status_code == 200
+    data = [item for item in res.json()["data"] if item["tool_id"] in {tool_match, tool_other}]
+    _assert_all_rows_match(data, "step_no", 2)
 
 
-def test_get_charts_supports_feature_type_filter(client: TestClient) -> None:
+def test_get_charts_supports_feature_type_filter(
+    client: TestClient,
+    seeded_chart_rows_for_filter_tests: SeededChartsContext,
+) -> None:
     """feature_type フィルタが機能することを確認する。"""
-    seeded = _seed_chart_rows_for_filter_tests()
+    seeded = seeded_chart_rows_for_filter_tests
     tool_match = seeded.tool_primary
     tool_other = seeded.tool_secondary
-    try:
-        res = client.get("/charts", params={"feature_type": "mean"})
-        assert res.status_code == 200
-        data = [item for item in res.json()["data"] if item["tool_id"] in {tool_match, tool_other}]
-        _assert_all_rows_match(data, "feature_type", "mean")
-    finally:
-        _cleanup_seeded_chart_rows(seeded)
+
+    res = client.get("/charts", params={"feature_type": "mean"})
+    assert res.status_code == 200
+    data = [item for item in res.json()["data"] if item["tool_id"] in {tool_match, tool_other}]
+    _assert_all_rows_match(data, "feature_type", "mean")
 
 
 def test_get_charts_rejects_negative_step_no(client: TestClient) -> None:

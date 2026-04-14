@@ -17,7 +17,18 @@ def assert_validation_error_envelope(
     assert isinstance(details, dict)
     issues = details["issues"]
     assert isinstance(issues, list)
+    assert issues
+
+    for issue in issues:
+        assert isinstance(issue, dict)
+        assert "loc" in issue
+        assert "msg" in issue
+        loc = issue["loc"]
+        msg = issue["msg"]
+        assert isinstance(loc, (list, tuple))
+        assert isinstance(msg, str)
+
     if expected_loc_fragment is not None:
-        assert any(expected_loc_fragment in str(issue.get("loc", [])) for issue in issues)
+        assert any(expected_loc_fragment in str(issue["loc"]) for issue in issues)
     if expected_message_fragment is not None:
-        assert any(expected_message_fragment in str(issue.get("msg", "")) for issue in issues)
+        assert any(expected_message_fragment in issue["msg"] for issue in issues)

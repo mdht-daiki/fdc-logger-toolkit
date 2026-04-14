@@ -24,7 +24,12 @@ class ChartsQueryCriteria:
 
 @dataclass(frozen=True)
 class ChartView:
-    """`GET /charts` レスポンス 1 件分の DTO。"""
+    """`GET /charts` レスポンス 1 件分の DTO。
+
+    `lcl/ucl` は後方互換のために維持している互換フィールドで、
+    現在は `critical_lcl/critical_ucl` と同値を返す。
+    新規利用側は warning/critical の明示フィールド参照を優先する。
+    """
 
     chart_id: str
     chart_set_id: int
@@ -34,8 +39,8 @@ class ChartView:
     parameter: str
     step_no: int
     feature_type: str
-    lcl: float | None
-    ucl: float | None
+    lcl: float | None  # Compatibility alias of critical_lcl.
+    ucl: float | None  # Compatibility alias of critical_ucl.
     warning_lcl: float | None
     warning_ucl: float | None
     critical_lcl: float | None
@@ -199,6 +204,7 @@ class ChartRepository:
             version,
         ) = row
 
+        # Keep lcl/ucl as backward-compatible aliases of critical bounds.
         return ChartView(
             chart_id=f"CHART_{int(chart_pk)}",
             chart_set_id=int(chart_set_id),

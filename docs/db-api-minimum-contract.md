@@ -81,6 +81,11 @@ dashboard read-only baseline と judge 最小実装に必要な API 契約を、
 - `feature_type`
 - `active_only` (bool)
 
+フィールド意味（互換注記）:
+
+- `lcl` / `ucl` は後方互換のための互換フィールドであり、現在は `critical_lcl` / `critical_ucl` と同値を返す
+- 新規実装では `warning_*` と `critical_*` の明示フィールド参照を優先する
+
 成功レスポンス例:
 
 ```json

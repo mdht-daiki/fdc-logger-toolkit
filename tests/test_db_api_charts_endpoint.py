@@ -254,6 +254,9 @@ def _insert_chart_history(
     con = sqlite3.connect(MAIN_DB.as_posix())
     try:
         for index in range(count):
+            changed_at = (
+                datetime(2026, 4, 14, 0, 0, index, tzinfo=UTC).isoformat().replace("+00:00", "Z")
+            )
             con.execute(
                 """
                 INSERT INTO ChartsHistory(
@@ -280,7 +283,7 @@ def _insert_chart_history(
                     2.1,
                     0.9,
                     2.3,
-                    f"2026-04-14T00:00:0{index}Z",
+                    changed_at,
                     "tester",
                     "history-seed",
                     "test",
@@ -296,6 +299,14 @@ def test_get_charts_returns_chart_rows_with_contract_fields(client: TestClient) 
     seeded = _seed_chart_rows_for_get_charts()
     tool_active = seeded.tool_primary
     tool_inactive = seeded.tool_secondary
+    expected_warning_ranges = {
+        tool_active: (1.4, 2.6),
+        tool_inactive: (1.0, 2.0),
+    }
+    expected_updated_at = {
+        tool_active: "2026-04-14T00:00:00.000Z",
+        tool_inactive: "2026-04-14T00:00:00.000Z",
+    }
     try:
         res = client.get("/charts")
 
@@ -314,14 +325,16 @@ def test_get_charts_returns_chart_rows_with_contract_fields(client: TestClient) 
             assert row["parameter"] == "dc_bias"
             assert row["step_no"] == 1
             assert row["feature_type"] == "mean"
+            expected_warning_lcl, expected_warning_ucl = expected_warning_ranges[row["tool_id"]]
+            assert isinstance(row["warning_lcl"], float)
+            assert isinstance(row["warning_ucl"], float)
+            assert row["warning_lcl"] == expected_warning_lcl
+            assert row["warning_ucl"] == expected_warning_ucl
             assert row["lcl"] == row["critical_lcl"]
             assert row["ucl"] == row["critical_ucl"]
             assert isinstance(row["version"], int)
             assert row["version"] >= 1
-            assert re.fullmatch(
-                r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z",
-                row["updated_at"],
-            )
+            assert row["updated_at"] == expected_updated_at[row["tool_id"]]
 
         active_row = next(item for item in rows if item["tool_id"] == tool_active)
         inactive_row = next(item for item in rows if item["tool_id"] == tool_inactive)

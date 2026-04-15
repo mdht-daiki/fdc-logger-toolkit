@@ -152,6 +152,31 @@ def _is_runner_unavailable_error(error: Exception) -> bool:
     return str(error).startswith("DBTaskRunner")
 
 
+def _is_transient_operational_error(error: sqlite3.OperationalError) -> bool:
+    """OperationalError が一時的な DB 障害かどうかを判定する。"""
+    message = str(error).lower()
+
+    # 恒久的な設定/SQL 不整合は 500 として扱う。
+    non_transient_markers = (
+        "no such table",
+        "no such column",
+        "syntax error",
+        "malformed",
+    )
+    if any(marker in message for marker in non_transient_markers):
+        return False
+
+    transient_markers = (
+        "database is locked",
+        "database is busy",
+        "busy",
+        "unable to open database file",
+        "disk i/o error",
+        "readonly database",
+    )
+    return any(marker in message for marker in transient_markers)
+
+
 def _raise_api_error(
     *,
     operation: str,
@@ -169,9 +194,15 @@ def _raise_api_error(
         ) from error
 
     if isinstance(error, sqlite3.OperationalError):
+        if _is_transient_operational_error(error):
+            raise HTTPException(
+                status_code=503,
+                detail="Database temporarily unavailable",
+                headers=headers,
+            ) from error
         raise HTTPException(
-            status_code=503,
-            detail="Database temporarily unavailable",
+            status_code=500,
+            detail="Database operation failed",
             headers=headers,
         ) from error
 

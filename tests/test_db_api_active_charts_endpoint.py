@@ -259,6 +259,35 @@ def test_get_active_charts_filters_by_tool_chamber_and_recipe(
     assert by_combo_charts[0]["parameter"] == "dc_bias"
 
 
+def test_get_active_charts_supports_filter_combinations(
+    client: TestClient,
+    seeded_active_charts_context: SeededActiveChartsContext,
+) -> None:
+    seeded = seeded_active_charts_context
+
+    cases = [
+        ({"chamber_id": "CH_ACTIVE"}, {"dc_bias"}),
+        ({"recipe_id": "RECIPE_ACTIVE"}, {"dc_bias"}),
+        ({"tool_id": seeded.active_tool_id, "chamber_id": "CH_ACTIVE"}, {"dc_bias"}),
+        ({"tool_id": seeded.active_tool_id, "recipe_id": "RECIPE_ACTIVE"}, {"dc_bias"}),
+        (
+            {
+                "tool_id": seeded.active_tool_id,
+                "chamber_id": "CH_ACTIVE",
+                "recipe_id": "RECIPE_ACTIVE",
+            },
+            {"dc_bias"},
+        ),
+        ({"tool_id": seeded.active_tool_id, "chamber_id": "CH_OTHER"}, set()),
+    ]
+
+    for params, expected_parameters in cases:
+        res = client.get("/charts/active", params=params)
+        assert res.status_code == 200
+        charts = res.json()["data"]["charts"]
+        assert {chart["parameter"] for chart in charts} == expected_parameters
+
+
 def test_get_active_charts_excludes_inactive_chart_set_rows(
     client: TestClient,
     seeded_active_charts_context: SeededActiveChartsContext,
@@ -341,6 +370,24 @@ def test_get_active_charts_returns_500_on_database_error(
     def fail_active_query(*args, **kwargs):
         _ = args, kwargs
         raise sqlite3.IntegrityError("constraint failed")
+
+    monkeypatch.setattr(db_app._chart_repository, "find_active_chart_set", fail_active_query)
+
+    res = client.get("/charts/active")
+
+    assert res.status_code == 500
+    assert res.json()["detail"] == "Database operation failed"
+
+
+def test_get_active_charts_returns_500_on_non_transient_operational_error(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """恒久的な OperationalError は 500 へ分類されることを確認する。"""
+
+    def fail_active_query(*args, **kwargs):
+        _ = args, kwargs
+        raise sqlite3.OperationalError("no such table: ChartsV2")
 
     monkeypatch.setattr(db_app._chart_repository, "find_active_chart_set", fail_active_query)
 

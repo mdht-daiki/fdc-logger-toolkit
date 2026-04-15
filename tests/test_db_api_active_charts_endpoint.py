@@ -343,6 +343,89 @@ def test_get_active_charts_rejects_invalid_string_filters(
     assert_validation_error_envelope(res.json(), expected_loc_fragment=query_key)
 
 
+@pytest.mark.parametrize("query_key", ["tool_id", "chamber_id", "recipe_id"])
+def test_get_active_charts_rejects_empty_string_filters(
+    client: TestClient,
+    query_key: str,
+) -> None:
+    res = client.get("/charts/active", params={query_key: ""})
+
+    assert res.status_code == 422
+    assert_validation_error_envelope(res.json(), expected_loc_fragment=query_key)
+
+
+@pytest.mark.parametrize("query_key", ["tool_id", "chamber_id", "recipe_id"])
+def test_get_active_charts_accepts_filter_length_at_upper_bound(
+    client: TestClient,
+    query_key: str,
+) -> None:
+    max_length_value = "A" * 128
+    res = client.get("/charts/active", params={query_key: max_length_value})
+
+    assert res.status_code == 200
+    assert res.json()["ok"] is True
+
+
+@pytest.mark.parametrize("query_key", ["tool_id", "chamber_id", "recipe_id"])
+def test_get_active_charts_rejects_filter_length_above_upper_bound(
+    client: TestClient,
+    query_key: str,
+) -> None:
+    too_long_value = "A" * 129
+    res = client.get("/charts/active", params={query_key: too_long_value})
+
+    assert res.status_code == 422
+    assert_validation_error_envelope(res.json(), expected_loc_fragment=query_key)
+
+
+@pytest.mark.parametrize("query_key", ["tool_id", "chamber_id", "recipe_id"])
+def test_get_active_charts_accepts_pattern_boundary_characters(
+    client: TestClient,
+    query_key: str,
+) -> None:
+    boundary_pattern_value = "A_B.C/1:2-3"
+    res = client.get("/charts/active", params={query_key: boundary_pattern_value})
+
+    assert res.status_code == 200
+    assert res.json()["ok"] is True
+
+
+def test_get_active_charts_returns_503_on_timeout_error(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """TimeoutError は一時障害として 503 へ分類されることを確認する。"""
+
+    def fail_active_query(*args, **kwargs):
+        _ = args, kwargs
+        raise TimeoutError("query timeout")
+
+    monkeypatch.setattr(db_app._chart_repository, "find_active_chart_set", fail_active_query)
+
+    res = client.get("/charts/active")
+
+    assert res.status_code == 503
+    assert res.json()["detail"] == "Service temporarily unavailable"
+
+
+def test_get_active_charts_returns_503_on_runner_runtime_error(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """DBTaskRunner 起因 RuntimeError は一時障害として 503 へ分類される。"""
+
+    def fail_active_query(*args, **kwargs):
+        _ = args, kwargs
+        raise RuntimeError("DBTaskRunner has been stopped")
+
+    monkeypatch.setattr(db_app._chart_repository, "find_active_chart_set", fail_active_query)
+
+    res = client.get("/charts/active")
+
+    assert res.status_code == 503
+    assert res.json()["detail"] == "Service temporarily unavailable"
+
+
 def test_get_active_charts_returns_503_on_operational_error(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
@@ -395,3 +478,25 @@ def test_get_active_charts_returns_500_on_non_transient_operational_error(
 
     assert res.status_code == 500
     assert res.json()["detail"] == "Database operation failed"
+
+
+def test_get_active_charts_non_transient_error_does_not_retry_or_fallback(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """恒久障害では再試行/フォールバックせず、即時に 500 応答することを確認する。"""
+    call_count = 0
+
+    def fail_active_query(*args, **kwargs):
+        nonlocal call_count
+        _ = args, kwargs
+        call_count += 1
+        raise sqlite3.OperationalError("no such table: ChartsV2")
+
+    monkeypatch.setattr(db_app._chart_repository, "find_active_chart_set", fail_active_query)
+
+    res = client.get("/charts/active")
+
+    assert res.status_code == 500
+    assert res.json()["detail"] == "Database operation failed"
+    assert call_count == 1

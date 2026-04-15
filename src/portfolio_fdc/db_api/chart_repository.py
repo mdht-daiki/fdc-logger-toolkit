@@ -32,6 +32,19 @@ class ActiveChartsQueryCriteria:
 
 
 @dataclass(frozen=True)
+class ChartsHistoryQueryCriteria:
+    """`GET /charts/history` の検索条件を保持する DTO。"""
+
+    chart_pk: int | None = None
+    chart_set_id: int | None = None
+    change_source: str | None = None
+    from_ts: str | None = None
+    to_ts: str | None = None
+    limit: int = 100
+    offset: int = 0
+
+
+@dataclass(frozen=True)
 class ChartView:
     """`GET /charts` レスポンス 1 件分の DTO。
 
@@ -82,6 +95,31 @@ class ActiveChartSetView:
     charts: list[ActiveChartView]
 
 
+@dataclass(frozen=True)
+class ChartThresholdSnapshot:
+    """履歴上のしきい値スナップショット。"""
+
+    warning_lcl: float | None
+    warning_ucl: float | None
+    critical_lcl: float | None
+    critical_ucl: float | None
+
+
+@dataclass(frozen=True)
+class ChartHistoryView:
+    """`GET /charts/history` レスポンス 1 件分の DTO。"""
+
+    history_id: str
+    chart_id: str | None
+    chart_set_id: int
+    change_source: str | None
+    change_reason: str | None
+    before: ChartThresholdSnapshot
+    after: ChartThresholdSnapshot
+    changed_by: str | None
+    changed_at: str
+
+
 class ChartRepository:
     """ChartsV2 から chart 一覧を取得するリポジトリ。"""
 
@@ -103,6 +141,34 @@ class ChartRepository:
             c.crit_high
         FROM ChartsV2 c
         WHERE c.chart_set_id = ?
+    """
+
+    _CHARTS_HISTORY_SQL = """
+        SELECT
+            h.id,
+            h.chart_set_id,
+            c.id,
+            h.change_source,
+            h.change_reason,
+            h.old_warn_low,
+            h.old_warn_high,
+            h.old_crit_low,
+            h.old_crit_high,
+            h.new_warn_low,
+            h.new_warn_high,
+            h.new_crit_low,
+            h.new_crit_high,
+            h.changed_by,
+            h.changed_at
+        FROM ChartsHistory h
+        LEFT JOIN ChartsV2 c
+            ON c.chart_set_id = h.chart_set_id
+           AND c.tool_id = h.tool_id
+           AND c.chamber_id = h.chamber_id
+           AND c.recipe_id = h.recipe_id
+           AND c.parameter = h.parameter
+           AND c.step_no = h.step_no
+           AND c.feature_type = h.feature_type
     """
 
     _FILTERED_CHARTS_CTE = """
@@ -308,6 +374,57 @@ class ChartRepository:
             charts=[self._to_active_chart_view(row) for row in rows],
         )
 
+    def find_chart_history(self, criteria: ChartsHistoryQueryCriteria) -> list[ChartHistoryView]:
+        """条件に一致する chart 閾値変更履歴を返す。"""
+        sql = self._CHARTS_HISTORY_SQL
+        where_clauses: list[str] = []
+        params: list[Any] = []
+
+        self._append_filter_condition(
+            criteria.chart_pk,
+            "c.id = ?",
+            where_clauses,
+            params,
+        )
+        self._append_filter_condition(
+            criteria.chart_set_id,
+            "h.chart_set_id = ?",
+            where_clauses,
+            params,
+        )
+        self._append_filter_condition(
+            criteria.change_source,
+            "h.change_source = ?",
+            where_clauses,
+            params,
+        )
+        self._append_filter_condition(
+            criteria.from_ts,
+            "datetime(h.changed_at) >= datetime(?)",
+            where_clauses,
+            params,
+        )
+        self._append_filter_condition(
+            criteria.to_ts,
+            "datetime(h.changed_at) <= datetime(?)",
+            where_clauses,
+            params,
+        )
+
+        if where_clauses:
+            sql += " WHERE " + " AND ".join(where_clauses)
+
+        sql += " ORDER BY datetime(h.changed_at) DESC, h.id DESC LIMIT ? OFFSET ?"
+        params.extend([criteria.limit, criteria.offset])
+
+        con = _connect(MAIN_DB)
+        try:
+            rows = con.execute(sql, tuple(params)).fetchall()
+        finally:
+            con.close()
+
+        return [self._to_chart_history_view(row) for row in rows]
+
     @staticmethod
     def _append_filter_condition(
         value: Any,
@@ -386,6 +503,49 @@ class ChartRepository:
             warning_ucl=_to_float_or_none(warn_high),
             critical_lcl=_to_float_or_none(crit_low),
             critical_ucl=_to_float_or_none(crit_high),
+        )
+
+    @staticmethod
+    def _to_chart_history_view(row: tuple[Any, ...]) -> ChartHistoryView:
+        """DB 行を `ChartHistoryView` へ変換する。"""
+        (
+            history_pk,
+            chart_set_id,
+            chart_pk,
+            change_source,
+            change_reason,
+            old_warn_low,
+            old_warn_high,
+            old_crit_low,
+            old_crit_high,
+            new_warn_low,
+            new_warn_high,
+            new_crit_low,
+            new_crit_high,
+            changed_by,
+            changed_at,
+        ) = row
+
+        return ChartHistoryView(
+            history_id=f"HIS_{int(history_pk)}",
+            chart_id=None if chart_pk is None else f"CHART_{int(chart_pk)}",
+            chart_set_id=int(chart_set_id),
+            change_source=None if change_source is None else str(change_source),
+            change_reason=None if change_reason is None else str(change_reason),
+            before=ChartThresholdSnapshot(
+                warning_lcl=_to_float_or_none(old_warn_low),
+                warning_ucl=_to_float_or_none(old_warn_high),
+                critical_lcl=_to_float_or_none(old_crit_low),
+                critical_ucl=_to_float_or_none(old_crit_high),
+            ),
+            after=ChartThresholdSnapshot(
+                warning_lcl=_to_float_or_none(new_warn_low),
+                warning_ucl=_to_float_or_none(new_warn_high),
+                critical_lcl=_to_float_or_none(new_crit_low),
+                critical_ucl=_to_float_or_none(new_crit_high),
+            ),
+            changed_by=None if changed_by is None else str(changed_by),
+            changed_at=_to_utc_millis(str(changed_at)),
         )
 
 

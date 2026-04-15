@@ -24,7 +24,7 @@
 | `POST`   | `/aggregate/write`                                  | ingest write   | implemented | ingest          | source: `db_api/app.py` | Process/StepWindow/Parameter を原子的に保存  |
 | `GET`    | `/charts`                                           | dashboard read | implemented | dashboard/judge | source: `db_api/app.py` | chart 定義一覧                               |
 | `GET`    | `/charts/active`                                    | dashboard read | implemented | dashboard/judge | source: `db_api/app.py` | active chart set と閾値                      |
-| `GET`    | `/charts/history`                                   | dashboard read | planned     | dashboard/ops   | Issue #98               | chart 変更履歴                               |
+| `GET`    | `/charts/history`                                   | dashboard read | implemented | dashboard/ops   | source: `db_api/app.py` | chart 変更履歴                               |
 | `GET`    | `/judge/results`                                    | dashboard read | planned     | dashboard       | Issue #98               | 判定結果一覧                                 |
 | `GET`    | `/judge/results/{result_id}`                        | dashboard read | planned     | dashboard       | Issue #98               | 判定詳細（トレース情報含む）                 |
 | `POST`   | `/governance/change-requests`                       | governance     | planned     | dashboard/ops   | Issue #102              | 通常変更の申請作成                           |

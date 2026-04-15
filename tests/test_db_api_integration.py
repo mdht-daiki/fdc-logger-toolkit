@@ -388,7 +388,7 @@ def test_db_api_aggregate_write_returns_500_on_runner_error(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`/aggregate/write` 実行時例外が HTTP 500 と detail に変換されることを確認する。"""
+    """`/aggregate/write` 実行時例外が安全な HTTP 500 detail に変換されることを確認する。"""
     process_id = f"agg_err_{uuid4().hex}"
 
     def fail_atomic(*args, **kwargs):
@@ -414,7 +414,7 @@ def test_db_api_aggregate_write_returns_500_on_runner_error(
     res = client.post("/aggregate/write", json=payload)
 
     assert res.status_code == 500
-    assert "forced aggregate write failure" in res.json()["detail"]
+    assert res.json()["detail"] == "Internal server error"
 
 
 def test_db_api_legacy_delete_preserves_migration_headers_on_error(
@@ -434,12 +434,33 @@ def test_db_api_legacy_delete_preserves_migration_headers_on_error(
     res = client.request("DELETE", "/processes", json={"process_id": process_id})
 
     assert res.status_code == 500
-    assert "forced delete failure" in res.json()["detail"]
+    assert res.json()["detail"] == "Internal server error"
     assert_legacy_migration_headers(
         res.headers,
         process_id,
         db_app.LEGACY_DELETE_PROCESSES_SUNSET,
     )
+
+
+def test_db_api_process_write_returns_503_on_runner_timeout(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """DBTaskRunner タイムアウトは一時障害として 503 へ分類する。"""
+
+    class TimeoutRunner:
+        def submit(self, *args, **kwargs):
+            _ = args, kwargs
+            raise TimeoutError("task timed out: write")
+
+    monkeypatch.setattr(db_app, "_get_or_create_runner", lambda _app: TimeoutRunner())
+
+    process_id = f"runner_timeout_{uuid4().hex}"
+    payload = build_process_payload(process_id)
+    res = client.post("/processes", json=payload)
+
+    assert res.status_code == 503
+    assert res.json()["detail"] == "Service temporarily unavailable"
 
 
 def test_db_api_delete_by_path_accepts_process_id_with_slash(client: TestClient) -> None:

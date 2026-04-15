@@ -7,13 +7,14 @@
 from __future__ import annotations
 
 import logging
+import sqlite3
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from datetime import UTC, datetime
 from email.utils import format_datetime
 from threading import Lock
-from typing import Annotated, cast
+from typing import Annotated, NoReturn, cast
 from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
@@ -28,7 +29,7 @@ from .aggregate_repository import (
     write_process,
     write_step_windows_bulk,
 )
-from .chart_repository import ChartRepository, ChartsQueryCriteria
+from .chart_repository import ActiveChartsQueryCriteria, ChartRepository, ChartsQueryCriteria
 from .db import MAIN_DB, TEMP_DB, _init_schema
 from .schemas import (
     AggregateWriteIn,
@@ -142,6 +143,83 @@ def get_runner(request: Request) -> DBTaskRunner:
     return _runner_from_request(request)
 
 
+def _is_runner_unavailable_error(error: Exception) -> bool:
+    """DBTaskRunner 停止/タイムアウト起因の一時的障害かを判定する。"""
+    if isinstance(error, TimeoutError):
+        return True
+    if not isinstance(error, RuntimeError):
+        return False
+    return str(error).startswith("DBTaskRunner")
+
+
+def _is_transient_operational_error(error: sqlite3.OperationalError) -> bool:
+    """OperationalError が一時的な DB 障害かどうかを判定する。"""
+    message = str(error).lower()
+
+    # 恒久的な設定/SQL 不整合は 500 として扱う。
+    non_transient_markers = (
+        "no such table",
+        "no such column",
+        "syntax error",
+        "malformed",
+    )
+    if any(marker in message for marker in non_transient_markers):
+        return False
+
+    transient_markers = (
+        "database is locked",
+        "database is busy",
+        "busy",
+        "unable to open database file",
+        "disk i/o error",
+        "readonly database",
+    )
+    return any(marker in message for marker in transient_markers)
+
+
+def _raise_api_error(
+    *,
+    operation: str,
+    error: Exception,
+    headers: dict[str, str] | None = None,
+) -> NoReturn:
+    """内部例外をログに残しつつ、クライアント向けには安全なエラーを返す。"""
+    logger.exception("%s failed: %s", operation, type(error).__name__)
+
+    if _is_runner_unavailable_error(error):
+        raise HTTPException(
+            status_code=503,
+            detail="Service temporarily unavailable",
+            headers=headers,
+        ) from error
+
+    if isinstance(error, sqlite3.OperationalError):
+        if _is_transient_operational_error(error):
+            raise HTTPException(
+                status_code=503,
+                detail="Database temporarily unavailable",
+                headers=headers,
+            ) from error
+        raise HTTPException(
+            status_code=500,
+            detail="Database operation failed",
+            headers=headers,
+        ) from error
+
+    if isinstance(error, sqlite3.DatabaseError):
+        raise HTTPException(
+            status_code=500,
+            detail="Database operation failed",
+            headers=headers,
+        ) from error
+
+    raise HTTPException(
+        status_code=500,
+        detail="Internal server error",
+        headers=headers,
+    ) from error
+
+
 RunnerDep = Annotated[DBTaskRunner, Depends(get_runner)]
 _chart_repository = ChartRepository()
 
@@ -195,8 +273,41 @@ def get_charts(
         rows = _chart_repository.find_charts(criteria)
         return {"ok": True, "data": [asdict(row) for row in rows]}
     except Exception as e:
-        logger.exception("Failed to fetch charts")
-        raise HTTPException(status_code=500, detail="Internal server error") from e
+        _raise_api_error(operation="GET /charts", error=e)
+
+
+@app.get("/charts/active")
+def get_active_charts(
+    tool_id: str | None = Query(
+        default=None,
+        min_length=1,
+        max_length=CHARTS_FILTER_MAX_LENGTH,
+        pattern=CHARTS_FILTER_PATTERN,
+    ),
+    chamber_id: str | None = Query(
+        default=None,
+        min_length=1,
+        max_length=CHARTS_FILTER_MAX_LENGTH,
+        pattern=CHARTS_FILTER_PATTERN,
+    ),
+    recipe_id: str | None = Query(
+        default=None,
+        min_length=1,
+        max_length=CHARTS_FILTER_MAX_LENGTH,
+        pattern=CHARTS_FILTER_PATTERN,
+    ),
+):
+    """active chart set と有効閾値一覧を返す。"""
+    criteria = ActiveChartsQueryCriteria(
+        tool_id=tool_id,
+        chamber_id=chamber_id,
+        recipe_id=recipe_id,
+    )
+    try:
+        data = _chart_repository.find_active_chart_set(criteria)
+        return {"ok": True, "data": asdict(data)}
+    except Exception as e:
+        _raise_api_error(operation="GET /charts/active", error=e)
 
 
 @app.post("/processes")
@@ -206,7 +317,7 @@ def create_process(p: ProcessInfoIn, runner: RunnerDep):
         runner.submit("write", lambda: write_process(p))
         return {"ok": True}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        _raise_api_error(operation="POST /processes", error=e)
 
 
 @app.delete("/processes/{process_id:path}")
@@ -216,7 +327,7 @@ def remove_process_by_path(process_id: str, runner: RunnerDep):
         deleted = runner.submit("write", lambda: delete_process(process_id))
         return {"ok": True, "deleted": deleted}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        _raise_api_error(operation="DELETE /processes/{process_id}", error=e)
 
 
 @app.delete("/processes")
@@ -232,7 +343,7 @@ def remove_process_legacy(
         deleted = runner.submit("write", lambda: delete_process(req.process_id))
         return {"ok": True, "deleted": deleted}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e), headers=headers) from e
+        _raise_api_error(operation="DELETE /processes", error=e, headers=headers)
 
 
 @app.post("/step_windows/bulk")
@@ -242,7 +353,7 @@ def create_step_windows_bulk(items: list[StepWindowIn], runner: RunnerDep):
         inserted = runner.submit("write", lambda: write_step_windows_bulk(items))
         return {"ok": True, "inserted": inserted}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        _raise_api_error(operation="POST /step_windows/bulk", error=e)
 
 
 @app.post("/parameters/bulk")
@@ -252,7 +363,7 @@ def create_parameters_bulk(params: list[ParameterIn], runner: RunnerDep):
         n = runner.submit("write", lambda: write_parameters_bulk(params))
         return {"ok": True, "inserted": n}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        _raise_api_error(operation="POST /parameters/bulk", error=e)
 
 
 @app.post("/aggregate/write")
@@ -262,4 +373,4 @@ def create_aggregate_write(payload: AggregateWriteIn, runner: RunnerDep):
         result = runner.submit("write", lambda: write_aggregate_atomic(payload))
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        _raise_api_error(operation="POST /aggregate/write", error=e)

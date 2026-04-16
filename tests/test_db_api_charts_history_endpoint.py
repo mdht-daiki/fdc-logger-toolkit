@@ -30,23 +30,26 @@ class SeededChartsHistoryContext:
     chart_id: str
 
 
-@pytest.fixture
-def seeded_charts_history_context() -> Iterator[SeededChartsHistoryContext]:
-    """ChartsHistory 検証用に 120 件の履歴を持つ chart set を作成する。"""
+def _insert_chart_set(now: str, suffix: str) -> int:
+    """履歴テスト用の ChartSet を 1 件作成して ID を返す。"""
     _init_schema(MAIN_DB)
     con = sqlite3.connect(MAIN_DB.as_posix())
-    context: SeededChartsHistoryContext | None = None
-    chart_set_id: int | None = None
     try:
-        now = datetime.now(UTC).isoformat()
-        suffix = uuid4().hex
-
         con.execute(
             "INSERT INTO ChartSet(name, note, created_at, created_by) VALUES (?, ?, ?, ?)",
             (f"history_set_{suffix}", "test", now, "test"),
         )
         chart_set_id = int(con.execute("SELECT last_insert_rowid()").fetchone()[0])
+        con.commit()
+        return chart_set_id
+    finally:
+        con.close()
 
+
+def _insert_chart_and_history(chart_set_id: int, suffix: str, base: datetime) -> int:
+    """ChartsV2 と対応する 120 件の ChartsHistory を投入して chart PK を返す。"""
+    con = sqlite3.connect(MAIN_DB.as_posix())
+    try:
         con.execute(
             _INSERT_CHART_SQL,
             (
@@ -69,7 +72,6 @@ def seeded_charts_history_context() -> Iterator[SeededChartsHistoryContext]:
         )
         chart_pk = int(con.execute("SELECT last_insert_rowid()").fetchone()[0])
 
-        base = datetime(2026, 4, 14, 0, 0, 0, tzinfo=UTC)
         for index in range(120):
             changed_at = (base + timedelta(seconds=index)).isoformat().replace("+00:00", "Z")
             if index == 0:
@@ -109,31 +111,51 @@ def seeded_charts_history_context() -> Iterator[SeededChartsHistoryContext]:
             )
 
         con.commit()
-        context = SeededChartsHistoryContext(
+        return chart_pk
+    finally:
+        con.close()
+
+
+def _cleanup_seeded_history(chart_set_id: int) -> None:
+    """seed した ChartsHistory/ChartsV2/ChartSet を削除する。"""
+    cleanup = sqlite3.connect(MAIN_DB.as_posix())
+    try:
+        cleanup.execute(
+            "DELETE FROM ChartsHistory WHERE chart_set_id = ?",
+            (chart_set_id,),
+        )
+        cleanup.execute(
+            "DELETE FROM ChartsV2 WHERE chart_set_id = ?",
+            (chart_set_id,),
+        )
+        cleanup.execute(
+            "DELETE FROM ChartSet WHERE chart_set_id = ?",
+            (chart_set_id,),
+        )
+        cleanup.commit()
+    finally:
+        cleanup.close()
+
+
+@pytest.fixture
+def seeded_charts_history_context() -> Iterator[SeededChartsHistoryContext]:
+    """ChartsHistory 検証用に 120 件の履歴を持つ chart set を作成する。"""
+    chart_set_id: int | None = None
+    try:
+        now = datetime.now(UTC).isoformat()
+        suffix = uuid4().hex
+        base = datetime(2026, 4, 14, 0, 0, 0, tzinfo=UTC)
+
+        chart_set_id = _insert_chart_set(now, suffix)
+        chart_pk = _insert_chart_and_history(chart_set_id, suffix, base)
+
+        yield SeededChartsHistoryContext(
             chart_set_id=chart_set_id,
             chart_id=f"CHART_{chart_pk}",
         )
-        yield context
     finally:
-        con.close()
         if chart_set_id is not None:
-            cleanup = sqlite3.connect(MAIN_DB.as_posix())
-            try:
-                cleanup.execute(
-                    "DELETE FROM ChartsHistory WHERE chart_set_id = ?",
-                    (chart_set_id,),
-                )
-                cleanup.execute(
-                    "DELETE FROM ChartsV2 WHERE chart_set_id = ?",
-                    (chart_set_id,),
-                )
-                cleanup.execute(
-                    "DELETE FROM ChartSet WHERE chart_set_id = ?",
-                    (chart_set_id,),
-                )
-                cleanup.commit()
-            finally:
-                cleanup.close()
+            _cleanup_seeded_history(chart_set_id)
 
 
 def test_get_charts_history_returns_contract_fields(
@@ -151,7 +173,6 @@ def test_get_charts_history_returns_contract_fields(
     data = body["data"]
     assert len(data) == 120
 
-    first = data[0]
     expected_keys = {
         "history_id",
         "chart_id",
@@ -163,11 +184,14 @@ def test_get_charts_history_returns_contract_fields(
         "changed_by",
         "changed_at",
     }
-    assert expected_keys.issubset(first.keys())
-    assert re.fullmatch(r"HIS_\d+", first["history_id"])
-    assert first["chart_id"] == seeded.chart_id
-    assert first["chart_set_id"] == seeded.chart_set_id
-    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z", first["changed_at"])
+    for row in data:
+        assert expected_keys.issubset(row.keys())
+        assert re.fullmatch(r"HIS_\d+", row["history_id"])
+        assert row["chart_id"] == seeded.chart_id
+        assert row["chart_set_id"] == seeded.chart_set_id
+        assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z", row["changed_at"])
+
+    first = data[0]
 
     before = first["before"]
     after = first["after"]

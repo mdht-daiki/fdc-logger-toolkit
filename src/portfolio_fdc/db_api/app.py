@@ -353,7 +353,16 @@ def get_charts_history(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    chart_pk = None if chart_id is None else int(chart_id.split("_", maxsplit=1)[1])
+    chart_pk = None
+    if chart_id is not None:
+        try:
+            numeric_part = chart_id.split("_", maxsplit=1)[1]
+            chart_pk = int(numeric_part)
+        except (ValueError, OverflowError, IndexError) as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid chart_id format: {str(exc)}",
+            ) from exc
     criteria = ChartsHistoryQueryCriteria(
         chart_pk=chart_pk,
         chart_set_id=chart_set_id,

@@ -138,13 +138,13 @@ def test_get_charts_history_returns_contract_fields(
 ) -> None:
     seeded = seeded_charts_history_context
 
-    res = client.get("/charts/history", params={"chart_set_id": seeded.chart_set_id})
+    res = client.get("/charts/history", params={"chart_set_id": seeded.chart_set_id, "limit": 500})
 
     assert res.status_code == 200
     body = res.json()
     assert body["ok"] is True
     data = body["data"]
-    assert len(data) == 100
+    assert len(data) == 120
 
     first = data[0]
     expected_keys = {
@@ -178,6 +178,13 @@ def test_get_charts_history_returns_contract_fields(
         "critical_lcl": 0.9,
         "critical_ucl": 2.3,
     }
+
+    reason_0_row = next((item for item in data if item["change_reason"] == "reason-0"), None)
+    assert reason_0_row is not None, "reason-0 history record not found"
+    assert reason_0_row["changed_at"] == "2026-04-14T00:00:00.123Z", (
+        f"Timestamp normalization failed: +09:00 with microsecond 123999 "
+        f"should convert to UTC 00:00:00.123Z, got {reason_0_row['changed_at']}"
+    )
 
 
 def test_get_charts_history_supports_chart_id_and_change_source_filters(

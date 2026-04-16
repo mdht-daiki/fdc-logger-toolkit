@@ -10,6 +10,7 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 
+from portfolio_fdc.db_api import app as db_app
 from portfolio_fdc.db_api.db import MAIN_DB, _init_schema
 from tests.test_utils import assert_validation_error_envelope
 
@@ -30,6 +31,7 @@ class SeededChartsHistoryContext:
 
 @pytest.fixture
 def seeded_charts_history_context() -> Iterator[SeededChartsHistoryContext]:
+    """ChartsHistory 検証用に 120 件の履歴を持つ chart set を作成する。"""
     _init_schema(MAIN_DB)
     con = sqlite3.connect(MAIN_DB.as_posix())
     context: SeededChartsHistoryContext | None = None
@@ -137,6 +139,7 @@ def test_get_charts_history_returns_contract_fields(
     client: TestClient,
     seeded_charts_history_context: SeededChartsHistoryContext,
 ) -> None:
+    """GET /charts/history が契約フィールドと正規化時刻を返すことを検証する。"""
     seeded = seeded_charts_history_context
 
     res = client.get("/charts/history", params={"chart_set_id": seeded.chart_set_id, "limit": 500})
@@ -192,6 +195,7 @@ def test_get_charts_history_applies_default_limit_without_limit_param(
     client: TestClient,
     seeded_charts_history_context: SeededChartsHistoryContext,
 ) -> None:
+    """limit 未指定時に default の 100 件が適用されることを検証する。"""
     seeded = seeded_charts_history_context
 
     res = client.get("/charts/history", params={"chart_set_id": seeded.chart_set_id})
@@ -206,6 +210,7 @@ def test_get_charts_history_supports_chart_id_and_change_source_filters(
     client: TestClient,
     seeded_charts_history_context: SeededChartsHistoryContext,
 ) -> None:
+    """chart_id と change_source の複合フィルタが機能することを検証する。"""
     seeded = seeded_charts_history_context
 
     res = client.get(
@@ -228,6 +233,7 @@ def test_get_charts_history_applies_default_limit_with_chart_id_filter(
     client: TestClient,
     seeded_charts_history_context: SeededChartsHistoryContext,
 ) -> None:
+    """chart_id 指定時も limit 未指定なら 100 件に制限されることを検証する。"""
     seeded = seeded_charts_history_context
 
     res = client.get(
@@ -245,6 +251,7 @@ def test_get_charts_history_supports_limit_and_offset(
     client: TestClient,
     seeded_charts_history_context: SeededChartsHistoryContext,
 ) -> None:
+    """limit と offset によるページングで取得位置が変わることを検証する。"""
     seeded = seeded_charts_history_context
 
     first_page = client.get(
@@ -267,6 +274,7 @@ def test_get_charts_history_returns_empty_when_offset_exceeds_total(
     client: TestClient,
     seeded_charts_history_context: SeededChartsHistoryContext,
 ) -> None:
+    """総件数を超える offset 指定時に空配列が返ることを検証する。"""
     seeded = seeded_charts_history_context
 
     res = client.get(
@@ -284,6 +292,7 @@ def test_get_charts_history_supports_from_to_filter(
     client: TestClient,
     seeded_charts_history_context: SeededChartsHistoryContext,
 ) -> None:
+    """from_ts/to_ts 両方指定時に期間内データのみ返ることを検証する。"""
     seeded = seeded_charts_history_context
 
     res = client.get(
@@ -309,6 +318,7 @@ def test_get_charts_history_supports_from_ts_only_filter(
     client: TestClient,
     seeded_charts_history_context: SeededChartsHistoryContext,
 ) -> None:
+    """from_ts のみ指定時に下限境界で絞り込まれることを検証する。"""
     seeded = seeded_charts_history_context
 
     res = client.get(
@@ -332,6 +342,7 @@ def test_get_charts_history_supports_to_ts_only_filter(
     client: TestClient,
     seeded_charts_history_context: SeededChartsHistoryContext,
 ) -> None:
+    """to_ts のみ指定時に上限境界で絞り込まれることを検証する。"""
     seeded = seeded_charts_history_context
 
     res = client.get(
@@ -356,6 +367,7 @@ def test_get_charts_history_returns_empty_for_non_matching_filters(
     client: TestClient,
     seeded_charts_history_context: SeededChartsHistoryContext,
 ) -> None:
+    """一致しないフィルタ条件では空配列が返ることを検証する。"""
     seeded = seeded_charts_history_context
 
     res = client.get(
@@ -373,6 +385,7 @@ def test_get_charts_history_returns_empty_for_non_matching_filters(
 
 
 def test_get_charts_history_rejects_invalid_chart_id_pattern(client: TestClient) -> None:
+    """chart_id がパターン不一致の場合に 422 を返すことを検証する。"""
     res = client.get("/charts/history", params={"chart_id": "CHART_INVALID"})
 
     assert res.status_code == 422
@@ -380,6 +393,7 @@ def test_get_charts_history_rejects_invalid_chart_id_pattern(client: TestClient)
 
 
 def test_get_charts_history_rejects_limit_exceeds_max(client: TestClient) -> None:
+    """limit が上限を超える場合に 422 を返すことを検証する。"""
     res = client.get("/charts/history", params={"limit": 501})
 
     assert res.status_code == 422
@@ -387,6 +401,7 @@ def test_get_charts_history_rejects_limit_exceeds_max(client: TestClient) -> Non
 
 
 def test_get_charts_history_rejects_negative_offset(client: TestClient) -> None:
+    """offset が負数の場合に 422 を返すことを検証する。"""
     res = client.get("/charts/history", params={"offset": -1})
 
     assert res.status_code == 422
@@ -394,6 +409,7 @@ def test_get_charts_history_rejects_negative_offset(client: TestClient) -> None:
 
 
 def test_get_charts_history_rejects_invalid_time_range(client: TestClient) -> None:
+    """to_ts が from_ts より前の場合に 400 を返すことを検証する。"""
     res = client.get(
         "/charts/history",
         params={
@@ -407,6 +423,7 @@ def test_get_charts_history_rejects_invalid_time_range(client: TestClient) -> No
 
 
 def test_get_charts_history_rejects_mixed_naive_and_aware_timestamps(client: TestClient) -> None:
+    """naive/aware 混在の timestamp 指定を 400 として拒否することを検証する。"""
     res = client.get(
         "/charts/history",
         params={
@@ -420,9 +437,136 @@ def test_get_charts_history_rejects_mixed_naive_and_aware_timestamps(client: Tes
 
 
 def test_get_charts_history_rejects_chart_id_out_of_int64_range(client: TestClient) -> None:
+    """int64 範囲外の chart_id 数値部を 400 として拒否することを検証する。"""
     # Try chart_id with numeric part exceeding int64 max (2**63 - 1)
     out_of_range_pk = 2**63
     res = client.get("/charts/history", params={"chart_id": f"CHART_{out_of_range_pk}"})
 
     assert res.status_code == 400
     assert res.json()["detail"] == "Invalid chart_id"
+
+
+def test_get_charts_history_allows_null_change_reason_and_changed_by(
+    client: TestClient,
+    seeded_charts_history_context: SeededChartsHistoryContext,
+) -> None:
+    """change_reason/changed_by が NULL の履歴を正しく返せることを検証する。"""
+    seeded = seeded_charts_history_context
+    chart_pk = int(seeded.chart_id.split("_", maxsplit=1)[1])
+
+    con = sqlite3.connect(MAIN_DB.as_posix())
+    try:
+        chart_row = con.execute(
+            """
+            SELECT tool_id, chamber_id, recipe_id, parameter, step_no, feature_type
+            FROM ChartsV2
+            WHERE id = ?
+            """,
+            (chart_pk,),
+        ).fetchone()
+        assert chart_row is not None
+
+        con.execute(
+            """
+            INSERT INTO ChartsHistory(
+                chart_set_id, tool_id, chamber_id, recipe_id, parameter,
+                step_no, feature_type, old_warn_low, old_warn_high,
+                old_crit_low, old_crit_high, new_warn_low, new_warn_high,
+                new_crit_low, new_crit_high, changed_at, changed_by,
+                change_reason, change_source
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                seeded.chart_set_id,
+                chart_row[0],
+                chart_row[1],
+                chart_row[2],
+                chart_row[3],
+                chart_row[4],
+                chart_row[5],
+                1.0,
+                2.0,
+                0.8,
+                2.2,
+                1.1,
+                2.1,
+                0.9,
+                2.3,
+                "2026-04-14T00:03:00Z",
+                None,
+                None,
+                "null_field_test",
+            ),
+        )
+        con.commit()
+    finally:
+        con.close()
+
+    res = client.get(
+        "/charts/history",
+        params={
+            "chart_set_id": seeded.chart_set_id,
+            "change_source": "null_field_test",
+            "limit": 500,
+        },
+    )
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["ok"] is True
+    assert len(body["data"]) == 1
+    row = body["data"][0]
+    assert row["change_reason"] is None
+    assert row["changed_by"] is None
+
+
+def test_get_charts_history_returns_503_then_recovers_from_transient_db_error(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """一時的 DB エラーで 503 を返し、その後回復できることを検証する。"""
+    calls = {"count": 0}
+
+    def flaky_find_chart_history(*args, **kwargs):
+        """初回のみ一時的な OperationalError を発生させる。"""
+        _ = args, kwargs
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise sqlite3.OperationalError("database is locked")
+        return []
+
+    monkeypatch.setattr(
+        db_app._chart_repository,
+        "find_chart_history",
+        flaky_find_chart_history,
+    )
+
+    first = client.get("/charts/history")
+    assert first.status_code == 503
+    assert first.json()["detail"] == "Database temporarily unavailable"
+
+    second = client.get("/charts/history")
+    assert second.status_code == 200
+    assert second.json() == {"ok": True, "data": []}
+
+
+def test_get_charts_history_returns_500_for_non_transient_sql_error(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """恒久的 SQL エラーを 500 へマッピングすることを検証する。"""
+
+    def broken_find_chart_history(*args, **kwargs):
+        """恒久障害を示す OperationalError を発生させる。"""
+        _ = args, kwargs
+        raise sqlite3.OperationalError("no such table: ChartsHistory")
+
+    monkeypatch.setattr(
+        db_app._chart_repository,
+        "find_chart_history",
+        broken_find_chart_history,
+    )
+
+    res = client.get("/charts/history")
+    assert res.status_code == 500
+    assert res.json()["detail"] == "Database operation failed"

@@ -4,6 +4,12 @@ version = "0.1.0"
 description = "Portfolio-friendly FDC toolkit (logger stream → segmentation → features → SPC dashboard)"
 readme = "README.md"
 requires-python = ">=3.11"
+# Runtime requirement: SQLite >= 3.38 is required.
+# chart_repository.py uses datetime(h.changed_at) comparisons that rely on
+# SQLite's ISO 8601 datetime parsing, which was stabilised in 3.38 (2022-02-22).
+# _normalize_query_datetime (db_api/app.py) normalises all query timestamps to
+# UTC ISO 8601 before they reach these comparisons; SQLite < 3.38 may parse
+# those strings incorrectly and silently produce wrong filter results.
 dependencies = [
   "fastapi>=0.115",
   "numpy>=2.4.2",

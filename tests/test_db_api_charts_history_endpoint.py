@@ -84,8 +84,8 @@ def _insert_chart_and_history(chart_set_id: int, suffix: str, base: datetime) ->
                     step_no, feature_type, old_warn_low, old_warn_high,
                     old_crit_low, old_crit_high, new_warn_low, new_warn_high,
                     new_crit_low, new_crit_high, changed_at, changed_by,
-                    change_reason, change_source
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    change_reason, change_source, chart_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     chart_set_id,
@@ -107,6 +107,7 @@ def _insert_chart_and_history(chart_set_id: int, suffix: str, base: datetime) ->
                     "tester",
                     f"reason-{index}",
                     change_source,
+                    chart_pk,
                 ),
             )
 
@@ -339,6 +340,30 @@ def test_get_charts_history_supports_from_to_filter(
     )
 
 
+def test_get_charts_history_supports_equal_boundary_from_to_filter(
+    client: TestClient,
+    seeded_charts_history_context: SeededChartsHistoryContext,
+) -> None:
+    """from_ts == to_ts の境界匹合時に 1 件のみ返ることを検証する。"""
+    seeded = seeded_charts_history_context
+    equal_ts = "2026-04-14T00:00:10Z"
+
+    res = client.get(
+        "/charts/history",
+        params={
+            "chart_set_id": seeded.chart_set_id,
+            "from_ts": equal_ts,
+            "to_ts": equal_ts,
+            "limit": 500,
+        },
+    )
+
+    assert res.status_code == 200
+    rows = res.json()["data"]
+    assert len(rows) == 1
+    assert rows[0]["changed_at"] == "2026-04-14T00:00:10.000Z"
+
+
 def test_get_charts_history_supports_from_ts_only_filter(
     client: TestClient,
     seeded_charts_history_context: SeededChartsHistoryContext,
@@ -415,6 +440,22 @@ def test_get_charts_history_rejects_invalid_chart_id_pattern(client: TestClient)
 
     assert res.status_code == 422
     assert_validation_error_envelope(res.json(), expected_loc_fragment="chart_id")
+
+
+def test_get_charts_history_rejects_zero_limit(client: TestClient) -> None:
+    """limit が 0 の場合に 422 を返すことを検証する。"""
+    res = client.get("/charts/history", params={"limit": 0})
+
+    assert res.status_code == 422
+    assert_validation_error_envelope(res.json(), expected_loc_fragment="limit")
+
+
+def test_get_charts_history_rejects_zero_chart_set_id(client: TestClient) -> None:
+    """chart_set_id が 0 の場合に 422 を返すことを検証する。"""
+    res = client.get("/charts/history", params={"chart_set_id": 0})
+
+    assert res.status_code == 422
+    assert_validation_error_envelope(res.json(), expected_loc_fragment="chart_set_id")
 
 
 def test_get_charts_history_rejects_limit_exceeds_max(client: TestClient) -> None:
@@ -607,7 +648,9 @@ def test_get_charts_history_returns_empty_for_deleted_chart_id_filter(
     body = by_chart_set.json()
     assert body["ok"] is True
     assert len(body["data"]) == 120
-    assert all(item["chart_id"] is None for item in body["data"])
+    # chart_id is stored directly on ChartsHistory, so it is preserved even
+    # after the ChartsV2 row is deleted.
+    assert all(item["chart_id"] == seeded.chart_id for item in body["data"])
 
 
 def test_get_charts_history_returns_503_then_recovers_from_transient_db_error(

@@ -160,7 +160,7 @@ class ChartRepository:
         SELECT
             h.id,
             h.chart_set_id,
-            c.id,
+            h.chart_id,
             h.change_source,
             h.change_reason,
             h.old_warn_low,
@@ -174,14 +174,6 @@ class ChartRepository:
             h.changed_by,
             h.changed_at
         FROM ChartsHistory h
-        LEFT JOIN ChartsV2 c
-            ON c.chart_set_id = h.chart_set_id
-           AND c.tool_id = h.tool_id
-           AND c.chamber_id = h.chamber_id
-           AND c.recipe_id = h.recipe_id
-           AND c.parameter = h.parameter
-           AND c.step_no = h.step_no
-           AND c.feature_type = h.feature_type
     """
 
     _CHART_HISTORY_FILTER_KEY_SQL = """

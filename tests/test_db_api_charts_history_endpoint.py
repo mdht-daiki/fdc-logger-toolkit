@@ -187,6 +187,20 @@ def test_get_charts_history_returns_contract_fields(
     )
 
 
+def test_get_charts_history_applies_default_limit_without_limit_param(
+    client: TestClient,
+    seeded_charts_history_context: SeededChartsHistoryContext,
+) -> None:
+    seeded = seeded_charts_history_context
+
+    res = client.get("/charts/history", params={"chart_set_id": seeded.chart_set_id})
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["ok"] is True
+    assert len(body["data"]) == 100
+
+
 def test_get_charts_history_supports_chart_id_and_change_source_filters(
     client: TestClient,
     seeded_charts_history_context: SeededChartsHistoryContext,
@@ -207,6 +221,23 @@ def test_get_charts_history_supports_chart_id_and_change_source_filters(
     assert len(rows) == 60
     assert all(item["chart_id"] == seeded.chart_id for item in rows)
     assert all(item["change_source"] == "normal_pr" for item in rows)
+
+
+def test_get_charts_history_applies_default_limit_with_chart_id_filter(
+    client: TestClient,
+    seeded_charts_history_context: SeededChartsHistoryContext,
+) -> None:
+    seeded = seeded_charts_history_context
+
+    res = client.get(
+        "/charts/history",
+        params={"chart_id": seeded.chart_id},
+    )
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["ok"] is True
+    assert len(body["data"]) == 100
 
 
 def test_get_charts_history_supports_limit_and_offset(

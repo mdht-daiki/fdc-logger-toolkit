@@ -288,6 +288,53 @@ def test_get_charts_history_supports_from_to_filter(
     )
 
 
+def test_get_charts_history_supports_from_ts_only_filter(
+    client: TestClient,
+    seeded_charts_history_context: SeededChartsHistoryContext,
+) -> None:
+    seeded = seeded_charts_history_context
+
+    res = client.get(
+        "/charts/history",
+        params={
+            "chart_set_id": seeded.chart_set_id,
+            "from_ts": "2026-04-14T00:01:58Z",
+            "limit": 500,
+        },
+    )
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["ok"] is True
+    rows = body["data"]
+    assert len(rows) == 2
+    assert all(item["changed_at"] >= "2026-04-14T00:01:58.000Z" for item in rows)
+
+
+def test_get_charts_history_supports_to_ts_only_filter(
+    client: TestClient,
+    seeded_charts_history_context: SeededChartsHistoryContext,
+) -> None:
+    seeded = seeded_charts_history_context
+
+    res = client.get(
+        "/charts/history",
+        params={
+            "chart_set_id": seeded.chart_set_id,
+            "to_ts": "2026-04-14T00:00:01Z",
+            "limit": 500,
+        },
+    )
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["ok"] is True
+    rows = body["data"]
+    assert len(rows) == 2
+    assert {item["change_reason"] for item in rows} == {"reason-0", "reason-1"}
+    assert all(item["changed_at"] <= "2026-04-14T00:00:01.000Z" for item in rows)
+
+
 def test_get_charts_history_rejects_invalid_chart_id_pattern(client: TestClient) -> None:
     res = client.get("/charts/history", params={"chart_id": "CHART_INVALID"})
 

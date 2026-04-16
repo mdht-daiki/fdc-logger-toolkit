@@ -45,6 +45,19 @@ class ChartsHistoryQueryCriteria:
 
 
 @dataclass(frozen=True)
+class ChartHistoryFilterKey:
+    """ChartsHistory を一意に絞り込む複合キー。"""
+
+    chart_set_id: int
+    tool_id: str
+    chamber_id: str
+    recipe_id: str
+    parameter: str
+    step_no: int
+    feature_type: str
+
+
+@dataclass(frozen=True)
 class ChartView:
     """`GET /charts` レスポンス 1 件分の DTO。
 
@@ -169,6 +182,19 @@ class ChartRepository:
            AND c.parameter = h.parameter
            AND c.step_no = h.step_no
            AND c.feature_type = h.feature_type
+    """
+
+    _CHART_HISTORY_FILTER_KEY_SQL = """
+        SELECT
+            chart_set_id,
+            tool_id,
+            chamber_id,
+            recipe_id,
+            parameter,
+            step_no,
+            feature_type
+        FROM ChartsV2
+        WHERE id = ?
     """
 
     _FILTERED_CHARTS_CTE = """
@@ -380,12 +406,53 @@ class ChartRepository:
         where_clauses: list[str] = []
         params: list[Any] = []
 
-        self._append_filter_condition(
-            criteria.chart_pk,
-            "c.id = ?",
-            where_clauses,
-            params,
-        )
+        chart_filter_key = self._find_chart_history_filter_key(criteria.chart_pk)
+        if criteria.chart_pk is not None and chart_filter_key is None:
+            return []
+
+        if chart_filter_key is not None:
+            self._append_filter_condition(
+                chart_filter_key.chart_set_id,
+                "h.chart_set_id = ?",
+                where_clauses,
+                params,
+            )
+            self._append_filter_condition(
+                chart_filter_key.tool_id,
+                "h.tool_id = ?",
+                where_clauses,
+                params,
+            )
+            self._append_filter_condition(
+                chart_filter_key.chamber_id,
+                "h.chamber_id = ?",
+                where_clauses,
+                params,
+            )
+            self._append_filter_condition(
+                chart_filter_key.recipe_id,
+                "h.recipe_id = ?",
+                where_clauses,
+                params,
+            )
+            self._append_filter_condition(
+                chart_filter_key.parameter,
+                "h.parameter = ?",
+                where_clauses,
+                params,
+            )
+            self._append_filter_condition(
+                chart_filter_key.step_no,
+                "h.step_no = ?",
+                where_clauses,
+                params,
+            )
+            self._append_filter_condition(
+                chart_filter_key.feature_type,
+                "h.feature_type = ?",
+                where_clauses,
+                params,
+            )
         self._append_filter_condition(
             criteria.chart_set_id,
             "h.chart_set_id = ?",
@@ -424,6 +491,30 @@ class ChartRepository:
             con.close()
 
         return [self._to_chart_history_view(row) for row in rows]
+
+    def _find_chart_history_filter_key(self, chart_pk: int | None) -> ChartHistoryFilterKey | None:
+        """chart_id から現在の ChartsV2 上の複合キーを解決する。"""
+        if chart_pk is None:
+            return None
+
+        con = _connect(MAIN_DB)
+        try:
+            row = con.execute(self._CHART_HISTORY_FILTER_KEY_SQL, (chart_pk,)).fetchone()
+        finally:
+            con.close()
+
+        if row is None:
+            return None
+
+        return ChartHistoryFilterKey(
+            chart_set_id=int(row[0]),
+            tool_id=str(row[1]),
+            chamber_id=str(row[2]),
+            recipe_id=str(row[3]),
+            parameter=str(row[4]),
+            step_no=int(row[5]),
+            feature_type=str(row[6]),
+        )
 
     @staticmethod
     def _append_filter_condition(

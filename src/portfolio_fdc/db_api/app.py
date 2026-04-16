@@ -322,7 +322,10 @@ def _normalize_query_datetime(raw: datetime | None) -> str | None:
     if raw is None:
         return None
     if raw.tzinfo is None:
-        return raw.replace(tzinfo=UTC).isoformat()
+        raise HTTPException(
+            status_code=400,
+            detail="from_ts and to_ts must be timezone-aware datetimes",
+        )
     return raw.astimezone(UTC).isoformat()
 
 

@@ -461,6 +461,19 @@ def test_get_charts_history_rejects_mixed_naive_and_aware_timestamps(client: Tes
     assert "same timezone format" in res.json()["detail"]
 
 
+def test_get_charts_history_rejects_naive_from_ts_when_provided_alone(client: TestClient) -> None:
+    """naive な from_ts 単独指定を 400 として拒否することを検証する。"""
+    res = client.get(
+        "/charts/history",
+        params={
+            "from_ts": "2026-04-14T00:00:00",
+        },
+    )
+
+    assert res.status_code == 400
+    assert res.json()["detail"] == "from_ts and to_ts must be timezone-aware datetimes"
+
+
 def test_get_charts_history_rejects_chart_id_out_of_int64_range(client: TestClient) -> None:
     """int64 範囲外の chart_id 数値部を 400 として拒否することを検証する。"""
     # Try chart_id with numeric part exceeding int64 max (2**63 - 1)
@@ -565,6 +578,36 @@ def test_get_charts_history_allows_null_change_reason_and_changed_by(
     row = body["data"][0]
     assert row["change_reason"] is None
     assert row["changed_by"] is None
+
+
+def test_get_charts_history_returns_empty_for_deleted_chart_id_filter(
+    client: TestClient,
+    seeded_charts_history_context: SeededChartsHistoryContext,
+) -> None:
+    """削除済み chart は chart_id フィルタでは取得できないことを明示的に検証する。"""
+    seeded = seeded_charts_history_context
+    chart_pk = int(seeded.chart_id.split("_", maxsplit=1)[1])
+
+    con = sqlite3.connect(MAIN_DB.as_posix())
+    try:
+        con.execute("DELETE FROM ChartsV2 WHERE id = ?", (chart_pk,))
+        con.commit()
+    finally:
+        con.close()
+
+    by_chart_id = client.get("/charts/history", params={"chart_id": seeded.chart_id})
+    assert by_chart_id.status_code == 200
+    assert by_chart_id.json() == {"ok": True, "data": []}
+
+    by_chart_set = client.get(
+        "/charts/history",
+        params={"chart_set_id": seeded.chart_set_id, "limit": 500},
+    )
+    assert by_chart_set.status_code == 200
+    body = by_chart_set.json()
+    assert body["ok"] is True
+    assert len(body["data"]) == 120
+    assert all(item["chart_id"] is None for item in body["data"])
 
 
 def test_get_charts_history_returns_503_then_recovers_from_transient_db_error(

@@ -174,6 +174,12 @@ dashboard read-only baseline と judge 最小実装に必要な API 契約を、
 - `limit` (default: 100, max: 500)
 - `offset` (default: 0)
 
+クエリ検証ルール:
+
+- `from_ts` / `to_ts` は timezone-aware な ISO 8601 datetime のみ受け付ける
+- `chart_id` フィルタは現在 `ChartsV2` に存在する chart のみ解決対象とする
+- 削除済み chart の履歴は `chart_id` では取得不可で、`chart_set_id` など別条件で参照する
+
 成功レスポンス例:
 
 ```json

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -397,103 +398,109 @@ class ChartRepository:
         sql = self._CHARTS_HISTORY_SQL
         where_clauses: list[str] = []
         params: list[Any] = []
-
-        chart_filter_key = self._find_chart_history_filter_key(criteria.chart_pk)
-        if criteria.chart_pk is not None and chart_filter_key is None:
-            return []
-
-        if chart_filter_key is not None:
-            self._append_filter_condition(
-                chart_filter_key.chart_set_id,
-                "h.chart_set_id = ?",
-                where_clauses,
-                params,
-            )
-            self._append_filter_condition(
-                chart_filter_key.tool_id,
-                "h.tool_id = ?",
-                where_clauses,
-                params,
-            )
-            self._append_filter_condition(
-                chart_filter_key.chamber_id,
-                "h.chamber_id = ?",
-                where_clauses,
-                params,
-            )
-            self._append_filter_condition(
-                chart_filter_key.recipe_id,
-                "h.recipe_id = ?",
-                where_clauses,
-                params,
-            )
-            self._append_filter_condition(
-                chart_filter_key.parameter,
-                "h.parameter = ?",
-                where_clauses,
-                params,
-            )
-            self._append_filter_condition(
-                chart_filter_key.step_no,
-                "h.step_no = ?",
-                where_clauses,
-                params,
-            )
-            self._append_filter_condition(
-                chart_filter_key.feature_type,
-                "h.feature_type = ?",
-                where_clauses,
-                params,
-            )
-        self._append_filter_condition(
-            criteria.chart_set_id,
-            "h.chart_set_id = ?",
-            where_clauses,
-            params,
-        )
-        self._append_filter_condition(
-            criteria.change_source,
-            "h.change_source = ?",
-            where_clauses,
-            params,
-        )
-        self._append_filter_condition(
-            criteria.from_ts,
-            "datetime(h.changed_at) >= datetime(?)",
-            where_clauses,
-            params,
-        )
-        self._append_filter_condition(
-            criteria.to_ts,
-            "datetime(h.changed_at) <= datetime(?)",
-            where_clauses,
-            params,
-        )
-
-        if where_clauses:
-            sql += " WHERE " + " AND ".join(where_clauses)
-
-        sql += " ORDER BY datetime(h.changed_at) DESC, h.id DESC LIMIT ? OFFSET ?"
-        params.extend([criteria.limit, criteria.offset])
-
         con = _connect(MAIN_DB)
+
         try:
+            chart_filter_key = self._find_chart_history_filter_key(con, criteria.chart_pk)
+            if criteria.chart_pk is not None and chart_filter_key is None:
+                return []
+
+            if chart_filter_key is not None:
+                self._append_filter_condition(
+                    chart_filter_key.chart_set_id,
+                    "h.chart_set_id = ?",
+                    where_clauses,
+                    params,
+                )
+                self._append_filter_condition(
+                    chart_filter_key.tool_id,
+                    "h.tool_id = ?",
+                    where_clauses,
+                    params,
+                )
+                self._append_filter_condition(
+                    chart_filter_key.chamber_id,
+                    "h.chamber_id = ?",
+                    where_clauses,
+                    params,
+                )
+                self._append_filter_condition(
+                    chart_filter_key.recipe_id,
+                    "h.recipe_id = ?",
+                    where_clauses,
+                    params,
+                )
+                self._append_filter_condition(
+                    chart_filter_key.parameter,
+                    "h.parameter = ?",
+                    where_clauses,
+                    params,
+                )
+                self._append_filter_condition(
+                    chart_filter_key.step_no,
+                    "h.step_no = ?",
+                    where_clauses,
+                    params,
+                )
+                self._append_filter_condition(
+                    chart_filter_key.feature_type,
+                    "h.feature_type = ?",
+                    where_clauses,
+                    params,
+                )
+
+            should_add_chart_set_id = criteria.chart_set_id is not None and (
+                chart_filter_key is None or criteria.chart_set_id != chart_filter_key.chart_set_id
+            )
+            if should_add_chart_set_id:
+                self._append_filter_condition(
+                    criteria.chart_set_id,
+                    "h.chart_set_id = ?",
+                    where_clauses,
+                    params,
+                )
+
+            self._append_filter_condition(
+                criteria.change_source,
+                "h.change_source = ?",
+                where_clauses,
+                params,
+            )
+            self._append_filter_condition(
+                criteria.from_ts,
+                "datetime(h.changed_at) >= datetime(?)",
+                where_clauses,
+                params,
+            )
+            self._append_filter_condition(
+                criteria.to_ts,
+                "datetime(h.changed_at) <= datetime(?)",
+                where_clauses,
+                params,
+            )
+
+            if where_clauses:
+                sql += " WHERE " + " AND ".join(where_clauses)
+
+            sql += " ORDER BY datetime(h.changed_at) DESC, h.id DESC LIMIT ? OFFSET ?"
+            params.extend([criteria.limit, criteria.offset])
+
             rows = con.execute(sql, tuple(params)).fetchall()
         finally:
             con.close()
 
         return [self._to_chart_history_view(row) for row in rows]
 
-    def _find_chart_history_filter_key(self, chart_pk: int | None) -> ChartHistoryFilterKey | None:
+    def _find_chart_history_filter_key(
+        self,
+        con: sqlite3.Connection,
+        chart_pk: int | None,
+    ) -> ChartHistoryFilterKey | None:
         """chart_id から現在の ChartsV2 上の複合キーを解決する。"""
         if chart_pk is None:
             return None
 
-        con = _connect(MAIN_DB)
-        try:
-            row = con.execute(self._CHART_HISTORY_FILTER_KEY_SQL, (chart_pk,)).fetchone()
-        finally:
-            con.close()
+        row = con.execute(self._CHART_HISTORY_FILTER_KEY_SQL, (chart_pk,)).fetchone()
 
         if row is None:
             return None

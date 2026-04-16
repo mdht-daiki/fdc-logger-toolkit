@@ -559,7 +559,7 @@ def test_get_charts_history_allows_null_change_reason_and_changed_by(
     try:
         chart_row = con.execute(
             """
-            SELECT tool_id, chamber_id, recipe_id, parameter, step_no, feature_type
+            SELECT id, tool_id, chamber_id, recipe_id, parameter, step_no, feature_type
             FROM ChartsV2
             WHERE id = ?
             """,
@@ -574,17 +574,17 @@ def test_get_charts_history_allows_null_change_reason_and_changed_by(
                 step_no, feature_type, old_warn_low, old_warn_high,
                 old_crit_low, old_crit_high, new_warn_low, new_warn_high,
                 new_crit_low, new_crit_high, changed_at, changed_by,
-                change_reason, change_source
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                change_reason, change_source, chart_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 seeded.chart_set_id,
-                chart_row[0],
                 chart_row[1],
                 chart_row[2],
                 chart_row[3],
                 chart_row[4],
                 chart_row[5],
+                chart_row[6],
                 1.0,
                 2.0,
                 0.8,
@@ -597,6 +597,7 @@ def test_get_charts_history_allows_null_change_reason_and_changed_by(
                 None,
                 None,
                 "null_field_test",
+                chart_row[0],
             ),
         )
         con.commit()

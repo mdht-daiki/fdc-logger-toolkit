@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from portfolio_fdc.db_api import app as db_app
@@ -444,6 +445,27 @@ def test_get_charts_history_rejects_chart_id_out_of_int64_range(client: TestClie
 
     assert res.status_code == 400
     assert res.json()["detail"] == "Invalid chart_id"
+
+
+@pytest.mark.parametrize(
+    "raw_chart_id",
+    [
+        "CHART_",
+        "CHART_not_number",
+        "CHART_1_2",
+        "CHART__1",
+        "CHART",
+    ],
+)
+def test_parse_chart_pk_rejects_malformed_values_without_pattern_validation(
+    raw_chart_id: str,
+) -> None:
+    """_parse_chart_pk が不正形式を 400/Invalid chart_id へ正規化することを検証する。"""
+    with pytest.raises(HTTPException) as exc_info:
+        db_app._parse_chart_pk(raw_chart_id)
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail == "Invalid chart_id"
 
 
 def test_get_charts_history_allows_null_change_reason_and_changed_by(

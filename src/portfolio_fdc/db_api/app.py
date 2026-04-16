@@ -333,6 +333,8 @@ def _parse_chart_pk(chart_id: str | None) -> int | None:
 
     try:
         numeric_part = chart_id.split("_", maxsplit=1)[1]
+        if not numeric_part.isdigit():
+            raise ValueError("chart_id numeric part must contain only digits")
         chart_pk = int(numeric_part)
         if not (-(2**63) <= chart_pk <= 2**63 - 1):
             raise ValueError("chart_id out of int64 range")

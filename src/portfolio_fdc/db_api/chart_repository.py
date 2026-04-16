@@ -392,13 +392,13 @@ class ChartRepository:
         )
         self._append_filter_condition(
             criteria.from_ts,
-            "datetime(h.changed_at) >= datetime(?)",
+            "julianday(h.changed_at) >= julianday(?)",
             where_clauses,
             params,
         )
         self._append_filter_condition(
             criteria.to_ts,
-            "datetime(h.changed_at) <= datetime(?)",
+            "julianday(h.changed_at) <= julianday(?)",
             where_clauses,
             params,
         )
@@ -406,7 +406,7 @@ class ChartRepository:
         if where_clauses:
             sql += " WHERE " + " AND ".join(where_clauses)
 
-        sql += " ORDER BY datetime(h.changed_at) DESC, h.id DESC LIMIT ? OFFSET ?"
+        sql += " ORDER BY julianday(h.changed_at) DESC, h.id DESC LIMIT ? OFFSET ?"
         params.extend([criteria.limit, criteria.offset])
 
         con = _connect(MAIN_DB)

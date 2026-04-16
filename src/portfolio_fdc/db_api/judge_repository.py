@@ -84,22 +84,33 @@ class JudgeRepository:
         self._append_filter_condition(
             criteria.chart_id,
             (
-                "CASE WHEN json_type(j.message_json, '$.chart_id') IN ('integer', 'real') "
+                "CASE "
+                "WHEN json_valid(j.message_json) = 1 "
+                "AND ("
+                "json_type(j.message_json, '$.chart_id') IN ('integer', 'real') "
+                "OR ("
+                "json_type(j.message_json, '$.chart_id') = 'text' "
+                "AND json_extract(j.message_json, '$.chart_id') GLOB '[0-9]*' "
+                "AND json_extract(j.message_json, '$.chart_id') <> ''"
+                ")"
+                ") "
                 "THEN 'CHART_' || CAST(json_extract(j.message_json, '$.chart_id') AS TEXT) "
-                "ELSE json_extract(j.message_json, '$.chart_id') END = ?"
+                "WHEN json_valid(j.message_json) = 1 "
+                "THEN json_extract(j.message_json, '$.chart_id') "
+                "ELSE NULL END = ?"
             ),
             where_clauses,
             params,
         )
         self._append_filter_condition(
             criteria.from_ts,
-            "datetime(j.judged_at) >= datetime(?)",
+            "julianday(j.judged_at) >= julianday(?)",
             where_clauses,
             params,
         )
         self._append_filter_condition(
             criteria.to_ts,
-            "datetime(j.judged_at) <= datetime(?)",
+            "julianday(j.judged_at) <= julianday(?)",
             where_clauses,
             params,
         )
@@ -107,7 +118,7 @@ class JudgeRepository:
         if where_clauses:
             sql += " WHERE " + " AND ".join(where_clauses)
 
-        sql += " ORDER BY datetime(j.judged_at) DESC, j.id DESC LIMIT ? OFFSET ?"
+        sql += " ORDER BY julianday(j.judged_at) DESC, j.id DESC LIMIT ? OFFSET ?"
         params.extend([criteria.limit, criteria.offset])
 
         con = _connect(MAIN_DB)

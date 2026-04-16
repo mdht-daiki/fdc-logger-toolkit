@@ -668,11 +668,13 @@ def test_get_charts_history_rejects_both_naive_timestamps(client: TestClient) ->
 
 def test_get_charts_history_returns_100_rows_without_filters(
     client: TestClient,
+    seeded_charts_history_context: SeededChartsHistoryContext,
 ) -> None:
     """フィルタなし状態で default limit の 100 件を返すことを検証する。"""
-    # ギャップ#4: フィルタなし + 実データで100件返ることの確認
-    # 複数の chart_set がすでに存在する環境で、フィルタなしリクエストが
-    # default limit の 100 件を返すことを確認
+    # ギャップ#4: フィルタなし + 実データで100件返ることを検証する
+    # seeded_charts_history_context は 120 行を提供し、
+    # デフォルト limit 100 で要求した場合に 100 行が返ることを検証
+    _ = seeded_charts_history_context  # fixture 依存を明示（テスト順序独立）
 
     res = client.get("/charts/history")
 

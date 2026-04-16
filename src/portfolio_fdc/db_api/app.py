@@ -358,10 +358,13 @@ def get_charts_history(
         try:
             numeric_part = chart_id.split("_", maxsplit=1)[1]
             chart_pk = int(numeric_part)
+            # Validate int64 range (signed 64-bit: -(2**63) to 2**63-1)
+            if not (-(2**63) <= chart_pk <= 2**63 - 1):
+                raise ValueError(f"chart_pk {chart_pk} out of int64 range")
         except (ValueError, OverflowError, IndexError) as exc:
             raise HTTPException(
                 status_code=400,
-                detail=f"Invalid chart_id format: {str(exc)}",
+                detail=f"Invalid chart_id: {str(exc)}",
             ) from exc
     criteria = ChartsHistoryQueryCriteria(
         chart_pk=chart_pk,

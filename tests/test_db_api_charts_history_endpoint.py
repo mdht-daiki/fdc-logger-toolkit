@@ -289,4 +289,4 @@ def test_get_charts_history_rejects_chart_id_out_of_int64_range(client: TestClie
     res = client.get("/charts/history", params={"chart_id": f"CHART_{out_of_range_pk}"})
 
     assert res.status_code == 400
-    assert "out of int64 range" in res.json()["detail"]
+    assert res.json()["detail"] == "Invalid chart_id"

@@ -364,7 +364,7 @@ def get_charts_history(
         except (ValueError, OverflowError, IndexError) as exc:
             raise HTTPException(
                 status_code=400,
-                detail=f"Invalid chart_id: {str(exc)}",
+                detail="Invalid chart_id",
             ) from exc
     criteria = ChartsHistoryQueryCriteria(
         chart_pk=chart_pk,

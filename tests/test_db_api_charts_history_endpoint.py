@@ -33,6 +33,7 @@ def seeded_charts_history_context() -> Iterator[SeededChartsHistoryContext]:
     _init_schema(MAIN_DB)
     con = sqlite3.connect(MAIN_DB.as_posix())
     context: SeededChartsHistoryContext | None = None
+    chart_set_id: int | None = None
     try:
         now = datetime.now(UTC).isoformat()
         suffix = uuid4().hex
@@ -112,20 +113,20 @@ def seeded_charts_history_context() -> Iterator[SeededChartsHistoryContext]:
         yield context
     finally:
         con.close()
-        if context is not None:
+        if chart_set_id is not None:
             cleanup = sqlite3.connect(MAIN_DB.as_posix())
             try:
                 cleanup.execute(
                     "DELETE FROM ChartsHistory WHERE chart_set_id = ?",
-                    (context.chart_set_id,),
+                    (chart_set_id,),
                 )
                 cleanup.execute(
                     "DELETE FROM ChartsV2 WHERE chart_set_id = ?",
-                    (context.chart_set_id,),
+                    (chart_set_id,),
                 )
                 cleanup.execute(
                     "DELETE FROM ChartSet WHERE chart_set_id = ?",
-                    (context.chart_set_id,),
+                    (chart_set_id,),
                 )
                 cleanup.commit()
             finally:

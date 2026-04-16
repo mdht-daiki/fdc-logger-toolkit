@@ -263,6 +263,23 @@ def test_get_charts_history_supports_limit_and_offset(
     assert first_row["history_id"] != second_row["history_id"]
 
 
+def test_get_charts_history_returns_empty_when_offset_exceeds_total(
+    client: TestClient,
+    seeded_charts_history_context: SeededChartsHistoryContext,
+) -> None:
+    seeded = seeded_charts_history_context
+
+    res = client.get(
+        "/charts/history",
+        params={"chart_set_id": seeded.chart_set_id, "offset": 1000},
+    )
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["ok"] is True
+    assert body["data"] == []
+
+
 def test_get_charts_history_supports_from_to_filter(
     client: TestClient,
     seeded_charts_history_context: SeededChartsHistoryContext,
@@ -333,6 +350,26 @@ def test_get_charts_history_supports_to_ts_only_filter(
     assert len(rows) == 2
     assert {item["change_reason"] for item in rows} == {"reason-0", "reason-1"}
     assert all(item["changed_at"] <= "2026-04-14T00:00:01.000Z" for item in rows)
+
+
+def test_get_charts_history_returns_empty_for_non_matching_filters(
+    client: TestClient,
+    seeded_charts_history_context: SeededChartsHistoryContext,
+) -> None:
+    seeded = seeded_charts_history_context
+
+    res = client.get(
+        "/charts/history",
+        params={
+            "chart_set_id": seeded.chart_set_id,
+            "change_source": "nonexistent_source",
+        },
+    )
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["ok"] is True
+    assert body["data"] == []
 
 
 def test_get_charts_history_rejects_invalid_chart_id_pattern(client: TestClient) -> None:

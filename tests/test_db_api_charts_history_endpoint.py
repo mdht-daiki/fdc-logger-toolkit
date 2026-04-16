@@ -283,6 +283,19 @@ def test_get_charts_history_rejects_invalid_time_range(client: TestClient) -> No
     assert "end_ts must be greater than or equal to start_ts" in res.json()["detail"]
 
 
+def test_get_charts_history_rejects_mixed_naive_and_aware_timestamps(client: TestClient) -> None:
+    res = client.get(
+        "/charts/history",
+        params={
+            "from_ts": "2026-04-14T00:00:00",
+            "to_ts": "2026-04-14T00:00:00Z",
+        },
+    )
+
+    assert res.status_code == 400
+    assert "same timezone format" in res.json()["detail"]
+
+
 def test_get_charts_history_rejects_chart_id_out_of_int64_range(client: TestClient) -> None:
     # Try chart_id with numeric part exceeding int64 max (2**63 - 1)
     out_of_range_pk = 2**63

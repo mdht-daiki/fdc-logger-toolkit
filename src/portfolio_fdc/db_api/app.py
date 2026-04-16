@@ -326,6 +326,21 @@ def _normalize_query_datetime(raw: datetime | None) -> str | None:
     return raw.astimezone(UTC).isoformat()
 
 
+def _parse_chart_pk(chart_id: str | None) -> int | None:
+    """`CHART_<id>` 形式の chart_id を int PK へ変換する。"""
+    if chart_id is None:
+        return None
+
+    try:
+        numeric_part = chart_id.split("_", maxsplit=1)[1]
+        chart_pk = int(numeric_part)
+        if not (-(2**63) <= chart_pk <= 2**63 - 1):
+            raise ValueError("chart_id out of int64 range")
+        return chart_pk
+    except (ValueError, OverflowError, IndexError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid chart_id") from exc
+
+
 @app.get("/charts/history")
 def get_charts_history(
     chart_id: str | None = Query(
@@ -353,19 +368,7 @@ def get_charts_history(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    chart_pk = None
-    if chart_id is not None:
-        try:
-            numeric_part = chart_id.split("_", maxsplit=1)[1]
-            chart_pk = int(numeric_part)
-            # Validate int64 range (signed 64-bit: -(2**63) to 2**63-1)
-            if not (-(2**63) <= chart_pk <= 2**63 - 1):
-                raise ValueError(f"chart_pk {chart_pk} out of int64 range")
-        except (ValueError, OverflowError, IndexError) as exc:
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid chart_id",
-            ) from exc
+    chart_pk = _parse_chart_pk(chart_id)
     criteria = ChartsHistoryQueryCriteria(
         chart_pk=chart_pk,
         chart_set_id=chart_set_id,

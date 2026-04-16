@@ -9,6 +9,14 @@ from fastapi.testclient import TestClient
 from portfolio_fdc.db_api import app as db_app
 from portfolio_fdc.db_api.db import MAIN_DB
 
+_MIN_SQLITE_VERSION = (3, 38, 0)
+_current_sqlite_version = tuple(int(x) for x in sqlite3.sqlite_version.split("."))
+if _current_sqlite_version < _MIN_SQLITE_VERSION:
+    raise RuntimeError(
+        "SQLite >= 3.38.0 required for timezone-aware datetime() comparisons, "
+        f"got {sqlite3.sqlite_version}"
+    )
+
 
 @pytest.fixture
 def db_api_client() -> Iterator[TestClient]:

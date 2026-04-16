@@ -29,7 +29,12 @@ from .aggregate_repository import (
     write_process,
     write_step_windows_bulk,
 )
-from .chart_repository import ActiveChartsQueryCriteria, ChartRepository, ChartsQueryCriteria
+from .chart_repository import (
+    ActiveChartsQueryCriteria,
+    ChartRepository,
+    ChartsHistoryQueryCriteria,
+    ChartsQueryCriteria,
+)
 from .db import MAIN_DB, TEMP_DB, _init_schema
 from .schemas import (
     AggregateWriteIn,
@@ -37,6 +42,7 @@ from .schemas import (
     ProcessDeleteIn,
     ProcessInfoIn,
     StepWindowIn,
+    validate_timestamp_range,
 )
 from .task_runner import DBTaskRunner
 
@@ -46,6 +52,7 @@ LEGACY_DELETE_PROCESSES_SUNSET_AT = datetime(2026, 6, 30, 23, 59, 59, tzinfo=UTC
 LEGACY_DELETE_PROCESSES_SUNSET = format_datetime(LEGACY_DELETE_PROCESSES_SUNSET_AT, usegmt=True)
 CHARTS_FILTER_PATTERN = r"^[A-Za-z0-9_./:-]+$"
 CHARTS_FILTER_MAX_LENGTH = 128
+CHART_ID_PATTERN = r"^CHART_[0-9]+$"
 
 
 def _legacy_delete_headers(process_id: str | None) -> dict[str, str]:
@@ -308,6 +315,82 @@ def get_active_charts(
         return {"ok": True, "data": asdict(data)}
     except Exception as e:
         _raise_api_error(operation="GET /charts/active", error=e)
+
+
+def _normalize_query_datetime(raw: datetime | None) -> str | None:
+    """履歴検索用の datetime クエリを SQLite 比較用 ISO 文字列へ変換する。"""
+    if raw is None:
+        return None
+    if raw.tzinfo is None:
+        raise HTTPException(
+            status_code=400,
+            detail="from_ts and to_ts must be timezone-aware datetimes",
+        )
+    return raw.astimezone(UTC).isoformat()
+
+
+def _parse_chart_pk(chart_id: str | None) -> int | None:
+    """`CHART_<id>` 形式の chart_id を int PK へ変換する。"""
+    if chart_id is None:
+        return None
+
+    try:
+        numeric_part = chart_id.split("_", maxsplit=1)[1]
+        if not numeric_part.isdigit():
+            raise ValueError("chart_id numeric part must contain only digits")
+        chart_pk = int(numeric_part)
+        if chart_pk < 1:
+            raise ValueError("chart_id must be greater than or equal to 1")
+        if not (-(2**63) <= chart_pk <= 2**63 - 1):
+            raise ValueError("chart_id out of int64 range")
+        return chart_pk
+    except (ValueError, OverflowError, IndexError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid chart_id") from exc
+
+
+@app.get("/charts/history")
+def get_charts_history(
+    chart_id: str | None = Query(
+        default=None,
+        min_length=1,
+        max_length=64,
+        pattern=CHART_ID_PATTERN,
+    ),
+    chart_set_id: int | None = Query(default=None, ge=1),
+    change_source: str | None = Query(
+        default=None,
+        min_length=1,
+        max_length=CHARTS_FILTER_MAX_LENGTH,
+        pattern=CHARTS_FILTER_PATTERN,
+    ),
+    from_ts: Annotated[datetime | None, Query()] = None,
+    to_ts: Annotated[datetime | None, Query()] = None,
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+):
+    """Chart 閾値変更履歴を返す。"""
+    if from_ts is not None and to_ts is not None:
+        try:
+            validate_timestamp_range(from_ts, to_ts)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    chart_pk = _parse_chart_pk(chart_id)
+    criteria = ChartsHistoryQueryCriteria(
+        chart_pk=chart_pk,
+        chart_set_id=chart_set_id,
+        change_source=change_source,
+        from_ts=_normalize_query_datetime(from_ts),
+        to_ts=_normalize_query_datetime(to_ts),
+        limit=limit,
+        offset=offset,
+    )
+
+    try:
+        rows = _chart_repository.find_chart_history(criteria)
+        return {"ok": True, "data": [asdict(row) for row in rows]}
+    except Exception as e:
+        _raise_api_error(operation="GET /charts/history", error=e)
 
 
 @app.post("/processes")

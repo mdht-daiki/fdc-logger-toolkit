@@ -211,10 +211,35 @@ def _init_schema(db_path: Path) -> None:
                 changed_by TEXT,
                 change_reason TEXT,
                 change_source TEXT,
+                chart_id INTEGER,
                 FOREIGN KEY(chart_set_id) REFERENCES ChartSet(chart_set_id)
             );
             """
         )
+        # Migration: add chart_id column for existing databases that predate this column.
+        # chart_id stores the ChartsV2 primary key at the time of the change, preserving
+        # the stable identifier in audit records even after the chart row is later deleted.
+        try:
+            con.execute("ALTER TABLE ChartsHistory ADD COLUMN chart_id INTEGER")
+            con.execute(
+                """
+                UPDATE ChartsHistory
+                SET chart_id = (
+                    SELECT c.id
+                    FROM ChartsV2 c
+                    WHERE c.chart_set_id = ChartsHistory.chart_set_id
+                      AND c.tool_id = ChartsHistory.tool_id
+                      AND c.chamber_id = ChartsHistory.chamber_id
+                      AND c.recipe_id = ChartsHistory.recipe_id
+                      AND c.parameter = ChartsHistory.parameter
+                      AND c.step_no = ChartsHistory.step_no
+                      AND c.feature_type = ChartsHistory.feature_type
+                )
+                WHERE chart_id IS NULL
+                """
+            )
+        except sqlite3.OperationalError:
+            pass  # column already exists – migration already applied
         con.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_charts_v2_lookup

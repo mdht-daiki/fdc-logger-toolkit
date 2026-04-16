@@ -24,7 +24,7 @@
 | `POST`   | `/aggregate/write`                                  | ingest write   | implemented | ingest          | source: `db_api/app.py` | Process/StepWindow/Parameter を原子的に保存  |
 | `GET`    | `/charts`                                           | dashboard read | implemented | dashboard/judge | source: `db_api/app.py` | chart 定義一覧                               |
 | `GET`    | `/charts/active`                                    | dashboard read | implemented | dashboard/judge | source: `db_api/app.py` | active chart set と閾値                      |
-| `GET`    | `/charts/history`                                   | dashboard read | planned     | dashboard/ops   | Issue #98               | chart 変更履歴                               |
+| `GET`    | `/charts/history`                                   | dashboard read | implemented | dashboard/ops   | source: `db_api/app.py` | chart 変更履歴                               |
 | `GET`    | `/judge/results`                                    | dashboard read | planned     | dashboard       | Issue #98               | 判定結果一覧                                 |
 | `GET`    | `/judge/results/{result_id}`                        | dashboard read | planned     | dashboard       | Issue #98               | 判定詳細（トレース情報含む）                 |
 | `POST`   | `/governance/change-requests`                       | governance     | planned     | dashboard/ops   | Issue #102              | 通常変更の申請作成                           |
@@ -44,6 +44,8 @@
 - Phase 1 の最小 read 契約は `docs/db-api-minimum-contract.md` を実装基準とする。
 - `GET /charts` の文字列クエリ（`tool_id` 等）は `^[A-Za-z0-9_./:-]+$`（1..128 文字）を許可形式とする。
 - API の timestamp 正規化は UTC ISO 8601 ミリ秒固定で、マイクロ秒以下は切り捨てとする。
+- `GET /charts/history` の `from_ts` / `to_ts` は timezone-aware datetime のみ受け付ける。
+- `GET /charts/history` の `chart_id` フィルタは現在 `ChartsV2` に存在する chart にのみ有効で、削除済み chart 履歴の `chart_id` 解決は行わない。
 
 ## Read-only Endpoint Access Pattern
 

@@ -144,6 +144,15 @@ dashboard judge  (future: exporter)
 
 ## セットアップ
 
+**前提: SQLite >= 3.38**
+
+`db_api` の `chart_repository.py` は `datetime(h.changed_at)` 比較を使用しており、ISO 8601 のパース動作が
+SQLite 3.38（2022-02-22 リリース）で安定化されています。
+`_normalize_query_datetime`（`db_api/app.py`）がクエリ日時を UTC ISO 8601 に正規化してから
+この比較に渡しますが、SQLite < 3.38 では期間フィルタが誤動作する可能性があります。
+Python 3.11 に同梱される SQLite は通常 3.39 以上ですが、自前でビルドした環境では
+`python -c "import sqlite3; print(sqlite3.sqlite_version)"` で確認してください。
+
 ```bash
 python -m venv .venv
 source .venv/bin/activate

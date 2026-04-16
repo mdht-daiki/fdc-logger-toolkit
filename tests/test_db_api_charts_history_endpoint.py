@@ -668,17 +668,11 @@ def test_get_charts_history_rejects_both_naive_timestamps(client: TestClient) ->
 
 def test_get_charts_history_returns_100_rows_without_filters(
     client: TestClient,
-    seeded_charts_history_context: SeededChartsHistoryContext,
 ) -> None:
     """フィルタなし状態で default limit の 100 件を返すことを検証する。"""
     # ギャップ#4: フィルタなし + 実データで100件返ることの確認
-
-    # 追加の chart を 1 つ投入
-    now = "2026-04-14T09:00:00+09:00"
-    suffix = "extra_" + str(uuid4())[:8]
-    chart_set_id2 = _insert_chart_set(now, suffix)
-    dt = datetime.fromisoformat(now.replace("+09:00", "+09:00"))
-    _insert_chart_and_history(chart_set_id2, suffix, dt)
+    # 複数の chart_set がすでに存在する環境で、フィルタなしリクエストが
+    # default limit の 100 件を返すことを確認
 
     res = client.get("/charts/history")
 

@@ -349,6 +349,13 @@ def test_get_charts_history_rejects_limit_exceeds_max(client: TestClient) -> Non
     assert_validation_error_envelope(res.json(), expected_loc_fragment="limit")
 
 
+def test_get_charts_history_rejects_negative_offset(client: TestClient) -> None:
+    res = client.get("/charts/history", params={"offset": -1})
+
+    assert res.status_code == 422
+    assert_validation_error_envelope(res.json(), expected_loc_fragment="offset")
+
+
 def test_get_charts_history_rejects_invalid_time_range(client: TestClient) -> None:
     res = client.get(
         "/charts/history",

@@ -246,6 +246,35 @@ def test_get_judge_results_supports_pagination(
     assert first_rows[0]["result_id"] != second_rows[0]["result_id"]
 
 
+def test_get_judge_results_supports_combined_filters(
+    client: TestClient,
+    seeded_judge_results_context: SeededJudgeResultsContext,
+) -> None:
+    """process_id + lot_id + from_ts/to_ts の複合フィルタが機能することを検証する。"""
+    seeded = seeded_judge_results_context
+
+    from_ts = datetime(2026, 4, 16, 0, 0, tzinfo=UTC).isoformat()
+    to_ts = datetime(2026, 4, 17, 10, 0, tzinfo=UTC).isoformat()
+
+    res = client.get(
+        "/judge/results",
+        params={
+            "process_id": seeded.process_id_with_lot,
+            "lot_id": seeded.process_id_with_lot.replace("P_JUDGE_LOT_", "LOT_"),
+            "from_ts": from_ts,
+            "to_ts": to_ts,
+        },
+    )
+
+    assert res.status_code == 200
+    rows = res.json()["data"]
+    assert len(rows) == 1
+    assert rows[0]["process_id"] == seeded.process_id_with_lot
+    assert rows[0]["lot_id"] == seeded.process_id_with_lot.replace("P_JUDGE_LOT_", "LOT_")
+    assert rows[0]["judged_at"] >= from_ts.replace("+00:00", "Z")
+    assert rows[0]["judged_at"] <= to_ts.replace("+00:00", "Z")
+
+
 def test_get_judge_results_returns_400_for_invalid_timestamp_range(client: TestClient) -> None:
     """from_ts > to_ts は 400 を返すことを検証する。"""
     from_ts = datetime(2026, 4, 17, 2, 0, tzinfo=UTC).isoformat()

@@ -55,12 +55,14 @@ def _init_schema(db_path: Path) -> None:
         )
         try:
             con.execute("ALTER TABLE ProcessInfo ADD COLUMN lot_id TEXT")
-        except sqlite3.OperationalError:
-            pass  # column already exists
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" not in str(e):
+                raise
         try:
             con.execute("ALTER TABLE ProcessInfo ADD COLUMN wafer_id TEXT")
-        except sqlite3.OperationalError:
-            pass  # column already exists
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" not in str(e):
+                raise
         con.execute(
             """
             CREATE TABLE IF NOT EXISTS StepWindows (

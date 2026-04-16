@@ -84,9 +84,9 @@ class JudgeRepository:
         self._append_filter_condition(
             criteria.chart_id,
             (
-                "CASE WHEN json_valid(j.message_json) "
-                "THEN json_extract(j.message_json, '$.chart_id') "
-                "ELSE NULL END = ?"
+                "CASE WHEN json_type(j.message_json, '$.chart_id') IN ('integer', 'real') "
+                "THEN 'CHART_' || CAST(json_extract(j.message_json, '$.chart_id') AS TEXT) "
+                "ELSE json_extract(j.message_json, '$.chart_id') END = ?"
             ),
             where_clauses,
             params,
@@ -228,14 +228,20 @@ def _to_str_or_none(value: Any) -> str | None:
 
 
 def _to_int_or_none(value: Any) -> int | None:
-    """値を int または None へ変換する。"""
+    """値を int または None へ変換する。変換失敗時は None を返す。"""
     if value is None:
         return None
-    return int(value)
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return None
 
 
 def _to_float_or_none(value: Any) -> float | None:
-    """値を float または None へ変換する。"""
+    """値を float または None へ変換する。変換失敗時は None を返す。"""
     if value is None:
         return None
-    return float(value)
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return None

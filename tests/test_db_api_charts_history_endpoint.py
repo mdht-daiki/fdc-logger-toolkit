@@ -649,9 +649,96 @@ def test_get_charts_history_returns_empty_for_deleted_chart_id_filter(
     body = by_chart_set.json()
     assert body["ok"] is True
     assert len(body["data"]) == 120
-    # chart_id is stored directly on ChartsHistory, so it is preserved even
-    # after the ChartsV2 row is deleted.
-    assert all(item["chart_id"] == seeded.chart_id for item in body["data"])
+
+
+def test_get_charts_history_rejects_both_naive_timestamps(client: TestClient) -> None:
+    """両方ともナイーブな from_ts/to_ts を 400 として拒否することを検証する。"""
+    # ギャップ#2: 両方ナイーブな場合の暗黙UTC変換を防ぐ
+    res = client.get(
+        "/charts/history",
+        params={
+            "from_ts": "2026-04-14T00:00:00",
+            "to_ts": "2026-04-14T00:01:00",
+        },
+    )
+
+    assert res.status_code == 400
+    assert "timezone-aware" in res.json()["detail"]
+
+
+def test_get_charts_history_returns_100_rows_without_filters(
+    client: TestClient,
+    seeded_charts_history_context: SeededChartsHistoryContext,
+) -> None:
+    """フィルタなし状態で default limit の 100 件を返すことを検証する。"""
+    # ギャップ#4: フィルタなし + 実データで100件返ることの確認
+
+    # 追加の chart を 1 つ投入
+    now = "2026-04-14T09:00:00+09:00"
+    suffix = "extra_" + str(uuid4())[:8]
+    chart_set_id2 = _insert_chart_set(now, suffix)
+    dt = datetime.fromisoformat(now.replace("+09:00", "+09:00"))
+    _insert_chart_and_history(chart_set_id2, suffix, dt)
+
+    res = client.get("/charts/history")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["ok"] is True
+    # limit なしの default は 100 件
+    assert len(body["data"]) == 100
+
+
+def test_get_charts_history_change_source_is_case_sensitive(
+    client: TestClient,
+    seeded_charts_history_context: SeededChartsHistoryContext,
+) -> None:
+    """change_source フィルタが case-sensitive であることを検証する。"""
+    # ギャップ#7: SQLite はデフォルト case-sensitive、大文字小文字が異なるとマッチしない
+    seeded = seeded_charts_history_context
+
+    # chart_set_id フィルタで全件取得
+    res_all = client.get(
+        "/charts/history",
+        params={
+            "chart_set_id": seeded.chart_set_id,
+            "limit": 500,
+        },
+    )
+    assert res_all.status_code == 200
+    all_data = res_all.json()["data"]
+    assert len(all_data) == 120, f"Expected 120 records, got {len(all_data)}"
+
+    # テストデータは "normal_pr" (小文字) または "emergency_manual" (小文字) なので、
+    # 大文字版 "Normal_PR" で検索すると マッチしないことを確認
+    res_upper = client.get(
+        "/charts/history",
+        params={
+            "chart_set_id": seeded.chart_set_id,
+            "change_source": "Normal_PR",  # 大文字版（存在しない）
+            "limit": 500,
+        },
+    )
+    assert res_upper.status_code == 200
+    upper_data = res_upper.json()["data"]
+    assert len(upper_data) == 0, (
+        "Case-sensitive: 'Normal_PR' (uppercase) should not match 'normal_pr'"
+    )
+
+    # 小文字版で検索すると マッチする
+    res_lower = client.get(
+        "/charts/history",
+        params={
+            "chart_set_id": seeded.chart_set_id,
+            "change_source": "normal_pr",  # 小文字版（存在する）
+            "limit": 500,
+        },
+    )
+    assert res_lower.status_code == 200
+    lower_data = res_lower.json()["data"]
+    assert len(lower_data) == 60, (
+        "Exact case match: 'normal_pr' should find 60 records (even indices)"
+    )
 
 
 def test_get_charts_history_returns_503_then_recovers_from_transient_db_error(

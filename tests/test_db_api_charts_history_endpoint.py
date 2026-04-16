@@ -474,6 +474,7 @@ def test_get_charts_history_rejects_chart_id_out_of_int64_range(client: TestClie
 @pytest.mark.parametrize(
     "raw_chart_id",
     [
+        "CHART_0",
         "CHART_",
         "CHART_not_number",
         "CHART_1_2",

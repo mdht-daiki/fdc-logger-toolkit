@@ -336,6 +336,8 @@ def _parse_chart_pk(chart_id: str | None) -> int | None:
         if not numeric_part.isdigit():
             raise ValueError("chart_id numeric part must contain only digits")
         chart_pk = int(numeric_part)
+        if chart_pk < 1:
+            raise ValueError("chart_id must be greater than or equal to 1")
         if not (-(2**63) <= chart_pk <= 2**63 - 1):
             raise ValueError("chart_id out of int64 range")
         return chart_pk
@@ -358,8 +360,8 @@ def get_charts_history(
         max_length=CHARTS_FILTER_MAX_LENGTH,
         pattern=CHARTS_FILTER_PATTERN,
     ),
-    from_ts: datetime | None = None,
-    to_ts: datetime | None = None,
+    from_ts: Annotated[datetime | None, Query()] = None,
+    to_ts: Annotated[datetime | None, Query()] = None,
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
 ):

@@ -37,6 +37,8 @@ class ProcessInfoIn(BaseModel):
     start_ts: datetime
     end_ts: datetime
     raw_csv_path: str
+    lot_id: str | None = None
+    wafer_id: str | None = None
 
     @model_validator(mode="after")
     def validate_time_range(self) -> ProcessInfoIn:

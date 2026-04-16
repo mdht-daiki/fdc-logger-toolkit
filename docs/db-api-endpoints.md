@@ -25,7 +25,7 @@
 | `GET`    | `/charts`                                           | dashboard read | implemented | dashboard/judge | source: `db_api/app.py` | chart 定義一覧                               |
 | `GET`    | `/charts/active`                                    | dashboard read | implemented | dashboard/judge | source: `db_api/app.py` | active chart set と閾値                      |
 | `GET`    | `/charts/history`                                   | dashboard read | implemented | dashboard/ops   | source: `db_api/app.py` | chart 変更履歴                               |
-| `GET`    | `/judge/results`                                    | dashboard read | planned     | dashboard       | Issue #98               | 判定結果一覧                                 |
+| `GET`    | `/judge/results`                                    | dashboard read | implemented | dashboard       | Issue #132              | 判定結果一覧                                 |
 | `GET`    | `/judge/results/{result_id}`                        | dashboard read | planned     | dashboard       | Issue #98               | 判定詳細（トレース情報含む）                 |
 | `POST`   | `/governance/change-requests`                       | governance     | planned     | dashboard/ops   | Issue #102              | 通常変更の申請作成                           |
 | `POST`   | `/governance/change-requests/{request_id}/approve`  | governance     | planned     | ops             | Issue #102              | 変更申請の承認                               |

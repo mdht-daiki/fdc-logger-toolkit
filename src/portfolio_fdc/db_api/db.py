@@ -47,10 +47,20 @@ def _init_schema(db_path: Path) -> None:
                 recipe_id TEXT NOT NULL,
                 start_ts TEXT NOT NULL,
                 end_ts TEXT NOT NULL,
-                raw_csv_path TEXT NOT NULL
+                raw_csv_path TEXT NOT NULL,
+                lot_id TEXT,
+                wafer_id TEXT
             );
             """
         )
+        try:
+            con.execute("ALTER TABLE ProcessInfo ADD COLUMN lot_id TEXT")
+        except sqlite3.OperationalError:
+            pass  # column already exists
+        try:
+            con.execute("ALTER TABLE ProcessInfo ADD COLUMN wafer_id TEXT")
+        except sqlite3.OperationalError:
+            pass  # column already exists
         con.execute(
             """
             CREATE TABLE IF NOT EXISTS StepWindows (

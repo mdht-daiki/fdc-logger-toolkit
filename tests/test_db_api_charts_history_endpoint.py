@@ -622,11 +622,11 @@ def test_get_charts_history_allows_null_change_reason_and_changed_by(
     assert row["changed_by"] is None
 
 
-def test_get_charts_history_returns_empty_for_deleted_chart_id_filter(
+def test_get_charts_history_preserves_deleted_chart_id_filter_results(
     client: TestClient,
     seeded_charts_history_context: SeededChartsHistoryContext,
 ) -> None:
-    """削除済み chart は chart_id フィルタでは取得できないことを明示的に検証する。"""
+    """削除済み chart でも chart_id フィルタで履歴取得できることを検証する。"""
     seeded = seeded_charts_history_context
     chart_pk = int(seeded.chart_id.split("_", maxsplit=1)[1])
 
@@ -639,7 +639,10 @@ def test_get_charts_history_returns_empty_for_deleted_chart_id_filter(
 
     by_chart_id = client.get("/charts/history", params={"chart_id": seeded.chart_id})
     assert by_chart_id.status_code == 200
-    assert by_chart_id.json() == {"ok": True, "data": []}
+    by_chart_id_body = by_chart_id.json()
+    assert by_chart_id_body["ok"] is True
+    assert len(by_chart_id_body["data"]) == 100
+    assert all(item["chart_id"] == seeded.chart_id for item in by_chart_id_body["data"])
 
     by_chart_set = client.get(
         "/charts/history",

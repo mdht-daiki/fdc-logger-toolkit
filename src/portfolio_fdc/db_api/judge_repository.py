@@ -224,7 +224,14 @@ def _extract_chart_id(payload: dict[str, Any], extracted_chart_id: Any) -> str |
         if candidate.startswith("CHART_"):
             return candidate
         if candidate.isdigit():
-            return f"CHART_{candidate}"
+            # Mirror SQL-side numeric normalization (e.g. "001" -> "CHART_1").
+            try:
+                numeric_candidate = float(candidate)
+            except (ValueError, OverflowError):
+                return None
+            if not math.isfinite(numeric_candidate):
+                return None
+            return f"CHART_{int(numeric_candidate)}"
         return candidate
     return None
 
@@ -247,9 +254,17 @@ def _to_int_or_none(value: Any) -> int | None:
     """値を int または None へ変換する。変換失敗時は None を返す。"""
     if value is None:
         return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            return None
+        if not value.is_integer():
+            return None
+        return int(value)
     try:
         return int(value)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
         return None
 
 

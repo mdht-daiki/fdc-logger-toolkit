@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from typing import Any
 
+from .datetime_util import to_utc_millis
 from .db import MAIN_DB, _connect
 
 
@@ -327,7 +327,7 @@ class ChartRepository:
                 )
 
             active_chart_set_id = int(active_row[0])
-            activated_at = _to_utc_millis(str(active_row[1]))
+            activated_at = to_utc_millis(str(active_row[1]))
 
             sql = self._ACTIVE_CHARTS_SQL
             where_clauses: list[str] = []
@@ -467,7 +467,7 @@ class ChartRepository:
             warning_ucl=_to_float_or_none(warn_high),
             critical_lcl=_to_float_or_none(crit_low),
             critical_ucl=_to_float_or_none(crit_high),
-            updated_at=_to_utc_millis(str(updated_at)),
+            updated_at=to_utc_millis(str(updated_at)),
             version=int(version),
             is_active=bool(is_active),
         )
@@ -537,7 +537,7 @@ class ChartRepository:
                 critical_ucl=_to_float_or_none(new_crit_high),
             ),
             changed_by=None if changed_by is None else str(changed_by),
-            changed_at=_to_utc_millis(str(changed_at)),
+            changed_at=to_utc_millis(str(changed_at)),
         )
 
 
@@ -546,14 +546,3 @@ def _to_float_or_none(value: Any) -> float | None:
     if value is None:
         return None
     return float(value)
-
-
-def _to_utc_millis(raw: str) -> str:
-    """任意の ISO 8601 文字列を UTC ミリ秒固定の文字列へ正規化する。"""
-    normalized = raw.replace("Z", "+00:00")
-    dt = datetime.fromisoformat(normalized)
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=UTC)
-    else:
-        dt = dt.astimezone(UTC)
-    return dt.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"

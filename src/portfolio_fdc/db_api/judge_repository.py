@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from .chart_repository import _to_utc_millis
+from .datetime_util import to_utc_millis
 from .db import MAIN_DB, _connect
 
 _ALLOWED_LEVELS = {"OK", "WARN", "NG"}
@@ -80,7 +80,9 @@ class JudgeRepository:
         )
         self._append_filter_condition(criteria.lot_id, "p.lot_id = ?", where_clauses, params)
         self._append_filter_condition(criteria.recipe_id, "j.recipe_id = ?", where_clauses, params)
-        self._append_filter_condition(criteria.level, "j.status = ?", where_clauses, params)
+        self._append_filter_condition(
+            criteria.level, "UPPER(j.status) = UPPER(?)", where_clauses, params
+        )
         self._append_filter_condition(
             criteria.chart_id,
             (
@@ -184,8 +186,8 @@ class JudgeRepository:
             feature_type=feature_type,
             feature_value=feature_value,
             level=normalized_level,
-            judged_at=_to_utc_millis(str(judged_at)),
-            process_start_ts=_to_utc_millis(str(process_start_ts)),
+            judged_at=to_utc_millis(str(judged_at)),
+            process_start_ts=to_utc_millis(str(process_start_ts)),
         )
 
 
@@ -208,8 +210,12 @@ def _extract_chart_id(payload: dict[str, Any], extracted_chart_id: Any) -> str |
     if candidate is None:
         candidate = extracted_chart_id
 
-    if isinstance(candidate, int):
-        return f"CHART_{candidate}"
+    # Exclude bool (bool is a subclass of int in Python)
+    if isinstance(candidate, bool):
+        return None
+    # Handle numeric types (int, float)
+    if isinstance(candidate, (int, float)):
+        return f"CHART_{int(candidate)}"
     if isinstance(candidate, str):
         if not candidate:
             return None

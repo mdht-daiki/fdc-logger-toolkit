@@ -13,6 +13,11 @@ from .db import MAIN_DB, _connect
 _ALLOWED_LEVELS = {"OK", "WARN", "NG"}
 
 
+def _allowed_levels_sql() -> str:
+    """許可された level 値の SQL IN 句用フラグメントを返す。"""
+    return ", ".join(f"'{level}'" for level in sorted(_ALLOWED_LEVELS))
+
+
 @dataclass(frozen=True)
 class JudgeResultsQueryCriteria:
     """`GET /judge/results` の検索条件を保持する DTO。"""
@@ -74,7 +79,7 @@ class JudgeRepository:
         """条件に一致する判定結果一覧を返す。"""
         sql = self._SELECT_SQL
         # Keep paging stable by excluding invalid statuses at SQL level.
-        where_clauses: list[str] = ["UPPER(j.status) IN ('OK', 'WARN', 'NG')"]
+        where_clauses: list[str] = [f"UPPER(j.status) IN ({_allowed_levels_sql()})"]
         params: list[Any] = []
 
         self._append_filter_condition(

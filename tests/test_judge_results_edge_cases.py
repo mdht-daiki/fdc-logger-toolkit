@@ -13,6 +13,8 @@ from fastapi.testclient import TestClient
 
 from portfolio_fdc.db_api.db import MAIN_DB, _init_schema
 from portfolio_fdc.db_api.judge_repository import (
+    _ALLOWED_LEVELS,
+    _allowed_levels_sql,
     _extract_chart_id,
     _to_float_or_none,
     _to_int_or_none,
@@ -197,6 +199,13 @@ def test_extract_chart_id_float_truncates_to_int() -> None:
     payload = {"chart_id": 100.9}
     result = _extract_chart_id(payload, None)
     assert result == "CHART_100", f"Expected CHART_100 but got {result}"
+
+
+def test_allowed_levels_sql_matches_allowed_levels_constant() -> None:
+    """_allowed_levels_sql should be generated from _ALLOWED_LEVELS."""
+    sql_fragment = _allowed_levels_sql()
+    tokens = {token.strip().strip("'") for token in sql_fragment.split(",")}
+    assert tokens == _ALLOWED_LEVELS
 
 
 def test_extract_chart_id_rejects_boolean() -> None:

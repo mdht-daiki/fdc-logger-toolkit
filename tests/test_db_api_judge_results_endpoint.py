@@ -391,8 +391,10 @@ def test_get_judge_results_supports_combined_filters(
     assert len(rows) == 1
     assert rows[0]["process_id"] == seeded.process_id_with_lot
     assert rows[0]["lot_id"] == seeded.process_id_with_lot.replace("P_JUDGE_LOT_", "LOT_")
-    assert rows[0]["judged_at"] >= from_ts.replace("+00:00", "Z")
-    assert rows[0]["judged_at"] <= to_ts.replace("+00:00", "Z")
+    judged_dt = datetime.fromisoformat(rows[0]["judged_at"].replace("Z", "+00:00"))
+    from_dt = datetime.fromisoformat(from_ts.replace("Z", "+00:00"))
+    to_dt = datetime.fromisoformat(to_ts.replace("Z", "+00:00"))
+    assert from_dt <= judged_dt <= to_dt
 
 
 def test_get_judge_results_returns_400_for_invalid_timestamp_range(client: TestClient) -> None:

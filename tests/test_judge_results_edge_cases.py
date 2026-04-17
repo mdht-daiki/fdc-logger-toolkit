@@ -27,6 +27,7 @@ class SeededEdgeCaseContext:
     process_id_float_chart: str
     process_id_leading_zero_chart: str
     process_id_big_int_chart: str
+    process_id_big_digit_text_chart: str
     process_id_bad_ts: str
     process_id_nan_feature: str
     process_id_inf_feature: str
@@ -41,6 +42,7 @@ def seeded_edge_case_context() -> Iterator[SeededEdgeCaseContext]:
     process_id_float_chart = f"P_FLOAT_CHART_{suffix}"
     process_id_leading_zero_chart = f"P_LEADING_ZERO_{suffix}"
     process_id_big_int_chart = f"P_BIG_INT_{suffix}"
+    process_id_big_digit_text_chart = f"P_BIG_DIGIT_TEXT_{suffix}"
     process_id_bad_ts = f"P_BAD_TS_{suffix}"
     process_id_nan_feature = f"P_NAN_FEAT_{suffix}"
     process_id_inf_feature = f"P_INF_FEAT_{suffix}"
@@ -52,6 +54,7 @@ def seeded_edge_case_context() -> Iterator[SeededEdgeCaseContext]:
             process_id_float_chart,
             process_id_leading_zero_chart,
             process_id_big_int_chart,
+            process_id_big_digit_text_chart,
             process_id_bad_ts,
             process_id_nan_feature,
             process_id_inf_feature,
@@ -149,6 +152,31 @@ def seeded_edge_case_context() -> Iterator[SeededEdgeCaseContext]:
             ),
         )
 
+        # Case 1d: very large digit-only text chart_id (beyond signed 64-bit).
+        con.execute(
+            """
+            INSERT INTO JudgementResults(
+                process_id, tool_id, chamber_id, recipe_id, status, judged_at, message_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                process_id_big_digit_text_chart,
+                f"TOOL_{suffix}",
+                "CH1",
+                recipe_id,
+                "OK",
+                "2026-04-17T00:01:50+00:00",
+                json.dumps(
+                    {
+                        "chart_id": "0009223372036854775808",
+                        "step_no": 1,
+                        "feature_type": "mean",
+                        "feature_value": 1.2,
+                    }
+                ),
+            ),
+        )
+
         # Case 2: NaN feature_value
         con.execute(
             """
@@ -235,6 +263,7 @@ def seeded_edge_case_context() -> Iterator[SeededEdgeCaseContext]:
             process_id_float_chart=process_id_float_chart,
             process_id_leading_zero_chart=process_id_leading_zero_chart,
             process_id_big_int_chart=process_id_big_int_chart,
+            process_id_big_digit_text_chart=process_id_big_digit_text_chart,
             process_id_bad_ts=process_id_bad_ts,
             process_id_nan_feature=process_id_nan_feature,
             process_id_inf_feature=process_id_inf_feature,
@@ -439,9 +468,10 @@ def test_api_big_integer_chart_id_filter_matches_response_normalization(
     client: TestClient,
     seeded_edge_case_context: SeededEdgeCaseContext,
 ) -> None:
-    """Large integer chart_id should match between response normalization and SQL filter."""
+    """Large chart_id values should match between response normalization and SQL filter."""
     seeded = seeded_edge_case_context
-    expected_chart_id = "CHART_9007199254740993"
+    expected_numeric_chart_id = "CHART_9007199254740993"
+    expected_big_digit_text_chart_id = "CHART_9223372036854775808"
 
     by_process = client.get(
         "/judge/results",
@@ -453,19 +483,46 @@ def test_api_big_integer_chart_id_filter_matches_response_normalization(
     assert by_process.status_code == 200
     process_rows = by_process.json()["data"]
     assert len(process_rows) == 1
-    assert process_rows[0]["chart_id"] == expected_chart_id
+    assert process_rows[0]["chart_id"] == expected_numeric_chart_id
 
     by_chart_filter = client.get(
         "/judge/results",
         params={
             "recipe_id": seeded.recipe_id,
-            "chart_id": expected_chart_id,
+            "chart_id": expected_numeric_chart_id,
             "limit": 100,
         },
     )
     assert by_chart_filter.status_code == 200
     filtered_rows = by_chart_filter.json()["data"]
     assert any(row["process_id"] == seeded.process_id_big_int_chart for row in filtered_rows)
+
+    by_big_digit_text_process = client.get(
+        "/judge/results",
+        params={
+            "process_id": seeded.process_id_big_digit_text_chart,
+            "limit": 10,
+        },
+    )
+    assert by_big_digit_text_process.status_code == 200
+    big_digit_text_rows = by_big_digit_text_process.json()["data"]
+    assert len(big_digit_text_rows) == 1
+    assert big_digit_text_rows[0]["chart_id"] == expected_big_digit_text_chart_id
+
+    by_big_digit_text_filter = client.get(
+        "/judge/results",
+        params={
+            "recipe_id": seeded.recipe_id,
+            "chart_id": expected_big_digit_text_chart_id,
+            "limit": 100,
+        },
+    )
+    assert by_big_digit_text_filter.status_code == 200
+    filtered_big_digit_text_rows = by_big_digit_text_filter.json()["data"]
+    assert any(
+        row["process_id"] == seeded.process_id_big_digit_text_chart
+        for row in filtered_big_digit_text_rows
+    )
 
 
 def test_api_malformed_timestamp_row_is_skipped(

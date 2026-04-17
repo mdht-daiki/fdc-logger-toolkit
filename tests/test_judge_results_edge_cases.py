@@ -355,6 +355,24 @@ def test_extract_chart_id_large_digit_string_preserves_precision() -> None:
     assert result == "CHART_9007199254740993"
 
 
+def test_extract_chart_id_accepts_chart_prefixed_numeric_string() -> None:
+    """_extract_chart_id should accept CHART_[0-9]+ strings."""
+    payload = {"chart_id": "CHART_123"}
+    result = _extract_chart_id(payload, None)
+    assert result == "CHART_123"
+
+
+@pytest.mark.parametrize(
+    "candidate",
+    ["CHART_FOO", "CHART_-1", "CHART_", "CHART_12A", ""],
+)
+def test_extract_chart_id_rejects_invalid_chart_prefixed_strings(candidate: str) -> None:
+    """_extract_chart_id should reject invalid CHART_ prefixed string forms."""
+    payload = {"chart_id": candidate}
+    result = _extract_chart_id(payload, None)
+    assert result is None
+
+
 def test_to_float_or_none_rejects_nan() -> None:
     """_to_float_or_none should return None for NaN."""
     result = _to_float_or_none(float("nan"))

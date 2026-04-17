@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -13,6 +14,7 @@ from .db import MAIN_DB, _connect
 
 _ALLOWED_LEVELS = {"OK", "WARN", "NG"}
 _LOGGER = logging.getLogger(__name__)
+_CHART_ID_PATTERN = re.compile(r"^CHART_[0-9]+$")
 
 
 def _allowed_levels_sql() -> str:
@@ -271,6 +273,8 @@ def _extract_chart_id(payload: dict[str, Any], extracted_chart_id: Any) -> str |
         if not candidate:
             return None
         if candidate.startswith("CHART_"):
+            if _CHART_ID_PATTERN.fullmatch(candidate) is None:
+                return None
             return candidate
         if candidate.isdigit():
             # Mirror SQL-side numeric normalization (e.g. "001" -> "CHART_1").

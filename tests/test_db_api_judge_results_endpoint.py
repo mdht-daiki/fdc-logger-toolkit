@@ -303,13 +303,9 @@ def test_get_judge_results_skips_row_with_invalid_judged_at(
     client: TestClient,
     seeded_judge_results_context: SeededJudgeResultsContext,
 ) -> None:
-    """不正 judged_at / ProcessInfo.start_ts を含む行があっても 500 にならずスキップする。"""
+    """不正 judged_at を含む行があっても 500 にならず当該行をスキップする。"""
     seeded = seeded_judge_results_context
     con = sqlite3.connect(MAIN_DB.as_posix())
-    original_start_ts = con.execute(
-        "SELECT start_ts FROM ProcessInfo WHERE process_id = ?",
-        (seeded.process_id_with_lot,),
-    ).fetchone()
     try:
         con.execute(
             """
@@ -318,7 +314,7 @@ def test_get_judge_results_skips_row_with_invalid_judged_at(
             ) VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                seeded.process_id_with_lot,
+                seeded.process_id_without_lot,
                 "TOOL_BAD_TS",
                 "CH1",
                 seeded.recipe_id,
@@ -334,7 +330,39 @@ def test_get_judge_results_skips_row_with_invalid_judged_at(
                 ),
             ),
         )
-        # Regressions: invalid ProcessInfo.start_ts must also be skipped safely.
+        con.commit()
+
+        res = client.get(
+            "/judge/results",
+            params={"recipe_id": seeded.recipe_id, "limit": 1000},
+        )
+
+        assert res.status_code == 200
+        rows = res.json()["data"]
+        # Seeded valid rows (2) should remain; invalid judged_at row is skipped.
+        assert len(rows) == 2
+        assert all(row["chart_id"] != "CHART_777" for row in rows)
+    finally:
+        con.execute(
+            "DELETE FROM JudgementResults WHERE recipe_id = ? AND tool_id = ?",
+            (seeded.recipe_id, "TOOL_BAD_TS"),
+        )
+        con.commit()
+        con.close()
+
+
+def test_get_judge_results_skips_row_with_invalid_process_start_ts(
+    client: TestClient,
+    seeded_judge_results_context: SeededJudgeResultsContext,
+) -> None:
+    """不正 ProcessInfo.start_ts を持つ process の行を 500 なくスキップする。"""
+    seeded = seeded_judge_results_context
+    con = sqlite3.connect(MAIN_DB.as_posix())
+    original_start_ts = con.execute(
+        "SELECT start_ts FROM ProcessInfo WHERE process_id = ?",
+        (seeded.process_id_with_lot,),
+    ).fetchone()
+    try:
         con.execute(
             "UPDATE ProcessInfo SET start_ts = ? WHERE process_id = ?",
             ("BAD_START_TS", seeded.process_id_with_lot),
@@ -348,15 +376,9 @@ def test_get_judge_results_skips_row_with_invalid_judged_at(
 
         assert res.status_code == 200
         rows = res.json()["data"]
-        # Rows tied to invalid judged_at / process_start_ts are excluded.
         assert len(rows) == 1
-        assert all(row["chart_id"] != "CHART_777" for row in rows)
         assert all(row["process_id"] != seeded.process_id_with_lot for row in rows)
     finally:
-        con.execute(
-            "DELETE FROM JudgementResults WHERE recipe_id = ? AND tool_id = ?",
-            (seeded.recipe_id, "TOOL_BAD_TS"),
-        )
         if original_start_ts is not None:
             con.execute(
                 "UPDATE ProcessInfo SET start_ts = ? WHERE process_id = ?",

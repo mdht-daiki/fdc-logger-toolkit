@@ -312,6 +312,64 @@ def test_db_api_process_upsert_on_same_process_id(client: TestClient) -> None:
         )
 
 
+def test_db_api_process_upsert_preserves_lot_and_wafer_when_missing_in_update(
+    client: TestClient,
+) -> None:
+    """lot_id/wafer_id なしの再登録で既存値が NULL 上書きされないことを確認する。"""
+    process_id = f"upsert_lot_preserve_{uuid4().hex}"
+
+    first = {
+        "process_id": process_id,
+        "tool_id": "TOOL_A",
+        "chamber_id": "CH1",
+        "recipe_id": "RCP_OLD",
+        "start_ts": datetime.now().isoformat(),
+        "end_ts": datetime.now().isoformat(),
+        "raw_csv_path": f"data/detail/detail_old_{process_id}.csv",
+        "lot_id": "LOT_001",
+        "wafer_id": "W01",
+    }
+    second = {
+        "process_id": process_id,
+        "tool_id": "TOOL_A",
+        "chamber_id": "CH1",
+        "recipe_id": "RCP_NEW",
+        "start_ts": datetime.now().isoformat(),
+        "end_ts": datetime.now().isoformat(),
+        "raw_csv_path": f"data/detail/detail_new_{process_id}.csv",
+    }
+
+    try:
+        r1 = client.post("/processes", json=first)
+        assert r1.status_code == 200
+        assert r1.json()["ok"] is True
+
+        r2 = client.post("/processes", json=second)
+        assert r2.status_code == 200
+        assert r2.json()["ok"] is True
+
+        con = sqlite3.connect(MAIN_DB.as_posix())
+        try:
+            row = con.execute(
+                "SELECT recipe_id, raw_csv_path, lot_id, wafer_id "
+                "FROM ProcessInfo WHERE process_id = ?",
+                (process_id,),
+            ).fetchone()
+        finally:
+            con.close()
+
+        assert row is not None
+        assert row[0] == "RCP_NEW"
+        assert row[1] == second["raw_csv_path"]
+        assert row[2] == "LOT_001"
+        assert row[3] == "W01"
+    finally:
+        resp = client.request("DELETE", f"/processes/{quote(process_id, safe='')}")
+        assert resp.status_code == 200, (
+            f"cleanup failed: status={resp.status_code}, body={resp.text}"
+        )
+
+
 def test_db_api_aggregate_write_accepts_empty_lists(
     client: TestClient,
     count_rows: Callable[[str], tuple[int, int, int]],

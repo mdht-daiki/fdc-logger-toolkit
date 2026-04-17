@@ -28,8 +28,8 @@ _UPSERT_PROCESS_SQL = """
         start_ts=excluded.start_ts,
         end_ts=excluded.end_ts,
         raw_csv_path=excluded.raw_csv_path,
-        lot_id=excluded.lot_id,
-        wafer_id=excluded.wafer_id;
+        lot_id=COALESCE(excluded.lot_id, ProcessInfo.lot_id),
+        wafer_id=COALESCE(excluded.wafer_id, ProcessInfo.wafer_id);
 """
 
 _INSERT_STEP_WINDOWS_SQL = """

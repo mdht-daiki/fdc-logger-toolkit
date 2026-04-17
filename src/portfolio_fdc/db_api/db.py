@@ -151,10 +151,12 @@ def _init_schema(db_path: Path) -> None:
             ON JudgementResults(judged_at);
             """
         )
+        # Recreate to migrate older non-expression definition under the same name.
+        con.execute("DROP INDEX IF EXISTS idx_judgementresults_recipe_judged_at_id;")
         con.execute(
             """
-            CREATE INDEX IF NOT EXISTS idx_judgementresults_recipe_judged_at_id
-            ON JudgementResults(recipe_id, judged_at DESC, id DESC);
+            CREATE INDEX idx_judgementresults_recipe_judged_at_id
+            ON JudgementResults(recipe_id, julianday(judged_at) DESC, id DESC);
             """
         )
         con.execute(

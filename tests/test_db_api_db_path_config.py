@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import sqlite3
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -67,3 +68,33 @@ def test_db_dir_resolves_relative_env_path(
     assert db_module.DB_DIR == resolved_dir
     assert db_module.MAIN_DB == resolved_dir / "main.db"
     assert db_module.TEMP_DB == resolved_dir / "temp.db"
+
+
+def test_init_schema_creates_expression_index_for_judged_at(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """JudgementResults の recipe/time/order 用インデックスは julianday 式で作成される。"""
+    custom_dir = tmp_path / "db_for_index_check"
+    monkeypatch.setenv(db_module.DB_DIR_ENV_VAR, str(custom_dir))
+    _reload_db_module()
+
+    db_module._init_schema(db_module.MAIN_DB)
+
+    con = sqlite3.connect(db_module.MAIN_DB.as_posix())
+    try:
+        row = con.execute(
+            """
+            SELECT sql
+            FROM sqlite_master
+            WHERE type = 'index'
+              AND name = 'idx_judgementresults_recipe_judged_at_id'
+            """
+        ).fetchone()
+    finally:
+        con.close()
+
+    assert row is not None
+    assert row[0] is not None
+    sql = row[0].replace("\n", " ").lower()
+    assert "julianday(judged_at)" in sql

@@ -332,15 +332,38 @@ def _normalize_query_datetime(raw: datetime | None) -> str | None:
     return raw.astimezone(UTC).isoformat()
 
 
-def _validate_query_datetime_range(from_ts: datetime | None, to_ts: datetime | None) -> None:
+def _validate_query_datetime_range(
+    from_ts: datetime | None,
+    to_ts: datetime | None,
+    *,
+    require_pair: bool,
+) -> None:
     """from_ts/to_ts の指定整合と範囲整合を検証する。"""
-    if (from_ts is None) != (to_ts is None):
+    if require_pair and (from_ts is None) != (to_ts is None):
         raise HTTPException(
             status_code=400,
             detail="from_ts and to_ts must be specified together",
         )
+
+    if from_ts is not None and to_ts is None:
+        if from_ts.tzinfo is None:
+            raise HTTPException(
+                status_code=400,
+                detail="from_ts and to_ts must be timezone-aware datetimes",
+            )
+        return
+
+    if to_ts is not None and from_ts is None:
+        if to_ts.tzinfo is None:
+            raise HTTPException(
+                status_code=400,
+                detail="from_ts and to_ts must be timezone-aware datetimes",
+            )
+        return
+
     if from_ts is None or to_ts is None:
         return
+
     try:
         validate_timestamp_range(from_ts, to_ts)
     except ValueError as exc:
@@ -387,7 +410,7 @@ def get_charts_history(
     offset: int = Query(default=0, ge=0),
 ):
     """Chart 閾値変更履歴を返す。"""
-    _validate_query_datetime_range(from_ts, to_ts)
+    _validate_query_datetime_range(from_ts, to_ts, require_pair=False)
 
     chart_pk = _parse_chart_pk(chart_id)
     criteria = ChartsHistoryQueryCriteria(
@@ -440,7 +463,7 @@ def get_judge_results(
     offset: int = Query(default=0, ge=0),
 ):
     """判定結果一覧を返す。"""
-    _validate_query_datetime_range(from_ts, to_ts)
+    _validate_query_datetime_range(from_ts, to_ts, require_pair=True)
 
     criteria = JudgeResultsQueryCriteria(
         chart_id=chart_id,

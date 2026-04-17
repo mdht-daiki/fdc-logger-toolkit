@@ -391,6 +391,14 @@ def test_get_judge_results_returns_400_for_invalid_timestamp_range(client: TestC
     assert res.json()["detail"] == "end_ts must be greater than or equal to start_ts"
 
 
+def test_get_judge_results_returns_400_for_naive_from_ts(client: TestClient) -> None:
+    """naive from_ts は _normalize_query_datetime で 400 を返すことを検証する。"""
+    res = client.get("/judge/results", params={"from_ts": "2026-04-17T01:00:00"})
+
+    assert res.status_code == 400
+    assert res.json()["detail"] == "from_ts and to_ts must be timezone-aware datetimes"
+
+
 def test_get_judge_results_returns_422_for_invalid_level(client: TestClient) -> None:
     """契約外 level は 422 の validation error を返すことを検証する。"""
     res = client.get("/judge/results", params={"level": "BAD"})

@@ -246,6 +246,59 @@ def test_get_judge_results_supports_pagination(
     assert first_rows[0]["result_id"] != second_rows[0]["result_id"]
 
 
+def test_get_judge_results_pagination_ignores_invalid_status_rows(
+    client: TestClient,
+    seeded_judge_results_context: SeededJudgeResultsContext,
+) -> None:
+    """invalid status 行が存在しても SQL 側で除外されページングが崩れないことを検証する。"""
+    seeded = seeded_judge_results_context
+    con = sqlite3.connect(MAIN_DB.as_posix())
+    try:
+        # judged_at を最新にして、SQL 除外が無いと先頭ページを壊すデータを作る。
+        con.execute(
+            """
+            INSERT INTO JudgementResults(
+                process_id, tool_id, chamber_id, recipe_id, status, judged_at, message_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                seeded.process_id_with_lot,
+                "TOOL_INVALID_STATUS",
+                "CH1",
+                seeded.recipe_id,
+                "BAD",
+                "2026-04-17T23:59:59+00:00",
+                json.dumps(
+                    {
+                        "chart_id": "CHART_999",
+                        "step_no": 9,
+                        "feature_type": "mean",
+                        "feature_value": 9.99,
+                    }
+                ),
+            ),
+        )
+        con.commit()
+
+        res = client.get(
+            "/judge/results",
+            params={"recipe_id": seeded.recipe_id, "limit": 1, "offset": 0},
+        )
+
+        assert res.status_code == 200
+        rows = res.json()["data"]
+        assert len(rows) == 1
+        assert rows[0]["level"] in {"OK", "WARN", "NG"}
+        assert rows[0]["level"] != "BAD"
+    finally:
+        con.execute(
+            "DELETE FROM JudgementResults WHERE recipe_id = ? AND status = ?",
+            (seeded.recipe_id, "BAD"),
+        )
+        con.commit()
+        con.close()
+
+
 def test_get_judge_results_supports_combined_filters(
     client: TestClient,
     seeded_judge_results_context: SeededJudgeResultsContext,

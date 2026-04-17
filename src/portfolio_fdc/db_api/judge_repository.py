@@ -73,7 +73,8 @@ class JudgeRepository:
     def find_results(self, criteria: JudgeResultsQueryCriteria) -> list[JudgeResultView]:
         """条件に一致する判定結果一覧を返す。"""
         sql = self._SELECT_SQL
-        where_clauses: list[str] = []
+        # Keep paging stable by excluding invalid statuses at SQL level.
+        where_clauses: list[str] = ["UPPER(j.status) IN ('OK', 'WARN', 'NG')"]
         params: list[Any] = []
 
         self._append_filter_condition(
@@ -120,8 +121,7 @@ class JudgeRepository:
             params,
         )
 
-        if where_clauses:
-            sql += " WHERE " + " AND ".join(where_clauses)
+        sql += " WHERE " + " AND ".join(where_clauses)
 
         sql += " ORDER BY julianday(j.judged_at) DESC, j.id DESC LIMIT ? OFFSET ?"
         params.extend([criteria.limit, criteria.offset])
@@ -132,12 +132,7 @@ class JudgeRepository:
         finally:
             con.close()
 
-        views: list[JudgeResultView] = []
-        for row in rows:
-            view = self._to_judge_result_view(row)
-            if view is not None:
-                views.append(view)
-        return views
+        return [self._to_judge_result_view(row) for row in rows]
 
     @staticmethod
     def _append_filter_condition(
@@ -153,7 +148,7 @@ class JudgeRepository:
         params.append(value)
 
     @staticmethod
-    def _to_judge_result_view(row: tuple[Any, ...]) -> JudgeResultView | None:
+    def _to_judge_result_view(row: tuple[Any, ...]) -> JudgeResultView:
         """DB 行を `JudgeResultView` へ変換する。"""
         (
             result_pk,
@@ -169,8 +164,6 @@ class JudgeRepository:
         ) = row
 
         normalized_level = _normalize_level(status)
-        if normalized_level is None:
-            return None
 
         payload = _parse_message_json(message_json)
         chart_id = _extract_chart_id(payload, extracted_chart_id)
@@ -236,14 +229,11 @@ def _extract_chart_id(payload: dict[str, Any], extracted_chart_id: Any) -> str |
     return None
 
 
-def _normalize_level(raw: Any) -> str | None:
+def _normalize_level(raw: Any) -> str:
     """status を API 契約上の level 値へ正規化する。"""
-    if not isinstance(raw, str):
-        return None
-    normalized = raw.upper()
-    if normalized not in _ALLOWED_LEVELS:
-        return None
-    return normalized
+    if isinstance(raw, str):
+        return raw.upper()
+    return str(raw).upper()
 
 
 def _to_str_or_none(value: Any) -> str | None:

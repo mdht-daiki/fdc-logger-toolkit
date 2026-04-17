@@ -98,7 +98,8 @@ class JudgeRepository:
                 "CASE "
                 "WHEN json_valid(j.message_json) = 1 "
                 "AND ("
-                "json_type(j.message_json, '$.chart_id') IN ('integer', 'real') "
+                "(json_type(j.message_json, '$.chart_id') IN ('integer', 'real') "
+                "AND json_extract(j.message_json, '$.chart_id') >= 0) "
                 "OR ("
                 "json_type(j.message_json, '$.chart_id') = 'text' "
                 "AND json_extract(j.message_json, '$.chart_id') <> '' "
@@ -247,6 +248,8 @@ def _extract_chart_id(payload: dict[str, Any], extracted_chart_id: Any) -> str |
     if isinstance(candidate, (int, float)):
         # Reject non-finite floats (NaN, inf, -inf)
         if not math.isfinite(candidate):
+            return None
+        if candidate < 0:
             return None
         try:
             return f"CHART_{int(candidate)}"

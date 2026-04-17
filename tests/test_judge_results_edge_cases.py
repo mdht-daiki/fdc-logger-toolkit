@@ -27,6 +27,7 @@ class SeededEdgeCaseContext:
     process_id_float_chart: str
     process_id_leading_zero_chart: str
     process_id_big_int_chart: str
+    process_id_bad_ts: str
     process_id_nan_feature: str
     process_id_inf_feature: str
 
@@ -40,6 +41,7 @@ def seeded_edge_case_context() -> Iterator[SeededEdgeCaseContext]:
     process_id_float_chart = f"P_FLOAT_CHART_{suffix}"
     process_id_leading_zero_chart = f"P_LEADING_ZERO_{suffix}"
     process_id_big_int_chart = f"P_BIG_INT_{suffix}"
+    process_id_bad_ts = f"P_BAD_TS_{suffix}"
     process_id_nan_feature = f"P_NAN_FEAT_{suffix}"
     process_id_inf_feature = f"P_INF_FEAT_{suffix}"
 
@@ -50,6 +52,7 @@ def seeded_edge_case_context() -> Iterator[SeededEdgeCaseContext]:
             process_id_float_chart,
             process_id_leading_zero_chart,
             process_id_big_int_chart,
+            process_id_bad_ts,
             process_id_nan_feature,
             process_id_inf_feature,
         ]:
@@ -173,6 +176,31 @@ def seeded_edge_case_context() -> Iterator[SeededEdgeCaseContext]:
             ),
         )
 
+        # Case 2b: malformed judged_at should not break the endpoint.
+        con.execute(
+            """
+            INSERT INTO JudgementResults(
+                process_id, tool_id, chamber_id, recipe_id, status, judged_at, message_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                process_id_bad_ts,
+                f"TOOL_{suffix}",
+                "CH1",
+                recipe_id,
+                "OK",
+                "INVALID_TS",
+                json.dumps(
+                    {
+                        "chart_id": "CHART_400",
+                        "step_no": 4,
+                        "feature_type": "mean",
+                        "feature_value": 4.0,
+                    }
+                ),
+            ),
+        )
+
         # Case 3: Infinity feature_value
         con.execute(
             """
@@ -207,6 +235,7 @@ def seeded_edge_case_context() -> Iterator[SeededEdgeCaseContext]:
             process_id_float_chart=process_id_float_chart,
             process_id_leading_zero_chart=process_id_leading_zero_chart,
             process_id_big_int_chart=process_id_big_int_chart,
+            process_id_bad_ts=process_id_bad_ts,
             process_id_nan_feature=process_id_nan_feature,
             process_id_inf_feature=process_id_inf_feature,
         )
@@ -267,6 +296,20 @@ def test_extract_chart_id_rejects_negative_infinity() -> None:
     payload = {"chart_id": float("-inf")}
     result = _extract_chart_id(payload, None)
     assert result is None, f"Expected None for -inf but got {result}"
+
+
+def test_extract_chart_id_rejects_negative_integer() -> None:
+    """_extract_chart_id should return None for negative integers."""
+    payload = {"chart_id": -1}
+    result = _extract_chart_id(payload, None)
+    assert result is None, f"Expected None for -1 but got {result}"
+
+
+def test_extract_chart_id_rejects_negative_float() -> None:
+    """_extract_chart_id should return None for negative finite floats."""
+    payload = {"chart_id": -1.2}
+    result = _extract_chart_id(payload, None)
+    assert result is None, f"Expected None for -1.2 but got {result}"
 
 
 def test_extract_chart_id_leading_zero_string_normalizes_to_int_form() -> None:
@@ -423,6 +466,26 @@ def test_api_big_integer_chart_id_filter_matches_response_normalization(
     assert by_chart_filter.status_code == 200
     filtered_rows = by_chart_filter.json()["data"]
     assert any(row["process_id"] == seeded.process_id_big_int_chart for row in filtered_rows)
+
+
+def test_api_malformed_timestamp_row_is_skipped(
+    client: TestClient,
+    seeded_edge_case_context: SeededEdgeCaseContext,
+) -> None:
+    """Malformed timestamp row in seeded data should be skipped, not crash the API."""
+    seeded = seeded_edge_case_context
+
+    res = client.get(
+        "/judge/results",
+        params={
+            "recipe_id": seeded.recipe_id,
+            "limit": 100,
+        },
+    )
+
+    assert res.status_code == 200
+    rows = res.json()["data"]
+    assert all(row["process_id"] != seeded.process_id_bad_ts for row in rows)
 
 
 def test_api_nan_feature_value_excluded(

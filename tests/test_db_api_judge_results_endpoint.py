@@ -21,6 +21,7 @@ class SeededJudgeResultsContext:
     process_id_without_lot: str
     recipe_id: str
     chart_id: str
+    result_id_with_lot: str
 
 
 @pytest.fixture
@@ -31,6 +32,7 @@ def seeded_judge_results_context() -> Iterator[SeededJudgeResultsContext]:
     process_id_with_lot = f"P_JUDGE_LOT_{suffix}"
     process_id_without_lot = f"P_JUDGE_NA_{suffix}"
     recipe_id = f"RECIPE_JUDGE_{suffix}"
+    chart_set_name = f"judge_result_chart_set_{suffix}"
 
     con = sqlite3.connect(MAIN_DB.as_posix())
     try:
@@ -73,7 +75,42 @@ def seeded_judge_results_context() -> Iterator[SeededJudgeResultsContext]:
             ),
         )
 
+        now = datetime.now(UTC).isoformat()
         con.execute(
+            "INSERT INTO ChartSet(name, note, created_at, created_by) VALUES (?, ?, ?, ?)",
+            (chart_set_name, "test", now, "test"),
+        )
+        chart_set_id = int(con.execute("SELECT last_insert_rowid()").fetchone()[0])
+        con.execute(
+            """
+            INSERT INTO ChartsV2(
+                chart_set_id, tool_id, chamber_id, recipe_id, parameter,
+                step_no, feature_type, warn_low, warn_high, crit_low, crit_high,
+                updated_at, updated_by, update_reason, update_source
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                chart_set_id,
+                f"TOOL_{suffix}",
+                "CH1",
+                recipe_id,
+                "dc_bias",
+                1,
+                "mean",
+                1.4,
+                2.6,
+                1.2,
+                2.8,
+                now,
+                "test",
+                "seed",
+                "test",
+            ),
+        )
+        chart_pk = int(con.execute("SELECT last_insert_rowid()").fetchone()[0])
+        chart_id = f"CHART_{chart_pk}"
+
+        warn_row_cursor = con.execute(
             """
             INSERT INTO JudgementResults(
                 process_id, tool_id, chamber_id, recipe_id, status, judged_at, message_json
@@ -88,10 +125,13 @@ def seeded_judge_results_context() -> Iterator[SeededJudgeResultsContext]:
                 "2026-04-17T09:00:00.123999+09:00",
                 json.dumps(
                     {
-                        "chart_id": "CHART_100",
+                        "chart_id": chart_id,
+                        "parameter": "dc_bias",
                         "step_no": 1,
                         "feature_type": "mean",
                         "feature_value": 2.72,
+                        "stop_api_called": False,
+                        "stop_api_status": "NOT_CALLED",
                     }
                 ),
             ),
@@ -120,12 +160,17 @@ def seeded_judge_results_context() -> Iterator[SeededJudgeResultsContext]:
             ),
         )
         con.commit()
+        warn_row_id = warn_row_cursor.lastrowid
+        if warn_row_id is None:
+            raise RuntimeError("Failed to seed JudgementResults row")
+        result_id_with_lot = f"JR_{warn_row_id}"
 
         yield SeededJudgeResultsContext(
             process_id_with_lot=process_id_with_lot,
             process_id_without_lot=process_id_without_lot,
             recipe_id=recipe_id,
-            chart_id="CHART_100",
+            chart_id=chart_id,
+            result_id_with_lot=result_id_with_lot,
         )
     finally:
         cleanup = sqlite3.connect(MAIN_DB.as_posix())
@@ -137,6 +182,17 @@ def seeded_judge_results_context() -> Iterator[SeededJudgeResultsContext]:
             cleanup.execute(
                 "DELETE FROM ProcessInfo WHERE process_id IN (?, ?)",
                 (process_id_with_lot, process_id_without_lot),
+            )
+            cleanup.execute(
+                (
+                    "DELETE FROM ChartsV2 WHERE chart_set_id IN "
+                    "(SELECT chart_set_id FROM ChartSet WHERE name = ?)"
+                ),
+                (chart_set_name,),
+            )
+            cleanup.execute(
+                "DELETE FROM ChartSet WHERE name = ?",
+                (chart_set_name,),
             )
             cleanup.commit()
         finally:
@@ -185,7 +241,7 @@ def test_get_judge_results_returns_contract_fields(
         )
 
     warn_row = next(item for item in rows if item["level"] == "WARN")
-    assert warn_row["chart_id"] == "CHART_100"
+    assert warn_row["chart_id"] == seeded.chart_id
     assert warn_row["feature_type"] == "mean"
     assert warn_row["feature_value"] == 2.72
     assert warn_row["judged_at"] == "2026-04-17T00:00:00.123Z"
@@ -218,6 +274,95 @@ def test_get_judge_results_supports_filters(
     assert len(rows) == 1
     assert rows[0]["chart_id"] == seeded.chart_id
     assert rows[0]["level"] == "WARN"
+
+
+def test_get_judge_result_by_id_returns_contract_fields(
+    client: TestClient,
+    seeded_judge_results_context: SeededJudgeResultsContext,
+) -> None:
+    """GET /judge/results/{result_id} が契約フィールドと詳細情報を返す。"""
+    seeded = seeded_judge_results_context
+
+    res = client.get(f"/judge/results/{seeded.result_id_with_lot}")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["ok"] is True
+    data = body["data"]
+
+    expected_keys = {
+        "result_id",
+        "chart_id",
+        "process_id",
+        "lot_id",
+        "wafer_id",
+        "tool_id",
+        "chamber_id",
+        "recipe_id",
+        "parameter",
+        "step_no",
+        "feature_type",
+        "feature_value",
+        "warning_lcl",
+        "warning_ucl",
+        "critical_lcl",
+        "critical_ucl",
+        "level",
+        "judged_at",
+        "process_start_ts",
+        "stop_api_called",
+        "stop_api_status",
+    }
+
+    assert expected_keys.issubset(data.keys())
+    assert data["result_id"] == seeded.result_id_with_lot
+    assert data["chart_id"] == seeded.chart_id
+    assert data["process_id"] == seeded.process_id_with_lot
+    assert data["level"] == "WARN"
+    assert data["parameter"] == "dc_bias"
+    assert data["step_no"] == 1
+    assert data["feature_type"] == "mean"
+    assert data["feature_value"] == 2.72
+    assert data["warning_lcl"] == 1.4
+    assert data["warning_ucl"] == 2.6
+    assert data["critical_lcl"] == 1.2
+    assert data["critical_ucl"] == 2.8
+    assert data["stop_api_called"] is False
+    assert data["stop_api_status"] == "NOT_CALLED"
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z", data["judged_at"])
+    assert re.fullmatch(
+        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z",
+        data["process_start_ts"],
+    )
+    assert data["judged_at"] == "2026-04-17T00:00:00.123Z"
+
+
+def test_get_judge_result_by_id_returns_not_found_envelope(client: TestClient) -> None:
+    """未知 result_id は契約どおり 404 NOT_FOUND envelope を返す。"""
+    res = client.get("/judge/results/JR_999999999")
+
+    assert res.status_code == 404
+    body = res.json()
+    assert body == {
+        "ok": False,
+        "error": {
+            "code": "NOT_FOUND",
+            "message": "judge result not found",
+            "details": {"result_id": "JR_999999999"},
+        },
+    }
+
+
+def test_get_judge_result_by_id_returns_422_for_invalid_result_id(client: TestClient) -> None:
+    """契約外 result_id 形式は 422 の validation error を返す。"""
+    res = client.get("/judge/results/INVALID")
+
+    assert res.status_code == 422
+    assert_validation_error_envelope(
+        res.json(),
+        expected_loc_fragment="result_id",
+        expected_message_fragment="pattern",
+    )
 
 
 def test_get_judge_results_supports_pagination(

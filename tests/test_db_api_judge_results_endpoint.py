@@ -392,11 +392,39 @@ def test_get_judge_results_returns_400_for_invalid_timestamp_range(client: TestC
 
 
 def test_get_judge_results_returns_400_for_naive_from_ts(client: TestClient) -> None:
-    """naive from_ts は _normalize_query_datetime で 400 を返すことを検証する。"""
-    res = client.get("/judge/results", params={"from_ts": "2026-04-17T01:00:00"})
+    """naive datetime は _normalize_query_datetime で 400 を返すことを検証する。"""
+    res = client.get(
+        "/judge/results",
+        params={
+            "from_ts": "2026-04-17T01:00:00",
+            "to_ts": "2026-04-17T02:00:00",
+        },
+    )
 
     assert res.status_code == 400
     assert res.json()["detail"] == "from_ts and to_ts must be timezone-aware datetimes"
+
+
+def test_get_judge_results_returns_400_for_from_ts_without_to_ts(client: TestClient) -> None:
+    """from_ts のみ指定は 400 を返すことを検証する。"""
+    res = client.get(
+        "/judge/results",
+        params={"from_ts": "2026-04-17T01:00:00+00:00"},
+    )
+
+    assert res.status_code == 400
+    assert res.json()["detail"] == "from_ts and to_ts must be specified together"
+
+
+def test_get_judge_results_returns_400_for_to_ts_without_from_ts(client: TestClient) -> None:
+    """to_ts のみ指定は 400 を返すことを検証する。"""
+    res = client.get(
+        "/judge/results",
+        params={"to_ts": "2026-04-17T01:00:00+00:00"},
+    )
+
+    assert res.status_code == 400
+    assert res.json()["detail"] == "from_ts and to_ts must be specified together"
 
 
 def test_get_judge_results_returns_422_for_invalid_level(client: TestClient) -> None:

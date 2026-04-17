@@ -259,6 +259,18 @@ def test_to_float_or_none_accepts_finite_values() -> None:
     assert _to_float_or_none(-3.14) == -3.14
 
 
+def test_to_float_or_none_rejects_boolean_values() -> None:
+    """_to_float_or_none should return None for bool values."""
+    assert _to_float_or_none(True) is None
+    assert _to_float_or_none(False) is None
+
+
+def test_to_float_or_none_handles_overflow_values() -> None:
+    """_to_float_or_none should return None when float conversion overflows."""
+    huge_integer = 10**10000
+    assert _to_float_or_none(huge_integer) is None
+
+
 def test_to_int_or_none_rejects_boolean_values() -> None:
     """_to_int_or_none should return None for bool values."""
     assert _to_int_or_none(True) is None

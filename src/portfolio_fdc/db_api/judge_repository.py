@@ -272,11 +272,13 @@ def _to_float_or_none(value: Any) -> float | None:
     """値を float または None へ変換する。変換失敗時は None を返す。"""
     if value is None:
         return None
+    if isinstance(value, bool):
+        return None
     try:
         result = float(value)
         # Reject non-finite floats (NaN, inf, -inf)
         if not math.isfinite(result):
             return None
         return result
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
         return None

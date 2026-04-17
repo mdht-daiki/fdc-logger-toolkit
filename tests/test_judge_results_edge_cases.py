@@ -193,7 +193,9 @@ def seeded_edge_case_context() -> Iterator[SeededEdgeCaseContext]:
                         "step_no": 3,
                         "feature_type": "max",
                         "feature_value": float("inf"),  # Infinity
-                    }
+                    },
+                    # Keep non-standard Infinity serialization explicit for this edge-case test.
+                    allow_nan=True,
                 ),
             ),
         )
@@ -209,6 +211,7 @@ def seeded_edge_case_context() -> Iterator[SeededEdgeCaseContext]:
             process_id_inf_feature=process_id_inf_feature,
         )
     finally:
+        con.close()
         cleanup = sqlite3.connect(MAIN_DB.as_posix())
         try:
             cleanup.execute(
@@ -222,7 +225,6 @@ def seeded_edge_case_context() -> Iterator[SeededEdgeCaseContext]:
             cleanup.commit()
         finally:
             cleanup.close()
-        con.close()
 
 
 def test_extract_chart_id_float_truncates_to_int() -> None:

@@ -1,0 +1,679 @@
+"""Edge case tests for judge results repository and API contract."""
+
+from __future__ import annotations
+
+import json
+import sqlite3
+from collections.abc import Iterator
+from dataclasses import dataclass
+from uuid import uuid4
+
+import pytest
+from fastapi.testclient import TestClient
+
+from portfolio_fdc.db_api.db import MAIN_DB, _init_schema
+from portfolio_fdc.db_api.judge_repository import (
+    _ALLOWED_LEVELS,
+    _allowed_levels_sql,
+    _extract_chart_id,
+    _to_float_or_none,
+    _to_int_or_none,
+)
+
+
+@dataclass(frozen=True)
+class SeededEdgeCaseContext:
+    recipe_id: str
+    process_id_float_chart: str
+    process_id_leading_zero_chart: str
+    process_id_big_int_chart: str
+    process_id_big_digit_text_chart: str
+    process_id_unicode_digit_text_chart: str
+    process_id_bad_ts: str
+    process_id_nan_feature: str
+    process_id_inf_feature: str
+
+
+@pytest.fixture
+def seeded_edge_case_context() -> Iterator[SeededEdgeCaseContext]:
+    """Edge case test data: float chart_id, NaN/Infinity feature values."""
+    _init_schema(MAIN_DB)
+    suffix = uuid4().hex[:10]
+    recipe_id = f"RECIPE_EDGE_{suffix}"
+    process_id_float_chart = f"P_FLOAT_CHART_{suffix}"
+    process_id_leading_zero_chart = f"P_LEADING_ZERO_{suffix}"
+    process_id_big_int_chart = f"P_BIG_INT_{suffix}"
+    process_id_big_digit_text_chart = f"P_BIG_DIGIT_TEXT_{suffix}"
+    process_id_unicode_digit_text_chart = f"P_UNICODE_DIGIT_TEXT_{suffix}"
+    process_id_bad_ts = f"P_BAD_TS_{suffix}"
+    process_id_nan_feature = f"P_NAN_FEAT_{suffix}"
+    process_id_inf_feature = f"P_INF_FEAT_{suffix}"
+
+    con = sqlite3.connect(MAIN_DB.as_posix())
+    try:
+        # Insert processes
+        for process_id in [
+            process_id_float_chart,
+            process_id_leading_zero_chart,
+            process_id_big_int_chart,
+            process_id_big_digit_text_chart,
+            process_id_unicode_digit_text_chart,
+            process_id_bad_ts,
+            process_id_nan_feature,
+            process_id_inf_feature,
+        ]:
+            con.execute(
+                """
+                INSERT INTO ProcessInfo(
+                    process_id, tool_id, chamber_id, recipe_id,
+                    start_ts, end_ts, raw_csv_path
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    process_id,
+                    f"TOOL_{suffix}",
+                    "CH1",
+                    recipe_id,
+                    "2026-04-17T00:00:00+00:00",
+                    "2026-04-17T00:05:00+00:00",
+                    f"path_{process_id}",
+                ),
+            )
+
+        # Case 1: float chart_id (100.9) -> should normalize to CHART_100
+        con.execute(
+            """
+            INSERT INTO JudgementResults(
+                process_id, tool_id, chamber_id, recipe_id, status, judged_at, message_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                process_id_float_chart,
+                f"TOOL_{suffix}",
+                "CH1",
+                recipe_id,
+                "OK",
+                "2026-04-17T00:01:00+00:00",
+                json.dumps(
+                    {
+                        "chart_id": 100.9,  # Float chart_id
+                        "step_no": 1,
+                        "feature_type": "mean",
+                        "feature_value": 1.5,
+                    }
+                ),
+            ),
+        )
+
+        # Case 1b: leading-zero numeric-text chart_id ("001") -> CHART_1
+        con.execute(
+            """
+            INSERT INTO JudgementResults(
+                process_id, tool_id, chamber_id, recipe_id, status, judged_at, message_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                process_id_leading_zero_chart,
+                f"TOOL_{suffix}",
+                "CH1",
+                recipe_id,
+                "OK",
+                "2026-04-17T00:01:30+00:00",
+                json.dumps(
+                    {
+                        "chart_id": "001",
+                        "step_no": 1,
+                        "feature_type": "mean",
+                        "feature_value": 1.0,
+                    }
+                ),
+            ),
+        )
+
+        # Case 1c: large integer chart_id should keep integer precision.
+        con.execute(
+            """
+            INSERT INTO JudgementResults(
+                process_id, tool_id, chamber_id, recipe_id, status, judged_at, message_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                process_id_big_int_chart,
+                f"TOOL_{suffix}",
+                "CH1",
+                recipe_id,
+                "OK",
+                "2026-04-17T00:01:45+00:00",
+                json.dumps(
+                    {
+                        "chart_id": 9007199254740993,
+                        "step_no": 1,
+                        "feature_type": "mean",
+                        "feature_value": 1.1,
+                    }
+                ),
+            ),
+        )
+
+        # Case 1d: very large digit-only text chart_id (beyond signed 64-bit).
+        con.execute(
+            """
+            INSERT INTO JudgementResults(
+                process_id, tool_id, chamber_id, recipe_id, status, judged_at, message_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                process_id_big_digit_text_chart,
+                f"TOOL_{suffix}",
+                "CH1",
+                recipe_id,
+                "OK",
+                "2026-04-17T00:01:50+00:00",
+                json.dumps(
+                    {
+                        "chart_id": "0009223372036854775808",
+                        "step_no": 1,
+                        "feature_type": "mean",
+                        "feature_value": 1.2,
+                    }
+                ),
+            ),
+        )
+
+        # Case 1e: Unicode digit text chart_id should NOT be treated as ASCII digits.
+        con.execute(
+            """
+            INSERT INTO JudgementResults(
+                process_id, tool_id, chamber_id, recipe_id, status, judged_at, message_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                process_id_unicode_digit_text_chart,
+                f"TOOL_{suffix}",
+                "CH1",
+                recipe_id,
+                "OK",
+                "2026-04-17T00:01:55+00:00",
+                json.dumps(
+                    {
+                        "chart_id": "１２３",
+                        "step_no": 1,
+                        "feature_type": "mean",
+                        "feature_value": 1.3,
+                    }
+                ),
+            ),
+        )
+
+        # Case 2: NaN feature_value
+        con.execute(
+            """
+            INSERT INTO JudgementResults(
+                process_id, tool_id, chamber_id, recipe_id, status, judged_at, message_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                process_id_nan_feature,
+                f"TOOL_{suffix}",
+                "CH1",
+                recipe_id,
+                "OK",
+                "2026-04-17T00:02:00+00:00",
+                json.dumps(
+                    {
+                        "chart_id": 200,
+                        "step_no": 2,
+                        "feature_type": "std",
+                        "feature_value": float("nan"),  # NaN
+                    },
+                    # Keep non-standard NaN serialization explicit for this edge-case test.
+                    allow_nan=True,
+                ),
+            ),
+        )
+
+        # Case 2b: malformed judged_at should not break the endpoint.
+        con.execute(
+            """
+            INSERT INTO JudgementResults(
+                process_id, tool_id, chamber_id, recipe_id, status, judged_at, message_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                process_id_bad_ts,
+                f"TOOL_{suffix}",
+                "CH1",
+                recipe_id,
+                "OK",
+                "INVALID_TS",
+                json.dumps(
+                    {
+                        "chart_id": "CHART_400",
+                        "step_no": 4,
+                        "feature_type": "mean",
+                        "feature_value": 4.0,
+                    }
+                ),
+            ),
+        )
+
+        # Case 3: Infinity feature_value
+        con.execute(
+            """
+            INSERT INTO JudgementResults(
+                process_id, tool_id, chamber_id, recipe_id, status, judged_at, message_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                process_id_inf_feature,
+                f"TOOL_{suffix}",
+                "CH1",
+                recipe_id,
+                "OK",
+                "2026-04-17T00:03:00+00:00",
+                json.dumps(
+                    {
+                        "chart_id": 300,
+                        "step_no": 3,
+                        "feature_type": "max",
+                        "feature_value": float("inf"),  # Infinity
+                    },
+                    # Keep non-standard Infinity serialization explicit for this edge-case test.
+                    allow_nan=True,
+                ),
+            ),
+        )
+
+        con.commit()
+
+        yield SeededEdgeCaseContext(
+            recipe_id=recipe_id,
+            process_id_float_chart=process_id_float_chart,
+            process_id_leading_zero_chart=process_id_leading_zero_chart,
+            process_id_big_int_chart=process_id_big_int_chart,
+            process_id_big_digit_text_chart=process_id_big_digit_text_chart,
+            process_id_unicode_digit_text_chart=process_id_unicode_digit_text_chart,
+            process_id_bad_ts=process_id_bad_ts,
+            process_id_nan_feature=process_id_nan_feature,
+            process_id_inf_feature=process_id_inf_feature,
+        )
+    finally:
+        con.close()
+        cleanup = sqlite3.connect(MAIN_DB.as_posix())
+        try:
+            cleanup.execute(
+                "DELETE FROM JudgementResults WHERE recipe_id = ?",
+                (recipe_id,),
+            )
+            cleanup.execute(
+                "DELETE FROM ProcessInfo WHERE recipe_id = ?",
+                (recipe_id,),
+            )
+            cleanup.commit()
+        finally:
+            cleanup.close()
+
+
+def test_extract_chart_id_float_truncates_to_int() -> None:
+    """_extract_chart_id should truncate float to int (100.9 -> CHART_100)."""
+    payload = {"chart_id": 100.9}
+    result = _extract_chart_id(payload, None)
+    assert result == "CHART_100", f"Expected CHART_100 but got {result}"
+
+
+def test_allowed_levels_sql_matches_allowed_levels_constant() -> None:
+    """_allowed_levels_sql should be generated from _ALLOWED_LEVELS."""
+    sql_fragment = _allowed_levels_sql()
+    tokens = {token.strip().strip("'") for token in sql_fragment.split(",")}
+    assert tokens == _ALLOWED_LEVELS
+
+
+def test_extract_chart_id_rejects_boolean() -> None:
+    """_extract_chart_id should return None for boolean values."""
+    payload = {"chart_id": True}
+    result = _extract_chart_id(payload, None)
+    assert result is None, f"Expected None for boolean but got {result}"
+
+
+def test_extract_chart_id_rejects_nan() -> None:
+    """_extract_chart_id should return None for NaN values."""
+    payload = {"chart_id": float("nan")}
+    result = _extract_chart_id(payload, None)
+    assert result is None, f"Expected None for NaN but got {result}"
+
+
+def test_extract_chart_id_rejects_positive_infinity() -> None:
+    """_extract_chart_id should return None for positive infinity."""
+    payload = {"chart_id": float("inf")}
+    result = _extract_chart_id(payload, None)
+    assert result is None, f"Expected None for +inf but got {result}"
+
+
+def test_extract_chart_id_rejects_negative_infinity() -> None:
+    """_extract_chart_id should return None for negative infinity."""
+    payload = {"chart_id": float("-inf")}
+    result = _extract_chart_id(payload, None)
+    assert result is None, f"Expected None for -inf but got {result}"
+
+
+def test_extract_chart_id_rejects_negative_integer() -> None:
+    """_extract_chart_id should return None for negative integers."""
+    payload = {"chart_id": -1}
+    result = _extract_chart_id(payload, None)
+    assert result is None, f"Expected None for -1 but got {result}"
+
+
+def test_extract_chart_id_rejects_negative_float() -> None:
+    """_extract_chart_id should return None for negative finite floats."""
+    payload = {"chart_id": -1.2}
+    result = _extract_chart_id(payload, None)
+    assert result is None, f"Expected None for -1.2 but got {result}"
+
+
+def test_extract_chart_id_leading_zero_string_normalizes_to_int_form() -> None:
+    """_extract_chart_id should normalize digit-only strings to integer form."""
+    payload = {"chart_id": "001"}
+    result = _extract_chart_id(payload, None)
+    assert result == "CHART_1", f"Expected CHART_1 but got {result}"
+
+
+def test_extract_chart_id_large_digit_string_preserves_precision() -> None:
+    """_extract_chart_id should preserve precision for very large digit strings."""
+    payload = {"chart_id": "9007199254740993"}
+    result = _extract_chart_id(payload, None)
+    assert result == "CHART_9007199254740993"
+
+
+def test_extract_chart_id_rejects_unicode_digit_string() -> None:
+    """_extract_chart_id should not treat Unicode digits as ASCII digit-only candidates."""
+    payload = {"chart_id": "１２３"}
+    result = _extract_chart_id(payload, None)
+    assert result is None
+
+
+def test_extract_chart_id_accepts_chart_prefixed_numeric_string() -> None:
+    """_extract_chart_id should accept CHART_[0-9]+ strings."""
+    payload = {"chart_id": "CHART_123"}
+    result = _extract_chart_id(payload, None)
+    assert result == "CHART_123"
+
+
+@pytest.mark.parametrize(
+    "candidate",
+    ["CHART_FOO", "CHART_-1", "CHART_", "CHART_12A", ""],
+)
+def test_extract_chart_id_rejects_invalid_chart_prefixed_strings(candidate: str) -> None:
+    """_extract_chart_id should reject invalid CHART_ prefixed string forms."""
+    payload = {"chart_id": candidate}
+    result = _extract_chart_id(payload, None)
+    assert result is None
+
+
+def test_to_float_or_none_rejects_nan() -> None:
+    """_to_float_or_none should return None for NaN."""
+    result = _to_float_or_none(float("nan"))
+    assert result is None, f"Expected None for NaN but got {result}"
+
+
+def test_to_float_or_none_rejects_positive_infinity() -> None:
+    """_to_float_or_none should return None for positive infinity."""
+    result = _to_float_or_none(float("inf"))
+    assert result is None, f"Expected None for +inf but got {result}"
+
+
+def test_to_float_or_none_rejects_negative_infinity() -> None:
+    """_to_float_or_none should return None for negative infinity."""
+    result = _to_float_or_none(float("-inf"))
+    assert result is None, f"Expected None for -inf but got {result}"
+
+
+def test_to_float_or_none_accepts_finite_values() -> None:
+    """_to_float_or_none should accept finite float values."""
+    assert _to_float_or_none(1.5) == 1.5
+    assert _to_float_or_none(0.0) == 0.0
+    assert _to_float_or_none(-3.14) == -3.14
+
+
+def test_to_float_or_none_rejects_boolean_values() -> None:
+    """_to_float_or_none should return None for bool values."""
+    assert _to_float_or_none(True) is None
+    assert _to_float_or_none(False) is None
+
+
+def test_to_float_or_none_handles_overflow_values() -> None:
+    """_to_float_or_none should return None when float conversion overflows."""
+    huge_integer = 10**10000
+    assert _to_float_or_none(huge_integer) is None
+
+
+def test_to_int_or_none_rejects_boolean_values() -> None:
+    """_to_int_or_none should return None for bool values."""
+    assert _to_int_or_none(True) is None
+    assert _to_int_or_none(False) is None
+
+
+def test_to_int_or_none_rejects_non_finite_floats() -> None:
+    """_to_int_or_none should reject NaN and infinities."""
+    assert _to_int_or_none(float("inf")) is None
+    assert _to_int_or_none(float("-inf")) is None
+    assert _to_int_or_none(float("nan")) is None
+
+
+def test_to_int_or_none_accepts_integral_floats_only() -> None:
+    """_to_int_or_none should accept only finite integral floats."""
+    assert _to_int_or_none(3.0) == 3
+    assert _to_int_or_none(3.14) is None
+
+
+def test_api_float_chart_id_normalized(
+    client: TestClient,
+    seeded_edge_case_context: SeededEdgeCaseContext,
+) -> None:
+    """GET /judge/results should normalize float chart_id 100.9 to CHART_100."""
+    seeded = seeded_edge_case_context
+
+    res = client.get(
+        "/judge/results",
+        params={
+            "process_id": seeded.process_id_float_chart,
+            "limit": 10,
+        },
+    )
+
+    assert res.status_code == 200
+    rows = res.json()["data"]
+    assert len(rows) == 1
+    assert rows[0]["chart_id"] == "CHART_100", f"Expected CHART_100 but got {rows[0]['chart_id']}"
+
+
+def test_api_leading_zero_chart_id_normalized_and_filterable(
+    client: TestClient,
+    seeded_edge_case_context: SeededEdgeCaseContext,
+) -> None:
+    """GET /judge/results should normalize "001" to CHART_1 and support SQL filtering."""
+    seeded = seeded_edge_case_context
+
+    by_process = client.get(
+        "/judge/results",
+        params={
+            "process_id": seeded.process_id_leading_zero_chart,
+            "limit": 10,
+        },
+    )
+    assert by_process.status_code == 200
+    process_rows = by_process.json()["data"]
+    assert len(process_rows) == 1
+    assert process_rows[0]["chart_id"] == "CHART_1"
+
+    by_chart_filter = client.get(
+        "/judge/results",
+        params={
+            "recipe_id": seeded.recipe_id,
+            "chart_id": "CHART_1",
+            "limit": 100,
+        },
+    )
+    assert by_chart_filter.status_code == 200
+    filtered_rows = by_chart_filter.json()["data"]
+    assert any(row["process_id"] == seeded.process_id_leading_zero_chart for row in filtered_rows)
+
+
+def test_api_big_integer_chart_id_filter_matches_response_normalization(
+    client: TestClient,
+    seeded_edge_case_context: SeededEdgeCaseContext,
+) -> None:
+    """Large chart_id values should match between response normalization and SQL filter."""
+    seeded = seeded_edge_case_context
+    expected_numeric_chart_id = "CHART_9007199254740993"
+    expected_big_digit_text_chart_id = "CHART_9223372036854775808"
+
+    by_process = client.get(
+        "/judge/results",
+        params={
+            "process_id": seeded.process_id_big_int_chart,
+            "limit": 10,
+        },
+    )
+    assert by_process.status_code == 200
+    process_rows = by_process.json()["data"]
+    assert len(process_rows) == 1
+    assert process_rows[0]["chart_id"] == expected_numeric_chart_id
+
+    by_chart_filter = client.get(
+        "/judge/results",
+        params={
+            "recipe_id": seeded.recipe_id,
+            "chart_id": expected_numeric_chart_id,
+            "limit": 100,
+        },
+    )
+    assert by_chart_filter.status_code == 200
+    filtered_rows = by_chart_filter.json()["data"]
+    assert any(row["process_id"] == seeded.process_id_big_int_chart for row in filtered_rows)
+
+    by_big_digit_text_process = client.get(
+        "/judge/results",
+        params={
+            "process_id": seeded.process_id_big_digit_text_chart,
+            "limit": 10,
+        },
+    )
+    assert by_big_digit_text_process.status_code == 200
+    big_digit_text_rows = by_big_digit_text_process.json()["data"]
+    assert len(big_digit_text_rows) == 1
+    assert big_digit_text_rows[0]["chart_id"] == expected_big_digit_text_chart_id
+
+    by_big_digit_text_filter = client.get(
+        "/judge/results",
+        params={
+            "recipe_id": seeded.recipe_id,
+            "chart_id": expected_big_digit_text_chart_id,
+            "limit": 100,
+        },
+    )
+    assert by_big_digit_text_filter.status_code == 200
+    filtered_big_digit_text_rows = by_big_digit_text_filter.json()["data"]
+    assert any(
+        row["process_id"] == seeded.process_id_big_digit_text_chart
+        for row in filtered_big_digit_text_rows
+    )
+
+
+def test_api_unicode_digit_chart_id_not_filterable_as_ascii_numeric(
+    client: TestClient,
+    seeded_edge_case_context: SeededEdgeCaseContext,
+) -> None:
+    """Unicode-digit chart_id should not normalize to CHART_123 on Python or SQL path."""
+    seeded = seeded_edge_case_context
+
+    by_process = client.get(
+        "/judge/results",
+        params={
+            "process_id": seeded.process_id_unicode_digit_text_chart,
+            "limit": 10,
+        },
+    )
+    assert by_process.status_code == 200
+    rows = by_process.json()["data"]
+    assert len(rows) == 1
+    assert rows[0]["chart_id"] is None
+
+    by_ascii_filter = client.get(
+        "/judge/results",
+        params={
+            "recipe_id": seeded.recipe_id,
+            "chart_id": "CHART_123",
+            "limit": 100,
+        },
+    )
+    assert by_ascii_filter.status_code == 200
+    filtered_rows = by_ascii_filter.json()["data"]
+    assert all(
+        row["process_id"] != seeded.process_id_unicode_digit_text_chart for row in filtered_rows
+    )
+
+
+def test_api_malformed_timestamp_row_is_skipped(
+    client: TestClient,
+    seeded_edge_case_context: SeededEdgeCaseContext,
+) -> None:
+    """Malformed timestamp row in seeded data should be skipped, not crash the API."""
+    seeded = seeded_edge_case_context
+
+    res = client.get(
+        "/judge/results",
+        params={
+            "recipe_id": seeded.recipe_id,
+            "limit": 100,
+        },
+    )
+
+    assert res.status_code == 200
+    rows = res.json()["data"]
+    assert all(row["process_id"] != seeded.process_id_bad_ts for row in rows)
+
+
+def test_api_nan_feature_value_excluded(
+    client: TestClient,
+    seeded_edge_case_context: SeededEdgeCaseContext,
+) -> None:
+    """GET /judge/results should return None for NaN feature_value."""
+    seeded = seeded_edge_case_context
+
+    res = client.get(
+        "/judge/results",
+        params={
+            "process_id": seeded.process_id_nan_feature,
+            "limit": 10,
+        },
+    )
+
+    assert res.status_code == 200
+    rows = res.json()["data"]
+    assert len(rows) == 1
+    assert rows[0]["feature_value"] is None, (
+        f"Expected None for NaN but got {rows[0]['feature_value']}"
+    )
+
+
+def test_api_infinite_feature_value_excluded(
+    client: TestClient,
+    seeded_edge_case_context: SeededEdgeCaseContext,
+) -> None:
+    """GET /judge/results should return None for Infinity feature_value."""
+    seeded = seeded_edge_case_context
+
+    res = client.get(
+        "/judge/results",
+        params={
+            "process_id": seeded.process_id_inf_feature,
+            "limit": 10,
+        },
+    )
+
+    assert res.status_code == 200
+    rows = res.json()["data"]
+    assert len(rows) == 1
+    assert rows[0]["feature_value"] is None, (
+        f"Expected None for Infinity but got {rows[0]['feature_value']}"
+    )

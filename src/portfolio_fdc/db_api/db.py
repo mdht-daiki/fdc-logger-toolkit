@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -33,6 +34,50 @@ def _connect(db_path: Path) -> sqlite3.Connection:
     return con
 
 
+def _add_column_if_missing(
+    con: sqlite3.Connection,
+    table_name: str,
+    column_definition: str,
+) -> None:
+    """列が未存在の場合のみ ALTER TABLE ADD COLUMN を実行する。"""
+    try:
+        con.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_definition}")
+    except sqlite3.OperationalError as e:
+        if "duplicate column name" not in str(e):
+            raise
+
+
+def _normalize_sql_for_compare(sql: str) -> str:
+    """SQL 比較用に余分な空白と末尾セミコロンを正規化する。"""
+    normalized = re.sub(r"\s+", " ", sql.strip()).rstrip(";")
+    return normalized.lower()
+
+
+def _ensure_index_definition(
+    con: sqlite3.Connection,
+    index_name: str,
+    create_sql: str,
+) -> None:
+    """既存インデックス定義が異なる場合のみ再作成する。"""
+    existing = con.execute(
+        """
+        SELECT sql
+        FROM sqlite_master
+        WHERE type = 'index' AND name = ?
+        """,
+        (index_name,),
+    ).fetchone()
+    if existing is None or existing[0] is None:
+        con.execute(create_sql)
+        return
+
+    if _normalize_sql_for_compare(existing[0]) == _normalize_sql_for_compare(create_sql):
+        return
+
+    con.execute(f"DROP INDEX IF EXISTS {index_name}")
+    con.execute(create_sql)
+
+
 def _init_schema(db_path: Path) -> None:
     """DB ファイル作成と必須テーブル/インデックスの初期化を行う。"""
     db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -47,10 +92,14 @@ def _init_schema(db_path: Path) -> None:
                 recipe_id TEXT NOT NULL,
                 start_ts TEXT NOT NULL,
                 end_ts TEXT NOT NULL,
-                raw_csv_path TEXT NOT NULL
+                raw_csv_path TEXT NOT NULL,
+                lot_id TEXT,
+                wafer_id TEXT
             );
             """
         )
+        _add_column_if_missing(con, "ProcessInfo", "lot_id TEXT")
+        _add_column_if_missing(con, "ProcessInfo", "wafer_id TEXT")
         con.execute(
             """
             CREATE TABLE IF NOT EXISTS StepWindows (
@@ -132,6 +181,20 @@ def _init_schema(db_path: Path) -> None:
             """
             CREATE INDEX IF NOT EXISTS idx_judge_time
             ON JudgementResults(judged_at);
+            """
+        )
+        _ensure_index_definition(
+            con,
+            "idx_judgementresults_recipe_judged_at_id",
+            (
+                "CREATE INDEX idx_judgementresults_recipe_judged_at_id "
+                "ON JudgementResults(recipe_id, julianday(judged_at) DESC, id DESC)"
+            ),
+        )
+        con.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_processinfo_lot_process
+            ON ProcessInfo(lot_id, process_id);
             """
         )
         con.execute(

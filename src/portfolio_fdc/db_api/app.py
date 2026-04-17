@@ -36,6 +36,7 @@ from .chart_repository import (
     ChartsQueryCriteria,
 )
 from .db import MAIN_DB, TEMP_DB, _init_schema
+from .judge_repository import JudgeRepository, JudgeResultsQueryCriteria
 from .schemas import (
     AggregateWriteIn,
     ParameterIn,
@@ -53,6 +54,7 @@ LEGACY_DELETE_PROCESSES_SUNSET = format_datetime(LEGACY_DELETE_PROCESSES_SUNSET_
 CHARTS_FILTER_PATTERN = r"^[A-Za-z0-9_./:-]+$"
 CHARTS_FILTER_MAX_LENGTH = 128
 CHART_ID_PATTERN = r"^CHART_[0-9]+$"
+JUDGE_LEVEL_PATTERN = r"^(OK|WARN|NG)$"
 
 
 def _legacy_delete_headers(process_id: str | None) -> dict[str, str]:
@@ -229,6 +231,7 @@ def _raise_api_error(
 
 RunnerDep = Annotated[DBTaskRunner, Depends(get_runner)]
 _chart_repository = ChartRepository()
+_judge_repository = JudgeRepository()
 
 
 @app.get("/charts")
@@ -329,6 +332,44 @@ def _normalize_query_datetime(raw: datetime | None) -> str | None:
     return raw.astimezone(UTC).isoformat()
 
 
+def _validate_query_datetime_range(
+    from_ts: datetime | None,
+    to_ts: datetime | None,
+    *,
+    require_pair: bool,
+) -> None:
+    """from_ts/to_ts の指定整合と範囲整合を検証する。"""
+    if require_pair and (from_ts is None) != (to_ts is None):
+        raise HTTPException(
+            status_code=400,
+            detail="from_ts and to_ts must be specified together",
+        )
+
+    if from_ts is not None and to_ts is None:
+        if from_ts.tzinfo is None:
+            raise HTTPException(
+                status_code=400,
+                detail="from_ts and to_ts must be timezone-aware datetimes",
+            )
+        return
+
+    if to_ts is not None and from_ts is None:
+        if to_ts.tzinfo is None:
+            raise HTTPException(
+                status_code=400,
+                detail="from_ts and to_ts must be timezone-aware datetimes",
+            )
+        return
+
+    if from_ts is None or to_ts is None:
+        return
+
+    try:
+        validate_timestamp_range(from_ts, to_ts)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 def _parse_chart_pk(chart_id: str | None) -> int | None:
     """`CHART_<id>` 形式の chart_id を int PK へ変換する。"""
     if chart_id is None:
@@ -369,11 +410,7 @@ def get_charts_history(
     offset: int = Query(default=0, ge=0),
 ):
     """Chart 閾値変更履歴を返す。"""
-    if from_ts is not None and to_ts is not None:
-        try:
-            validate_timestamp_range(from_ts, to_ts)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _validate_query_datetime_range(from_ts, to_ts, require_pair=False)
 
     chart_pk = _parse_chart_pk(chart_id)
     criteria = ChartsHistoryQueryCriteria(
@@ -391,6 +428,60 @@ def get_charts_history(
         return {"ok": True, "data": [asdict(row) for row in rows]}
     except Exception as e:
         _raise_api_error(operation="GET /charts/history", error=e)
+
+
+@app.get("/judge/results")
+def get_judge_results(
+    chart_id: str | None = Query(
+        default=None,
+        min_length=1,
+        max_length=64,
+        pattern=CHART_ID_PATTERN,
+    ),
+    process_id: str | None = Query(
+        default=None,
+        min_length=1,
+        max_length=CHARTS_FILTER_MAX_LENGTH,
+        pattern=CHARTS_FILTER_PATTERN,
+    ),
+    lot_id: str | None = Query(
+        default=None,
+        min_length=1,
+        max_length=CHARTS_FILTER_MAX_LENGTH,
+        pattern=CHARTS_FILTER_PATTERN,
+    ),
+    recipe_id: str | None = Query(
+        default=None,
+        min_length=1,
+        max_length=CHARTS_FILTER_MAX_LENGTH,
+        pattern=CHARTS_FILTER_PATTERN,
+    ),
+    level: str | None = Query(default=None, pattern=JUDGE_LEVEL_PATTERN),
+    from_ts: Annotated[datetime | None, Query()] = None,
+    to_ts: Annotated[datetime | None, Query()] = None,
+    limit: int = Query(default=200, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
+):
+    """判定結果一覧を返す。"""
+    _validate_query_datetime_range(from_ts, to_ts, require_pair=True)
+
+    criteria = JudgeResultsQueryCriteria(
+        chart_id=chart_id,
+        process_id=process_id,
+        lot_id=lot_id,
+        recipe_id=recipe_id,
+        level=level,
+        from_ts=_normalize_query_datetime(from_ts),
+        to_ts=_normalize_query_datetime(to_ts),
+        limit=limit,
+        offset=offset,
+    )
+
+    try:
+        rows = _judge_repository.find_results(criteria)
+        return {"ok": True, "data": [asdict(row) for row in rows]}
+    except Exception as e:
+        _raise_api_error(operation="GET /judge/results", error=e)
 
 
 @app.post("/processes")

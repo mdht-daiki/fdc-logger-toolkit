@@ -9,15 +9,27 @@ from .schemas import AggregateWriteIn, ParameterIn, ProcessInfoIn, StepWindowIn
 
 _UPSERT_PROCESS_SQL = """
     INSERT INTO ProcessInfo
-    (process_id, tool_id, chamber_id, recipe_id, start_ts, end_ts, raw_csv_path)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    (
+        process_id,
+        tool_id,
+        chamber_id,
+        recipe_id,
+        start_ts,
+        end_ts,
+        raw_csv_path,
+        lot_id,
+        wafer_id
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(process_id) DO UPDATE SET
         tool_id=excluded.tool_id,
         chamber_id=excluded.chamber_id,
         recipe_id=excluded.recipe_id,
         start_ts=excluded.start_ts,
         end_ts=excluded.end_ts,
-        raw_csv_path=excluded.raw_csv_path;
+        raw_csv_path=excluded.raw_csv_path,
+        lot_id=COALESCE(excluded.lot_id, ProcessInfo.lot_id),
+        wafer_id=COALESCE(excluded.wafer_id, ProcessInfo.wafer_id);
 """
 
 _INSERT_STEP_WINDOWS_SQL = """
@@ -33,7 +45,9 @@ _INSERT_PARAMETERS_SQL = """
 """
 
 
-def _process_row(p: ProcessInfoIn) -> tuple[str, str, str, str, str, str, str]:
+def _process_row(
+    p: ProcessInfoIn,
+) -> tuple[str, str, str, str, str, str, str, str | None, str | None]:
     """`ProcessInfoIn` を ProcessInfo upsert 用のタプル順へ変換する。"""
     return (
         p.process_id,
@@ -43,6 +57,8 @@ def _process_row(p: ProcessInfoIn) -> tuple[str, str, str, str, str, str, str]:
         p.start_ts.isoformat(),
         p.end_ts.isoformat(),
         p.raw_csv_path,
+        p.lot_id,
+        p.wafer_id,
     )
 
 

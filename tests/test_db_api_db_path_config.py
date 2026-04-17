@@ -98,3 +98,33 @@ def test_init_schema_creates_expression_index_for_judged_at(
     assert row[0] is not None
     sql = row[0].replace("\n", " ").lower()
     assert "julianday(judged_at)" in sql
+
+
+def test_init_schema_does_not_rebuild_matching_expression_index(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """同一定義のインデックスは _init_schema 再実行時に再作成しない。"""
+    custom_dir = tmp_path / "db_for_index_rebuild_check"
+    monkeypatch.setenv(db_module.DB_DIR_ENV_VAR, str(custom_dir))
+    _reload_db_module()
+
+    db_module._init_schema(db_module.MAIN_DB)
+
+    con = sqlite3.connect(db_module.MAIN_DB.as_posix())
+    try:
+        before_version = con.execute("PRAGMA schema_version").fetchone()
+    finally:
+        con.close()
+
+    db_module._init_schema(db_module.MAIN_DB)
+
+    con = sqlite3.connect(db_module.MAIN_DB.as_posix())
+    try:
+        after_version = con.execute("PRAGMA schema_version").fetchone()
+    finally:
+        con.close()
+
+    assert before_version is not None
+    assert after_version is not None
+    assert before_version[0] == after_version[0]

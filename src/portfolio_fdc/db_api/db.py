@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -44,6 +45,37 @@ def _add_column_if_missing(
     except sqlite3.OperationalError as e:
         if "duplicate column name" not in str(e):
             raise
+
+
+def _normalize_sql_for_compare(sql: str) -> str:
+    """SQL 比較用に余分な空白と末尾セミコロンを正規化する。"""
+    normalized = re.sub(r"\s+", " ", sql.strip()).rstrip(";")
+    return normalized.lower()
+
+
+def _ensure_index_definition(
+    con: sqlite3.Connection,
+    index_name: str,
+    create_sql: str,
+) -> None:
+    """既存インデックス定義が異なる場合のみ再作成する。"""
+    existing = con.execute(
+        """
+        SELECT sql
+        FROM sqlite_master
+        WHERE type = 'index' AND name = ?
+        """,
+        (index_name,),
+    ).fetchone()
+    if existing is None or existing[0] is None:
+        con.execute(create_sql)
+        return
+
+    if _normalize_sql_for_compare(existing[0]) == _normalize_sql_for_compare(create_sql):
+        return
+
+    con.execute(f"DROP INDEX IF EXISTS {index_name}")
+    con.execute(create_sql)
 
 
 def _init_schema(db_path: Path) -> None:
@@ -151,13 +183,13 @@ def _init_schema(db_path: Path) -> None:
             ON JudgementResults(judged_at);
             """
         )
-        # Recreate to migrate older non-expression definition under the same name.
-        con.execute("DROP INDEX IF EXISTS idx_judgementresults_recipe_judged_at_id;")
-        con.execute(
-            """
-            CREATE INDEX idx_judgementresults_recipe_judged_at_id
-            ON JudgementResults(recipe_id, julianday(judged_at) DESC, id DESC);
-            """
+        _ensure_index_definition(
+            con,
+            "idx_judgementresults_recipe_judged_at_id",
+            (
+                "CREATE INDEX idx_judgementresults_recipe_judged_at_id "
+                "ON JudgementResults(recipe_id, julianday(judged_at) DESC, id DESC)"
+            ),
         )
         con.execute(
             """

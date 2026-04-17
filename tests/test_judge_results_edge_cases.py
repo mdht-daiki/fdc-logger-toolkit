@@ -26,6 +26,7 @@ class SeededEdgeCaseContext:
     recipe_id: str
     process_id_float_chart: str
     process_id_leading_zero_chart: str
+    process_id_big_int_chart: str
     process_id_nan_feature: str
     process_id_inf_feature: str
 
@@ -38,6 +39,7 @@ def seeded_edge_case_context() -> Iterator[SeededEdgeCaseContext]:
     recipe_id = f"RECIPE_EDGE_{suffix}"
     process_id_float_chart = f"P_FLOAT_CHART_{suffix}"
     process_id_leading_zero_chart = f"P_LEADING_ZERO_{suffix}"
+    process_id_big_int_chart = f"P_BIG_INT_{suffix}"
     process_id_nan_feature = f"P_NAN_FEAT_{suffix}"
     process_id_inf_feature = f"P_INF_FEAT_{suffix}"
 
@@ -47,6 +49,7 @@ def seeded_edge_case_context() -> Iterator[SeededEdgeCaseContext]:
         for process_id in [
             process_id_float_chart,
             process_id_leading_zero_chart,
+            process_id_big_int_chart,
             process_id_nan_feature,
             process_id_inf_feature,
         ]:
@@ -118,6 +121,31 @@ def seeded_edge_case_context() -> Iterator[SeededEdgeCaseContext]:
             ),
         )
 
+        # Case 1c: large integer chart_id should keep integer precision.
+        con.execute(
+            """
+            INSERT INTO JudgementResults(
+                process_id, tool_id, chamber_id, recipe_id, status, judged_at, message_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                process_id_big_int_chart,
+                f"TOOL_{suffix}",
+                "CH1",
+                recipe_id,
+                "OK",
+                "2026-04-17T00:01:45+00:00",
+                json.dumps(
+                    {
+                        "chart_id": 9007199254740993,
+                        "step_no": 1,
+                        "feature_type": "mean",
+                        "feature_value": 1.1,
+                    }
+                ),
+            ),
+        )
+
         # Case 2: NaN feature_value
         con.execute(
             """
@@ -174,6 +202,7 @@ def seeded_edge_case_context() -> Iterator[SeededEdgeCaseContext]:
             recipe_id=recipe_id,
             process_id_float_chart=process_id_float_chart,
             process_id_leading_zero_chart=process_id_leading_zero_chart,
+            process_id_big_int_chart=process_id_big_int_chart,
             process_id_nan_feature=process_id_nan_feature,
             process_id_inf_feature=process_id_inf_feature,
         )
@@ -241,6 +270,13 @@ def test_extract_chart_id_leading_zero_string_normalizes_to_int_form() -> None:
     payload = {"chart_id": "001"}
     result = _extract_chart_id(payload, None)
     assert result == "CHART_1", f"Expected CHART_1 but got {result}"
+
+
+def test_extract_chart_id_large_digit_string_preserves_precision() -> None:
+    """_extract_chart_id should preserve precision for very large digit strings."""
+    payload = {"chart_id": "9007199254740993"}
+    result = _extract_chart_id(payload, None)
+    assert result == "CHART_9007199254740993"
 
 
 def test_to_float_or_none_rejects_nan() -> None:
@@ -350,6 +386,39 @@ def test_api_leading_zero_chart_id_normalized_and_filterable(
     assert by_chart_filter.status_code == 200
     filtered_rows = by_chart_filter.json()["data"]
     assert any(row["process_id"] == seeded.process_id_leading_zero_chart for row in filtered_rows)
+
+
+def test_api_big_integer_chart_id_filter_matches_response_normalization(
+    client: TestClient,
+    seeded_edge_case_context: SeededEdgeCaseContext,
+) -> None:
+    """Large integer chart_id should match between response normalization and SQL filter."""
+    seeded = seeded_edge_case_context
+    expected_chart_id = "CHART_9007199254740993"
+
+    by_process = client.get(
+        "/judge/results",
+        params={
+            "process_id": seeded.process_id_big_int_chart,
+            "limit": 10,
+        },
+    )
+    assert by_process.status_code == 200
+    process_rows = by_process.json()["data"]
+    assert len(process_rows) == 1
+    assert process_rows[0]["chart_id"] == expected_chart_id
+
+    by_chart_filter = client.get(
+        "/judge/results",
+        params={
+            "recipe_id": seeded.recipe_id,
+            "chart_id": expected_chart_id,
+            "limit": 100,
+        },
+    )
+    assert by_chart_filter.status_code == 200
+    filtered_rows = by_chart_filter.json()["data"]
+    assert any(row["process_id"] == seeded.process_id_big_int_chart for row in filtered_rows)
 
 
 def test_api_nan_feature_value_excluded(

@@ -103,9 +103,7 @@ class JudgeRepository:
                 "AND json_extract(j.message_json, '$.chart_id') NOT GLOB '*[^0-9]*'"
                 ")"
                 ") "
-                "THEN 'CHART_' || CAST("
-                "CAST(json_extract(j.message_json, '$.chart_id') AS REAL) AS INTEGER"
-                ") "
+                "THEN 'CHART_' || CAST(json_extract(j.message_json, '$.chart_id') AS INTEGER) "
                 "WHEN json_valid(j.message_json) = 1 "
                 "THEN json_extract(j.message_json, '$.chart_id') "
                 "ELSE NULL END = ?"
@@ -231,12 +229,10 @@ def _extract_chart_id(payload: dict[str, Any], extracted_chart_id: Any) -> str |
         if candidate.isdigit():
             # Mirror SQL-side numeric normalization (e.g. "001" -> "CHART_1").
             try:
-                numeric_candidate = float(candidate)
+                numeric_candidate = int(candidate)
             except (ValueError, OverflowError):
                 return None
-            if not math.isfinite(numeric_candidate):
-                return None
-            return f"CHART_{int(numeric_candidate)}"
+            return f"CHART_{numeric_candidate}"
         return candidate
     return None
 

@@ -33,6 +33,19 @@ def _connect(db_path: Path) -> sqlite3.Connection:
     return con
 
 
+def _add_column_if_missing(
+    con: sqlite3.Connection,
+    table_name: str,
+    column_definition: str,
+) -> None:
+    """列が未存在の場合のみ ALTER TABLE ADD COLUMN を実行する。"""
+    try:
+        con.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_definition}")
+    except sqlite3.OperationalError as e:
+        if "duplicate column name" not in str(e):
+            raise
+
+
 def _init_schema(db_path: Path) -> None:
     """DB ファイル作成と必須テーブル/インデックスの初期化を行う。"""
     db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -53,16 +66,8 @@ def _init_schema(db_path: Path) -> None:
             );
             """
         )
-        try:
-            con.execute("ALTER TABLE ProcessInfo ADD COLUMN lot_id TEXT")
-        except sqlite3.OperationalError as e:
-            if "duplicate column name" not in str(e):
-                raise
-        try:
-            con.execute("ALTER TABLE ProcessInfo ADD COLUMN wafer_id TEXT")
-        except sqlite3.OperationalError as e:
-            if "duplicate column name" not in str(e):
-                raise
+        _add_column_if_missing(con, "ProcessInfo", "lot_id TEXT")
+        _add_column_if_missing(con, "ProcessInfo", "wafer_id TEXT")
         con.execute(
             """
             CREATE TABLE IF NOT EXISTS StepWindows (

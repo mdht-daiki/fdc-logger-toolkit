@@ -84,8 +84,14 @@ class JudgeRepository:
     def find_results(self, criteria: JudgeResultsQueryCriteria) -> list[JudgeResultView]:
         """条件に一致する判定結果一覧を返す。"""
         sql = self._SELECT_SQL
-        # Keep paging stable by excluding invalid statuses at SQL level.
-        where_clauses: list[str] = [f"UPPER(j.status) IN ({_allowed_levels_sql()})"]
+        # Keep paging stable by excluding invalid rows at SQL level.
+        where_clauses: list[str] = [
+            f"UPPER(j.status) IN ({_allowed_levels_sql()})",
+            "j.judged_at IS NOT NULL",
+            "p.start_ts IS NOT NULL",
+            "julianday(j.judged_at) IS NOT NULL",
+            "julianday(p.start_ts) IS NOT NULL",
+        ]
         params: list[Any] = []
 
         self._append_filter_condition(
@@ -207,7 +213,7 @@ class JudgeRepository:
         payload = _parse_message_json(message_json)
         chart_id = _extract_chart_id(payload, extracted_chart_id)
         step_no = _to_int_or_none(payload.get("step_no"))
-        feature_type = _to_str_or_none(payload.get("feature_type"))
+        feature_type = _to_str_value_or_none(payload.get("feature_type"))
         feature_value = _to_float_or_none(payload.get("feature_value"))
 
         return JudgeResultView(
@@ -271,7 +277,7 @@ def _extract_chart_id(payload: dict[str, Any], extracted_chart_id: Any) -> str |
             except (ValueError, OverflowError):
                 return None
             return f"CHART_{numeric_candidate}"
-        return candidate
+        return None
     return None
 
 
@@ -287,6 +293,13 @@ def _to_str_or_none(value: Any) -> str | None:
     if value is None:
         return None
     return str(value)
+
+
+def _to_str_value_or_none(value: Any) -> str | None:
+    """値が文字列の場合のみそのまま返し、それ以外は None を返す。"""
+    if isinstance(value, str):
+        return value
+    return None
 
 
 def _to_int_or_none(value: Any) -> int | None:

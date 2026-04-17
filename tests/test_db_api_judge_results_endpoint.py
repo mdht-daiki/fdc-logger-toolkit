@@ -303,9 +303,13 @@ def test_get_judge_results_skips_row_with_invalid_judged_at(
     client: TestClient,
     seeded_judge_results_context: SeededJudgeResultsContext,
 ) -> None:
-    """不正 judged_at を含む行があっても 500 にならず当該行をスキップする。"""
+    """不正 judged_at / ProcessInfo.start_ts を含む行があっても 500 にならずスキップする。"""
     seeded = seeded_judge_results_context
     con = sqlite3.connect(MAIN_DB.as_posix())
+    original_start_ts = con.execute(
+        "SELECT start_ts FROM ProcessInfo WHERE process_id = ?",
+        (seeded.process_id_with_lot,),
+    ).fetchone()
     try:
         con.execute(
             """
@@ -330,6 +334,11 @@ def test_get_judge_results_skips_row_with_invalid_judged_at(
                 ),
             ),
         )
+        # Regressions: invalid ProcessInfo.start_ts must also be skipped safely.
+        con.execute(
+            "UPDATE ProcessInfo SET start_ts = ? WHERE process_id = ?",
+            ("BAD_START_TS", seeded.process_id_with_lot),
+        )
         con.commit()
 
         res = client.get(
@@ -339,14 +348,20 @@ def test_get_judge_results_skips_row_with_invalid_judged_at(
 
         assert res.status_code == 200
         rows = res.json()["data"]
-        # Seeded valid rows (2) should remain; invalid timestamp row is skipped.
-        assert len(rows) == 2
+        # Rows tied to invalid judged_at / process_start_ts are excluded.
+        assert len(rows) == 1
         assert all(row["chart_id"] != "CHART_777" for row in rows)
+        assert all(row["process_id"] != seeded.process_id_with_lot for row in rows)
     finally:
         con.execute(
             "DELETE FROM JudgementResults WHERE recipe_id = ? AND tool_id = ?",
             (seeded.recipe_id, "TOOL_BAD_TS"),
         )
+        if original_start_ts is not None:
+            con.execute(
+                "UPDATE ProcessInfo SET start_ts = ? WHERE process_id = ?",
+                (original_start_ts[0], seeded.process_id_with_lot),
+            )
         con.commit()
         con.close()
 

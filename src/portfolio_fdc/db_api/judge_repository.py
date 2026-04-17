@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -96,7 +97,9 @@ class JudgeRepository:
                 "AND json_extract(j.message_json, '$.chart_id') NOT GLOB '*[^0-9]*'"
                 ")"
                 ") "
-                "THEN 'CHART_' || CAST(json_extract(j.message_json, '$.chart_id') AS TEXT) "
+                "THEN 'CHART_' || CAST("
+                "CAST(json_extract(j.message_json, '$.chart_id') AS REAL) AS INTEGER"
+                ") "
                 "WHEN json_valid(j.message_json) = 1 "
                 "THEN json_extract(j.message_json, '$.chart_id') "
                 "ELSE NULL END = ?"
@@ -215,7 +218,13 @@ def _extract_chart_id(payload: dict[str, Any], extracted_chart_id: Any) -> str |
         return None
     # Handle numeric types (int, float)
     if isinstance(candidate, (int, float)):
-        return f"CHART_{int(candidate)}"
+        # Reject non-finite floats (NaN, inf, -inf)
+        if not math.isfinite(candidate):
+            return None
+        try:
+            return f"CHART_{int(candidate)}"
+        except (ValueError, OverflowError):
+            return None
     if isinstance(candidate, str):
         if not candidate:
             return None
@@ -259,6 +268,10 @@ def _to_float_or_none(value: Any) -> float | None:
     if value is None:
         return None
     try:
-        return float(value)
+        result = float(value)
+        # Reject non-finite floats (NaN, inf, -inf)
+        if not math.isfinite(result):
+            return None
+        return result
     except (ValueError, TypeError):
         return None

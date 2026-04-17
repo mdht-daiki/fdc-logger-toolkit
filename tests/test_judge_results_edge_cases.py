@@ -166,7 +166,9 @@ def seeded_edge_case_context() -> Iterator[SeededEdgeCaseContext]:
                         "step_no": 2,
                         "feature_type": "std",
                         "feature_value": float("nan"),  # NaN
-                    }
+                    },
+                    # Keep non-standard NaN serialization explicit for this edge-case test.
+                    allow_nan=True,
                 ),
             ),
         )

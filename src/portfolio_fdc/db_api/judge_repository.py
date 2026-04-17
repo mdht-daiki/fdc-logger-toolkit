@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 from dataclasses import dataclass
 from typing import Any
@@ -11,6 +12,7 @@ from .datetime_util import to_utc_millis
 from .db import MAIN_DB, _connect
 
 _ALLOWED_LEVELS = {"OK", "WARN", "NG"}
+_LOGGER = logging.getLogger(__name__)
 
 
 def _allowed_levels_sql() -> str:
@@ -135,7 +137,12 @@ class JudgeRepository:
         finally:
             con.close()
 
-        return [self._to_judge_result_view(row) for row in rows]
+        views: list[JudgeResultView] = []
+        for row in rows:
+            view = self._to_judge_result_view(row)
+            if view is not None:
+                views.append(view)
+        return views
 
     @staticmethod
     def _append_filter_condition(
@@ -151,7 +158,7 @@ class JudgeRepository:
         params.append(value)
 
     @staticmethod
-    def _to_judge_result_view(row: tuple[Any, ...]) -> JudgeResultView:
+    def _to_judge_result_view(row: tuple[Any, ...]) -> JudgeResultView | None:
         """DB 行を `JudgeResultView` へ変換する。"""
         (
             result_pk,
@@ -167,6 +174,30 @@ class JudgeRepository:
         ) = row
 
         normalized_level = _normalize_level(status)
+        result_id = f"JR_{int(result_pk)}"
+
+        try:
+            judged_at_utc = to_utc_millis(str(judged_at))
+        except ValueError:
+            _LOGGER.warning(
+                "Skipping judge result due to invalid judged_at: result_id=%s judged_at=%r",
+                result_id,
+                judged_at,
+                exc_info=True,
+            )
+            return None
+
+        try:
+            process_start_ts_utc = to_utc_millis(str(process_start_ts))
+        except ValueError:
+            _LOGGER.warning(
+                "Skipping judge result due to invalid process_start_ts: "
+                "result_id=%s process_start_ts=%r",
+                result_id,
+                process_start_ts,
+                exc_info=True,
+            )
+            return None
 
         payload = _parse_message_json(message_json)
         chart_id = _extract_chart_id(payload, extracted_chart_id)
@@ -175,7 +206,7 @@ class JudgeRepository:
         feature_value = _to_float_or_none(payload.get("feature_value"))
 
         return JudgeResultView(
-            result_id=f"JR_{int(result_pk)}",
+            result_id=result_id,
             chart_id=chart_id,
             process_id=str(process_id),
             lot_id=_to_str_or_none(lot_id),
@@ -185,8 +216,8 @@ class JudgeRepository:
             feature_type=feature_type,
             feature_value=feature_value,
             level=normalized_level,
-            judged_at=to_utc_millis(str(judged_at)),
-            process_start_ts=to_utc_millis(str(process_start_ts)),
+            judged_at=judged_at_utc,
+            process_start_ts=process_start_ts_utc,
         )
 
 

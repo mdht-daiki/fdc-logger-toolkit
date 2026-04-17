@@ -299,6 +299,58 @@ def test_get_judge_results_pagination_ignores_invalid_status_rows(
         con.close()
 
 
+def test_get_judge_results_skips_row_with_invalid_judged_at(
+    client: TestClient,
+    seeded_judge_results_context: SeededJudgeResultsContext,
+) -> None:
+    """不正 judged_at を含む行があっても 500 にならず当該行をスキップする。"""
+    seeded = seeded_judge_results_context
+    con = sqlite3.connect(MAIN_DB.as_posix())
+    try:
+        con.execute(
+            """
+            INSERT INTO JudgementResults(
+                process_id, tool_id, chamber_id, recipe_id, status, judged_at, message_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                seeded.process_id_with_lot,
+                "TOOL_BAD_TS",
+                "CH1",
+                seeded.recipe_id,
+                "OK",
+                "NOT_A_TIMESTAMP",
+                json.dumps(
+                    {
+                        "chart_id": "CHART_777",
+                        "step_no": 7,
+                        "feature_type": "mean",
+                        "feature_value": 7.77,
+                    }
+                ),
+            ),
+        )
+        con.commit()
+
+        res = client.get(
+            "/judge/results",
+            params={"recipe_id": seeded.recipe_id, "limit": 1000},
+        )
+
+        assert res.status_code == 200
+        rows = res.json()["data"]
+        # Seeded valid rows (2) should remain; invalid timestamp row is skipped.
+        assert len(rows) == 2
+        assert all(row["chart_id"] != "CHART_777" for row in rows)
+    finally:
+        con.execute(
+            "DELETE FROM JudgementResults WHERE recipe_id = ? AND tool_id = ?",
+            (seeded.recipe_id, "TOOL_BAD_TS"),
+        )
+        con.commit()
+        con.close()
+
+
 def test_get_judge_results_supports_combined_filters(
     client: TestClient,
     seeded_judge_results_context: SeededJudgeResultsContext,

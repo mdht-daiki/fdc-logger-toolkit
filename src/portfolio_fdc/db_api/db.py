@@ -148,6 +148,18 @@ def _init_schema(db_path: Path) -> None:
         )
         con.execute(
             """
+            CREATE INDEX IF NOT EXISTS idx_judgementresults_recipe_judged_at_id
+            ON JudgementResults(recipe_id, judged_at DESC, id DESC);
+            """
+        )
+        con.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_processinfo_lot_process
+            ON ProcessInfo(lot_id, process_id);
+            """
+        )
+        con.execute(
+            """
             CREATE TABLE IF NOT EXISTS ChartSet (
                 chart_set_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,

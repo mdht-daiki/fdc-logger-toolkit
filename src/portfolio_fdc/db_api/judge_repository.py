@@ -276,7 +276,7 @@ def _extract_chart_id(payload: dict[str, Any], extracted_chart_id: Any) -> str |
             if _CHART_ID_PATTERN.fullmatch(candidate) is None:
                 return None
             return candidate
-        if candidate.isdigit():
+        if candidate.isascii() and candidate.isdigit():
             # Mirror SQL-side numeric normalization (e.g. "001" -> "CHART_1").
             try:
                 numeric_candidate = int(candidate)

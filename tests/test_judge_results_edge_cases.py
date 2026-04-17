@@ -28,6 +28,7 @@ class SeededEdgeCaseContext:
     process_id_leading_zero_chart: str
     process_id_big_int_chart: str
     process_id_big_digit_text_chart: str
+    process_id_unicode_digit_text_chart: str
     process_id_bad_ts: str
     process_id_nan_feature: str
     process_id_inf_feature: str
@@ -43,6 +44,7 @@ def seeded_edge_case_context() -> Iterator[SeededEdgeCaseContext]:
     process_id_leading_zero_chart = f"P_LEADING_ZERO_{suffix}"
     process_id_big_int_chart = f"P_BIG_INT_{suffix}"
     process_id_big_digit_text_chart = f"P_BIG_DIGIT_TEXT_{suffix}"
+    process_id_unicode_digit_text_chart = f"P_UNICODE_DIGIT_TEXT_{suffix}"
     process_id_bad_ts = f"P_BAD_TS_{suffix}"
     process_id_nan_feature = f"P_NAN_FEAT_{suffix}"
     process_id_inf_feature = f"P_INF_FEAT_{suffix}"
@@ -55,6 +57,7 @@ def seeded_edge_case_context() -> Iterator[SeededEdgeCaseContext]:
             process_id_leading_zero_chart,
             process_id_big_int_chart,
             process_id_big_digit_text_chart,
+            process_id_unicode_digit_text_chart,
             process_id_bad_ts,
             process_id_nan_feature,
             process_id_inf_feature,
@@ -177,6 +180,31 @@ def seeded_edge_case_context() -> Iterator[SeededEdgeCaseContext]:
             ),
         )
 
+        # Case 1e: Unicode digit text chart_id should NOT be treated as ASCII digits.
+        con.execute(
+            """
+            INSERT INTO JudgementResults(
+                process_id, tool_id, chamber_id, recipe_id, status, judged_at, message_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                process_id_unicode_digit_text_chart,
+                f"TOOL_{suffix}",
+                "CH1",
+                recipe_id,
+                "OK",
+                "2026-04-17T00:01:55+00:00",
+                json.dumps(
+                    {
+                        "chart_id": "１２３",
+                        "step_no": 1,
+                        "feature_type": "mean",
+                        "feature_value": 1.3,
+                    }
+                ),
+            ),
+        )
+
         # Case 2: NaN feature_value
         con.execute(
             """
@@ -264,6 +292,7 @@ def seeded_edge_case_context() -> Iterator[SeededEdgeCaseContext]:
             process_id_leading_zero_chart=process_id_leading_zero_chart,
             process_id_big_int_chart=process_id_big_int_chart,
             process_id_big_digit_text_chart=process_id_big_digit_text_chart,
+            process_id_unicode_digit_text_chart=process_id_unicode_digit_text_chart,
             process_id_bad_ts=process_id_bad_ts,
             process_id_nan_feature=process_id_nan_feature,
             process_id_inf_feature=process_id_inf_feature,
@@ -353,6 +382,13 @@ def test_extract_chart_id_large_digit_string_preserves_precision() -> None:
     payload = {"chart_id": "9007199254740993"}
     result = _extract_chart_id(payload, None)
     assert result == "CHART_9007199254740993"
+
+
+def test_extract_chart_id_rejects_unicode_digit_string() -> None:
+    """_extract_chart_id should not treat Unicode digits as ASCII digit-only candidates."""
+    payload = {"chart_id": "１２３"}
+    result = _extract_chart_id(payload, None)
+    assert result is None
 
 
 def test_extract_chart_id_accepts_chart_prefixed_numeric_string() -> None:
@@ -540,6 +576,40 @@ def test_api_big_integer_chart_id_filter_matches_response_normalization(
     assert any(
         row["process_id"] == seeded.process_id_big_digit_text_chart
         for row in filtered_big_digit_text_rows
+    )
+
+
+def test_api_unicode_digit_chart_id_not_filterable_as_ascii_numeric(
+    client: TestClient,
+    seeded_edge_case_context: SeededEdgeCaseContext,
+) -> None:
+    """Unicode-digit chart_id should not normalize to CHART_123 on Python or SQL path."""
+    seeded = seeded_edge_case_context
+
+    by_process = client.get(
+        "/judge/results",
+        params={
+            "process_id": seeded.process_id_unicode_digit_text_chart,
+            "limit": 10,
+        },
+    )
+    assert by_process.status_code == 200
+    rows = by_process.json()["data"]
+    assert len(rows) == 1
+    assert rows[0]["chart_id"] is None
+
+    by_ascii_filter = client.get(
+        "/judge/results",
+        params={
+            "recipe_id": seeded.recipe_id,
+            "chart_id": "CHART_123",
+            "limit": 100,
+        },
+    )
+    assert by_ascii_filter.status_code == 200
+    filtered_rows = by_ascii_filter.json()["data"]
+    assert all(
+        row["process_id"] != seeded.process_id_unicode_digit_text_chart for row in filtered_rows
     )
 
 

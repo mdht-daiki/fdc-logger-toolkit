@@ -73,6 +73,10 @@ class JudgeRepository:
                 ELSE NULL
             END AS extracted_chart_id
         FROM JudgementResults j
+        -- INNER JOIN enforces data integrity: JudgementResults and ProcessInfo are deleted
+        -- together after their 1-year retention period. Orphaned JudgementResults
+        -- (where ProcessInfo was deleted) should not occur by design.
+        -- If this changes, reconsider LEFT JOIN + NULL handling.
         INNER JOIN ProcessInfo p
             ON p.process_id = j.process_id
     """

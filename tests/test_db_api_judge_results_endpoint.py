@@ -11,7 +11,7 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 
-from portfolio_fdc.db_api.db import MAIN_DB, _init_schema
+from portfolio_fdc.db_api.db import MAIN_DB, _connect, _init_schema
 from tests.test_utils import assert_validation_error_envelope
 
 
@@ -437,3 +437,78 @@ def test_get_judge_results_returns_422_for_invalid_level(client: TestClient) -> 
         expected_loc_fragment="query",
         expected_message_fragment="pattern",
     )
+
+
+def test_foreign_key_constraint_prevents_orphaned_judge_results() -> None:
+    """外部キー制約により、孤立 JudgementResults が作成できないことを検証する。
+
+    設計: ProcessInfo と JudgementResults は1年の保存期間内に一緒に削除される。
+    外部キー制約により、ProcessInfo が存在する場合のみ JudgementResults を作成でき、
+    ProcessInfo 削除時には先に JudgementResults を削除する必要がある。
+    これにより、INNER JOIN による無言除外を防ぐ。
+    """
+    _init_schema(MAIN_DB)
+    suffix = uuid4().hex[:10]
+    process_id = f"P_FK_TEST_{suffix}"
+
+    con = _connect(MAIN_DB)
+    try:
+        # ProcessInfo に行を挿入
+        con.execute(
+            """
+            INSERT INTO ProcessInfo(
+                process_id, tool_id, chamber_id, recipe_id,
+                start_ts, end_ts, raw_csv_path
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                process_id,
+                "TOOL_FK",
+                "CH1",
+                "RECIPE_FK",
+                "2026-04-17T00:00:00+00:00",
+                "2026-04-17T00:05:00+00:00",
+                f"data/{process_id}.csv",
+            ),
+        )
+        con.commit()
+
+        # ProcessInfo が存在する場合、JudgementResults 挿入は成功
+        con.execute(
+            """
+            INSERT INTO JudgementResults(
+                process_id, tool_id, chamber_id, recipe_id, status, judged_at, message_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                process_id,
+                "TOOL_FK",
+                "CH1",
+                "RECIPE_FK",
+                "OK",
+                "2026-04-17T00:10:00+00:00",
+                json.dumps({"chart_id": "CHART_1"}),
+            ),
+        )
+        con.commit()
+
+        # ProcessInfo を削除しようとしても、JudgementResults が参照しているため
+        # 外部キー制約により IntegrityError が発生
+        with pytest.raises(sqlite3.IntegrityError, match="FOREIGN KEY constraint failed"):
+            con.execute("DELETE FROM ProcessInfo WHERE process_id = ?", (process_id,))
+            con.commit()
+
+        # ProcessInfo を削除するには、先に JudgementResults を削除する必要がある
+        con.execute("DELETE FROM JudgementResults WHERE process_id = ?", (process_id,))
+        con.commit()
+
+        # 今度は ProcessInfo の削除に成功
+        con.execute("DELETE FROM ProcessInfo WHERE process_id = ?", (process_id,))
+        con.commit()
+
+    finally:
+        # クリーンアップ
+        con.execute("DELETE FROM JudgementResults WHERE process_id = ?", (process_id,))
+        con.execute("DELETE FROM ProcessInfo WHERE process_id = ?", (process_id,))
+        con.commit()
+        con.close()

@@ -413,39 +413,26 @@ def test_get_judge_result_by_id_returns_stop_api_true_status(
     """stop_api_called=True の payload を detail がそのまま返す。"""
     seeded = seeded_judge_results_context
 
+    result_row_id = insert_judgement_result(
+        process_id=seeded.process_id_with_lot,
+        tool_id="TOOL_STOP_API_TRUE",
+        chamber_id="CH1",
+        recipe_id=seeded.recipe_id,
+        status="WARN",
+        judged_at="2026-04-17T02:10:00+00:00",
+        message_json={
+            "chart_id": seeded.chart_id,
+            "parameter": "dc_bias",
+            "step_no": 1,
+            "feature_type": "mean",
+            "feature_value": 2.72,
+            "stop_api_called": True,
+            "stop_api_status": "CALLED_SUCCESS",
+        },
+    )
+
     con = _connect(MAIN_DB)
     try:
-        cursor = con.execute(
-            """
-            INSERT INTO JudgementResults(
-                process_id, tool_id, chamber_id, recipe_id, status, judged_at, message_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                seeded.process_id_with_lot,
-                "TOOL_STOP_API_TRUE",
-                "CH1",
-                seeded.recipe_id,
-                "WARN",
-                "2026-04-17T02:10:00+00:00",
-                json.dumps(
-                    {
-                        "chart_id": seeded.chart_id,
-                        "parameter": "dc_bias",
-                        "step_no": 1,
-                        "feature_type": "mean",
-                        "feature_value": 2.72,
-                        "stop_api_called": True,
-                        "stop_api_status": "CALLED_SUCCESS",
-                    }
-                ),
-            ),
-        )
-        con.commit()
-        result_row_id = cursor.lastrowid
-        if result_row_id is None:
-            raise RuntimeError("Failed to seed stop_api_called=true judge result")
-
         res = client.get(f"/judge/results/JR_{result_row_id}")
 
         assert res.status_code == 200
@@ -539,34 +526,21 @@ def test_get_judge_result_by_id_does_not_enrich_thresholds_for_fractional_chart_
     seeded = seeded_judge_results_context
     chart_pk = int(seeded.chart_id.split("_", maxsplit=1)[1])
 
+    result_row_id = insert_judgement_result(
+        process_id=seeded.process_id_without_lot,
+        tool_id="TOOL_FRACTIONAL_CHART",
+        chamber_id="CH1",
+        recipe_id=seeded.recipe_id,
+        status="WARN",
+        judged_at="2026-04-17T02:00:00+00:00",
+        message_json={
+            "chart_id": chart_pk + 0.7,
+            "feature_value": 9.99,
+        },
+    )
+
     con = _connect(MAIN_DB)
     try:
-        cursor = con.execute(
-            """
-            INSERT INTO JudgementResults(
-                process_id, tool_id, chamber_id, recipe_id, status, judged_at, message_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                seeded.process_id_without_lot,
-                "TOOL_FRACTIONAL_CHART",
-                "CH1",
-                seeded.recipe_id,
-                "WARN",
-                "2026-04-17T02:00:00+00:00",
-                json.dumps(
-                    {
-                        "chart_id": chart_pk + 0.7,
-                        "feature_value": 9.99,
-                    }
-                ),
-            ),
-        )
-        con.commit()
-        result_row_id = cursor.lastrowid
-        if result_row_id is None:
-            raise RuntimeError("Failed to seed fractional chart_id judge result")
-
         res = client.get(f"/judge/results/JR_{result_row_id}")
 
         assert res.status_code == 200
@@ -589,6 +563,38 @@ def test_get_judge_result_by_id_does_not_enrich_thresholds_for_fractional_chart_
         con.close()
 
 
+def test_get_judge_result_by_id_returns_null_thresholds_when_chart_thresholds_are_null(
+    client: TestClient,
+    seeded_judge_results_context: SeededJudgeResultsContext,
+) -> None:
+    """一致する ChartsV2 行の閾値が NULL の場合は detail でも None を返す。"""
+    seeded = seeded_judge_results_context
+    chart_pk = int(seeded.chart_id.split("_", maxsplit=1)[1])
+
+    con = _connect(MAIN_DB)
+    try:
+        con.execute(
+            """
+            UPDATE ChartsV2
+            SET warn_low = NULL, warn_high = NULL, crit_low = NULL, crit_high = NULL
+            WHERE id = ?
+            """,
+            (chart_pk,),
+        )
+        con.commit()
+
+        res = client.get(f"/judge/results/{seeded.result_id_with_lot}")
+
+        assert res.status_code == 200
+        data = res.json()["data"]
+        assert data["warning_lcl"] is None
+        assert data["warning_ucl"] is None
+        assert data["critical_lcl"] is None
+        assert data["critical_ucl"] is None
+    finally:
+        con.close()
+
+
 def test_get_judge_result_by_id_returns_500_when_detail_conversion_fails(
     client: TestClient,
     seeded_judge_results_context: SeededJudgeResultsContext,
@@ -597,34 +603,21 @@ def test_get_judge_result_by_id_returns_500_when_detail_conversion_fails(
     """_to_judge_result_detail_view が None を返す場合（invalid 時刻）に HTTP 500 を返す。"""
     seeded = seeded_judge_results_context
 
+    result_row_id = insert_judgement_result(
+        process_id=seeded.process_id_without_lot,
+        tool_id="TOOL_DATA_CORRUPTION_TEST",
+        chamber_id="CH1",
+        recipe_id=seeded.recipe_id,
+        status="WARN",
+        judged_at="INVALID_TIMESTAMP",
+        message_json={
+            "chart_id": "CHART_999",
+            "feature_value": 1.0,
+        },
+    )
+
     con = _connect(MAIN_DB)
     try:
-        cursor = con.execute(
-            """
-            INSERT INTO JudgementResults(
-                process_id, tool_id, chamber_id, recipe_id, status, judged_at, message_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                seeded.process_id_without_lot,
-                "TOOL_DATA_CORRUPTION_TEST",
-                "CH1",
-                seeded.recipe_id,
-                "WARN",
-                "INVALID_TIMESTAMP",
-                json.dumps(
-                    {
-                        "chart_id": "CHART_999",
-                        "feature_value": 1.0,
-                    }
-                ),
-            ),
-        )
-        con.commit()
-        result_row_id = cursor.lastrowid
-        if result_row_id is None:
-            raise RuntimeError("Failed to seed invalid judge result")
-
         with caplog.at_level(logging.ERROR, logger="portfolio_fdc.db_api.app"):
             res = client.get(f"/judge/results/JR_{result_row_id}")
 
@@ -656,35 +649,23 @@ def test_get_judge_result_by_id_returns_500_when_process_start_ts_is_corrupted(
         (seeded.process_id_without_lot,),
     ).fetchone()
     try:
-        cursor = con.execute(
-            """
-            INSERT INTO JudgementResults(
-                process_id, tool_id, chamber_id, recipe_id, status, judged_at, message_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                seeded.process_id_without_lot,
-                "TOOL_DATA_CORRUPTION_TEST",
-                "CH1",
-                seeded.recipe_id,
-                "WARN",
-                "2026-04-17T02:30:00+00:00",
-                json.dumps(
-                    {
-                        "chart_id": "CHART_999",
-                        "feature_value": 1.0,
-                    }
-                ),
-            ),
+        result_row_id = insert_judgement_result(
+            process_id=seeded.process_id_without_lot,
+            tool_id="TOOL_DATA_CORRUPTION_TEST",
+            chamber_id="CH1",
+            recipe_id=seeded.recipe_id,
+            status="WARN",
+            judged_at="2026-04-17T02:30:00+00:00",
+            message_json={
+                "chart_id": "CHART_999",
+                "feature_value": 1.0,
+            },
         )
         con.execute(
             "UPDATE ProcessInfo SET start_ts = ? WHERE process_id = ?",
             ("INVALID_TIMESTAMP", seeded.process_id_without_lot),
         )
         con.commit()
-        result_row_id = cursor.lastrowid
-        if result_row_id is None:
-            raise RuntimeError("Failed to seed invalid process_start_ts judge result")
 
         with caplog.at_level(logging.ERROR, logger="portfolio_fdc.db_api.app"):
             res = client.get(f"/judge/results/JR_{result_row_id}")

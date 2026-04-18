@@ -562,6 +562,8 @@ def _to_bool_or_default(value: Any, *, default: bool) -> bool:
 
 def _to_stop_api_status_or_default(value: Any, *, default: str) -> str:
     """stop_api_status を文字列として返し、未指定/不正時は既定値へフォールバックする。"""
-    if isinstance(value, str) and value:
-        return value
+    if isinstance(value, str):
+        normalized = value.strip()
+        if normalized:
+            return normalized
     return default

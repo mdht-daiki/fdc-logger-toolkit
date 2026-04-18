@@ -12,6 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from portfolio_fdc.db_api.db import MAIN_DB, _connect, _init_schema
+from portfolio_fdc.db_api.judge_repository import _to_stop_api_status_or_default
 from tests.test_utils import assert_validation_error_envelope
 
 
@@ -363,6 +364,16 @@ def test_get_judge_result_by_id_returns_422_for_invalid_result_id(client: TestCl
         expected_loc_fragment="result_id",
         expected_message_fragment="pattern",
     )
+
+
+def test_to_stop_api_status_or_default_trims_valid_string() -> None:
+    """前後空白付きの stop_api_status は trim 後の値を返す。"""
+    assert _to_stop_api_status_or_default("  CALLED  ", default="NOT_CALLED") == "CALLED"
+
+
+def test_to_stop_api_status_or_default_falls_back_for_whitespace_only() -> None:
+    """空白のみの stop_api_status は既定値へフォールバックする。"""
+    assert _to_stop_api_status_or_default("   ", default="NOT_CALLED") == "NOT_CALLED"
 
 
 def test_get_judge_results_supports_pagination(

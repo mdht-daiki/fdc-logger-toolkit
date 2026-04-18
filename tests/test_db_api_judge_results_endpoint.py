@@ -512,6 +512,25 @@ def test_get_judge_result_by_id_returns_400_for_non_positive_result_id(client: T
     assert res.json() == {"detail": "Invalid result_id"}
 
 
+def test_get_judge_result_by_id_normalizes_leading_zeros(
+    client: TestClient,
+    seeded_judge_results_context: SeededJudgeResultsContext,
+) -> None:
+    """先頭ゼロ付き result_id は同一 PK に正規化され、正規形で返る。"""
+    seeded = seeded_judge_results_context
+    result_pk = seeded.result_id_with_lot.split("_", maxsplit=1)[1]
+    leading_zero_result_id = f"JR_0{result_pk}"
+
+    res = client.get(f"/judge/results/{leading_zero_result_id}")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["ok"] is True
+    assert body["data"]["result_id"] == seeded.result_id_with_lot
+    assert body["data"]["process_id"] == seeded.process_id_with_lot
+    assert body["data"]["chart_id"] == seeded.chart_id
+
+
 def test_get_judge_result_by_id_does_not_enrich_thresholds_for_fractional_chart_id(
     client: TestClient,
     seeded_judge_results_context: SeededJudgeResultsContext,

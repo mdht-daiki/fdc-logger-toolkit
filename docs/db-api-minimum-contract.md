@@ -261,6 +261,7 @@ dashboard read-only baseline と judge 最小実装に必要な API 契約を、
 
 - 形式が `JR_[0-9]+` に一致しない場合は `422 VALIDATION_ERROR`
 - 形式は一致するが数値部が `1` 未満（例: `JR_0`）または int64 範囲外の場合は `400 Invalid result_id`
+- 先頭ゼロ付き形式（例: `JR_01`）は正規化されて `JR_1` として扱われる
 
 成功レスポンス例:
 

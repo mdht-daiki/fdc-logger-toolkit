@@ -12,10 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from portfolio_fdc.db_api.db import MAIN_DB, _connect, _init_schema
-from portfolio_fdc.db_api.judge_repository import (
-    _extract_chart_id,
-    _to_stop_api_status_or_default,
-)
+from portfolio_fdc.db_api.judge_repository import _to_stop_api_status_or_default
 from tests.test_utils import assert_validation_error_envelope
 
 
@@ -379,14 +376,62 @@ def test_to_stop_api_status_or_default_falls_back_for_whitespace_only() -> None:
     assert _to_stop_api_status_or_default("   ", default="NOT_CALLED") == "NOT_CALLED"
 
 
-def test_extract_chart_id_rejects_non_integer_numeric_value() -> None:
-    """非整数の数値 chart_id は chart 識別子として受け入れない。"""
-    assert _extract_chart_id({"chart_id": 1.7}, extracted_chart_id=None) is None
+def test_get_judge_result_by_id_does_not_enrich_thresholds_for_fractional_chart_id(
+    client: TestClient,
+    seeded_judge_results_context: SeededJudgeResultsContext,
+) -> None:
+    """float chart_id は正規化して返すが detail 閾値補完には使わない。"""
+    seeded = seeded_judge_results_context
+    chart_pk = int(seeded.chart_id.split("_", maxsplit=1)[1])
 
+    con = sqlite3.connect(MAIN_DB.as_posix())
+    try:
+        cursor = con.execute(
+            """
+            INSERT INTO JudgementResults(
+                process_id, tool_id, chamber_id, recipe_id, status, judged_at, message_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                seeded.process_id_without_lot,
+                "TOOL_FRACTIONAL_CHART",
+                "CH1",
+                seeded.recipe_id,
+                "WARN",
+                "2026-04-17T02:00:00+00:00",
+                json.dumps(
+                    {
+                        "chart_id": chart_pk + 0.7,
+                        "feature_value": 9.99,
+                    }
+                ),
+            ),
+        )
+        con.commit()
+        result_row_id = cursor.lastrowid
+        if result_row_id is None:
+            raise RuntimeError("Failed to seed fractional chart_id judge result")
 
-def test_extract_chart_id_accepts_integer_like_float_value() -> None:
-    """整数値を表す float chart_id は既存互換のため受け入れる。"""
-    assert _extract_chart_id({"chart_id": 1.0}, extracted_chart_id=None) == "CHART_1"
+        res = client.get(f"/judge/results/JR_{result_row_id}")
+
+        assert res.status_code == 200
+        data = res.json()["data"]
+        assert data["chart_id"] == seeded.chart_id
+        assert data["parameter"] is None
+        assert data["step_no"] is None
+        assert data["feature_type"] is None
+        assert data["warning_lcl"] is None
+        assert data["warning_ucl"] is None
+        assert data["critical_lcl"] is None
+        assert data["critical_ucl"] is None
+        assert data["feature_value"] == 9.99
+    finally:
+        con.execute(
+            "DELETE FROM JudgementResults WHERE process_id = ? AND tool_id = ?",
+            (seeded.process_id_without_lot, "TOOL_FRACTIONAL_CHART"),
+        )
+        con.commit()
+        con.close()
 
 
 def test_get_judge_results_supports_pagination(

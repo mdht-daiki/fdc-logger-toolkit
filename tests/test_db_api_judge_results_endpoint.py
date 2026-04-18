@@ -12,7 +12,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from portfolio_fdc.db_api.db import MAIN_DB, _connect, _init_schema
-from portfolio_fdc.db_api.judge_repository import _to_stop_api_status_or_default
 from tests.test_utils import assert_validation_error_envelope
 
 
@@ -35,7 +34,7 @@ def seeded_judge_results_context() -> Iterator[SeededJudgeResultsContext]:
     recipe_id = f"RECIPE_JUDGE_{suffix}"
     chart_set_name = f"judge_result_chart_set_{suffix}"
 
-    con = sqlite3.connect(MAIN_DB.as_posix())
+    con = _connect(MAIN_DB)
     try:
         con.execute(
             """
@@ -174,7 +173,7 @@ def seeded_judge_results_context() -> Iterator[SeededJudgeResultsContext]:
             result_id_with_lot=result_id_with_lot,
         )
     finally:
-        cleanup = sqlite3.connect(MAIN_DB.as_posix())
+        cleanup = _connect(MAIN_DB)
         try:
             cleanup.execute(
                 "DELETE FROM JudgementResults WHERE process_id IN (?, ?)",
@@ -366,16 +365,6 @@ def test_get_judge_result_by_id_returns_422_for_invalid_result_id(client: TestCl
     )
 
 
-def test_to_stop_api_status_or_default_trims_valid_string() -> None:
-    """前後空白付きの stop_api_status は trim 後の値を返す。"""
-    assert _to_stop_api_status_or_default("  CALLED  ", default="NOT_CALLED") == "CALLED"
-
-
-def test_to_stop_api_status_or_default_falls_back_for_whitespace_only() -> None:
-    """空白のみの stop_api_status は既定値へフォールバックする。"""
-    assert _to_stop_api_status_or_default("   ", default="NOT_CALLED") == "NOT_CALLED"
-
-
 def test_get_judge_result_by_id_does_not_enrich_thresholds_for_fractional_chart_id(
     client: TestClient,
     seeded_judge_results_context: SeededJudgeResultsContext,
@@ -384,7 +373,7 @@ def test_get_judge_result_by_id_does_not_enrich_thresholds_for_fractional_chart_
     seeded = seeded_judge_results_context
     chart_pk = int(seeded.chart_id.split("_", maxsplit=1)[1])
 
-    con = sqlite3.connect(MAIN_DB.as_posix())
+    con = _connect(MAIN_DB)
     try:
         cursor = con.execute(
             """
@@ -441,7 +430,7 @@ def test_get_judge_result_by_id_returns_500_when_detail_conversion_fails(
     """_to_judge_result_detail_view が None を返す場合（invalid 時刻）に HTTP 500 を返す。"""
     seeded = seeded_judge_results_context
 
-    con = sqlite3.connect(MAIN_DB.as_posix())
+    con = _connect(MAIN_DB)
     try:
         cursor = con.execute(
             """
@@ -473,20 +462,8 @@ def test_get_judge_result_by_id_returns_500_when_detail_conversion_fails(
 
         assert res.status_code == 500
         body = res.json()
-        if "detail" in body:
-            detail = body["detail"]
-            assert isinstance(detail, str)
-            assert "Internal server error" in detail
-        else:
-            assert body.get("ok") is False
-            if "error" in body:
-                error = body["error"]
-                assert isinstance(error, dict)
-                message = error.get("message")
-                assert isinstance(message, str)
-            else:
-                message = body.get("message")
-                assert isinstance(message, str)
+        expected = {"detail": "Internal server error"}
+        assert body == expected
     finally:
         con.execute(
             "DELETE FROM JudgementResults WHERE process_id = ? AND tool_id = ?",
@@ -528,7 +505,7 @@ def test_get_judge_results_pagination_ignores_invalid_status_rows(
 ) -> None:
     """invalid status 行が存在しても SQL 側で除外されページングが崩れないことを検証する。"""
     seeded = seeded_judge_results_context
-    con = sqlite3.connect(MAIN_DB.as_posix())
+    con = _connect(MAIN_DB)
     try:
         # judged_at を最新にして、SQL 除外が無いと先頭ページを壊すデータを作る。
         con.execute(
@@ -581,7 +558,7 @@ def test_get_judge_results_skips_row_with_invalid_judged_at(
 ) -> None:
     """不正 judged_at を含む行があっても 500 にならず当該行をスキップする。"""
     seeded = seeded_judge_results_context
-    con = sqlite3.connect(MAIN_DB.as_posix())
+    con = _connect(MAIN_DB)
     try:
         con.execute(
             """
@@ -633,7 +610,7 @@ def test_get_judge_results_skips_row_with_invalid_process_start_ts(
 ) -> None:
     """不正 ProcessInfo.start_ts を持つ process の行を 500 なくスキップする。"""
     seeded = seeded_judge_results_context
-    con = sqlite3.connect(MAIN_DB.as_posix())
+    con = _connect(MAIN_DB)
     original_start_ts = con.execute(
         "SELECT start_ts FROM ProcessInfo WHERE process_id = ?",
         (seeded.process_id_with_lot,),

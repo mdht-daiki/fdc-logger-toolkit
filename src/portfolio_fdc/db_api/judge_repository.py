@@ -249,16 +249,17 @@ class JudgeRepository:
         try:
             sql = self._SELECT_DETAIL_SQL.format(allowed_levels=self._ALLOWED_LEVELS_SQL)
             row = con.execute(sql, (result_pk,)).fetchone()
-            if row is None:
-                return None
-            detail = self._to_judge_result_detail_view(con, row)
-            if detail is None:
-                raise JudgeDataCorruptionError(
-                    f"Failed to convert judge result detail row for result_pk={result_pk}"
-                )
-            return detail
         finally:
             con.close()
+
+        if row is None:
+            return None
+        detail = self._to_judge_result_detail_view(row)
+        if detail is None:
+            raise JudgeDataCorruptionError(
+                f"Failed to convert judge result detail row for result_pk={result_pk}"
+            )
+        return detail
 
     @staticmethod
     def _append_filter_condition(
@@ -338,7 +339,6 @@ class JudgeRepository:
 
     def _to_judge_result_detail_view(
         self,
-        con: Any,
         row: tuple[Any, ...],
     ) -> JudgeResultDetailView | None:
         """DB 行を `JudgeResultDetailView` へ変換する。"""
@@ -383,7 +383,6 @@ class JudgeRepository:
             critical_lcl,
             critical_ucl,
         ) = self._enrich_with_chart_thresholds(
-            con,
             chart_id,
             payload_fields.parameter,
             payload_fields.step_no,
@@ -467,7 +466,6 @@ class JudgeRepository:
 
     def _enrich_with_chart_thresholds(
         self,
-        con: Any,
         chart_id: str | None,
         parameter: str | None,
         step_no: int | None,
@@ -512,7 +510,12 @@ class JudgeRepository:
                 critical_ucl,
             )
 
-        chart_row = con.execute(self._SELECT_CHART_THRESHOLDS_SQL, (chart_pk,)).fetchone()
+        chart_con = _connect(MAIN_DB)
+        try:
+            chart_row = chart_con.execute(self._SELECT_CHART_THRESHOLDS_SQL, (chart_pk,)).fetchone()
+        finally:
+            chart_con.close()
+
         if chart_row is None:
             return (
                 parameter,

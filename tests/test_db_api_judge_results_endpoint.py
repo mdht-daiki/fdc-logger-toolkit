@@ -365,6 +365,14 @@ def test_get_judge_result_by_id_returns_422_for_invalid_result_id(client: TestCl
     )
 
 
+def test_get_judge_result_by_id_returns_400_for_non_positive_result_id(client: TestClient) -> None:
+    """形式は正しいが 1 未満の result_id は 400 を返す。"""
+    res = client.get("/judge/results/JR_0")
+
+    assert res.status_code == 400
+    assert res.json() == {"detail": "Invalid result_id"}
+
+
 def test_get_judge_result_by_id_does_not_enrich_thresholds_for_fractional_chart_id(
     client: TestClient,
     seeded_judge_results_context: SeededJudgeResultsContext,

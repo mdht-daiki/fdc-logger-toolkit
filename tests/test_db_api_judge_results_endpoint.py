@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import sqlite3
 from collections.abc import Iterator
@@ -434,6 +435,7 @@ def test_get_judge_result_by_id_does_not_enrich_thresholds_for_fractional_chart_
 def test_get_judge_result_by_id_returns_500_when_detail_conversion_fails(
     client: TestClient,
     seeded_judge_results_context: SeededJudgeResultsContext,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """_to_judge_result_detail_view が None を返す場合（invalid 時刻）に HTTP 500 を返す。"""
     seeded = seeded_judge_results_context
@@ -466,12 +468,14 @@ def test_get_judge_result_by_id_returns_500_when_detail_conversion_fails(
         if result_row_id is None:
             raise RuntimeError("Failed to seed invalid judge result")
 
-        res = client.get(f"/judge/results/JR_{result_row_id}")
+        with caplog.at_level(logging.ERROR, logger="portfolio_fdc.db_api.app"):
+            res = client.get(f"/judge/results/JR_{result_row_id}")
 
         assert res.status_code == 500
         body = res.json()
         expected = {"detail": "Internal server error"}
         assert body == expected
+        assert "JUDGE_DATA_CORRUPTION" in caplog.text
     finally:
         con.execute(
             "DELETE FROM JudgementResults WHERE process_id = ? AND tool_id = ?",

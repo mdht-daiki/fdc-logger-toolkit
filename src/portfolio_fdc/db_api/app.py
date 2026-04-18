@@ -36,7 +36,11 @@ from .chart_repository import (
     ChartsQueryCriteria,
 )
 from .db import MAIN_DB, TEMP_DB, _init_schema
-from .judge_repository import JudgeRepository, JudgeResultsQueryCriteria
+from .judge_repository import (
+    JudgeDataCorruptionError,
+    JudgeRepository,
+    JudgeResultsQueryCriteria,
+)
 from .schemas import (
     AggregateWriteIn,
     ParameterIn,
@@ -535,6 +539,15 @@ def get_judge_result_by_id(
                 details={"result_id": result_id},
             )
         return {"ok": True, "data": asdict(row)}
+    except JudgeDataCorruptionError as e:
+        logger.error(
+            "JUDGE_DATA_CORRUPTION: GET /judge/results/{result_id} failed "
+            "(requested_result_id=%s, result_pk=%s)",
+            result_id,
+            result_pk,
+            exc_info=True,
+        )
+        raise HTTPException(status_code=500, detail="Internal server error") from e
     except Exception as e:
         _raise_api_error(operation="GET /judge/results/{result_id}", error=e)
 

@@ -12,7 +12,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from portfolio_fdc.db_api.db import MAIN_DB, _connect, _init_schema
-from portfolio_fdc.db_api.judge_repository import _to_stop_api_status_or_default
+from portfolio_fdc.db_api.judge_repository import (
+    _extract_chart_id,
+    _to_stop_api_status_or_default,
+)
 from tests.test_utils import assert_validation_error_envelope
 
 
@@ -374,6 +377,16 @@ def test_to_stop_api_status_or_default_trims_valid_string() -> None:
 def test_to_stop_api_status_or_default_falls_back_for_whitespace_only() -> None:
     """空白のみの stop_api_status は既定値へフォールバックする。"""
     assert _to_stop_api_status_or_default("   ", default="NOT_CALLED") == "NOT_CALLED"
+
+
+def test_extract_chart_id_rejects_non_integer_numeric_value() -> None:
+    """非整数の数値 chart_id は chart 識別子として受け入れない。"""
+    assert _extract_chart_id({"chart_id": 1.7}, extracted_chart_id=None) is None
+
+
+def test_extract_chart_id_accepts_integer_like_float_value() -> None:
+    """整数値を表す float chart_id は既存互換のため受け入れる。"""
+    assert _extract_chart_id({"chart_id": 1.0}, extracted_chart_id=None) == "CHART_1"
 
 
 def test_get_judge_results_supports_pagination(

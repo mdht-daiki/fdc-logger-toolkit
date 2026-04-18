@@ -461,6 +461,8 @@ def _extract_chart_id(payload: dict[str, Any], extracted_chart_id: Any) -> str |
         # Reject non-finite floats (NaN, inf, -inf)
         if not math.isfinite(candidate):
             return None
+        if isinstance(candidate, float) and not candidate.is_integer():
+            return None
         if candidate < 0:
             return None
         try:

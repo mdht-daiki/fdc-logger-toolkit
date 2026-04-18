@@ -17,7 +17,7 @@ from threading import Lock
 from typing import Annotated, NoReturn, cast
 from urllib.parse import quote
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Path, Query, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -36,7 +36,11 @@ from .chart_repository import (
     ChartsQueryCriteria,
 )
 from .db import MAIN_DB, TEMP_DB, _init_schema
-from .judge_repository import JudgeRepository, JudgeResultsQueryCriteria
+from .judge_repository import (
+    JudgeDataCorruptionError,
+    JudgeRepository,
+    JudgeResultsQueryCriteria,
+)
 from .schemas import (
     AggregateWriteIn,
     ParameterIn,
@@ -55,6 +59,7 @@ CHARTS_FILTER_PATTERN = r"^[A-Za-z0-9_./:-]+$"
 CHARTS_FILTER_MAX_LENGTH = 128
 CHART_ID_PATTERN = r"^CHART_[0-9]+$"
 JUDGE_LEVEL_PATTERN = r"^(OK|WARN|NG)$"
+RESULT_ID_PATTERN = r"^JR_[0-9]+$"
 
 
 def _legacy_delete_headers(process_id: str | None) -> dict[str, str]:
@@ -389,6 +394,37 @@ def _parse_chart_pk(chart_id: str | None) -> int | None:
         raise HTTPException(status_code=400, detail="Invalid chart_id") from exc
 
 
+def _parse_result_pk(result_id: str) -> int:
+    """`JR_<id>` 形式の result_id を int PK へ変換する。"""
+    try:
+        numeric_part = result_id.split("_", maxsplit=1)[1]
+        if not numeric_part.isdigit():
+            raise ValueError("result_id numeric part must contain only digits")
+        result_pk = int(numeric_part)
+        if result_pk < 1:
+            raise ValueError("result_id must be greater than or equal to 1")
+        if not (-(2**63) <= result_pk <= 2**63 - 1):
+            raise ValueError("result_id out of int64 range")
+        return result_pk
+    except (ValueError, OverflowError, IndexError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid result_id") from exc
+
+
+def _not_found_error_response(*, message: str, details: dict[str, str]) -> JSONResponse:
+    """契約準拠の 404 error envelope を返す。"""
+    return JSONResponse(
+        status_code=404,
+        content={
+            "ok": False,
+            "error": {
+                "code": "NOT_FOUND",
+                "message": message,
+                "details": details,
+            },
+        },
+    )
+
+
 @app.get("/charts/history")
 def get_charts_history(
     chart_id: str | None = Query(
@@ -482,6 +518,38 @@ def get_judge_results(
         return {"ok": True, "data": [asdict(row) for row in rows]}
     except Exception as e:
         _raise_api_error(operation="GET /judge/results", error=e)
+
+
+@app.get("/judge/results/{result_id}")
+def get_judge_result_by_id(
+    result_id: str = Path(
+        min_length=1,
+        max_length=64,
+        pattern=RESULT_ID_PATTERN,
+    ),
+):
+    """判定結果詳細を返す。"""
+    result_pk = _parse_result_pk(result_id)
+
+    try:
+        row = _judge_repository.find_result_by_id(result_pk)
+        if row is None:
+            return _not_found_error_response(
+                message="judge result not found",
+                details={"result_id": result_id},
+            )
+        return {"ok": True, "data": asdict(row)}
+    except JudgeDataCorruptionError as e:
+        logger.error(
+            "JUDGE_DATA_CORRUPTION: GET /judge/results/{result_id} failed "
+            "(requested_result_id=%s, result_pk=%s)",
+            result_id,
+            result_pk,
+            exc_info=True,
+        )
+        raise HTTPException(status_code=500, detail="Internal server error") from e
+    except Exception as e:
+        _raise_api_error(operation="GET /judge/results/{result_id}", error=e)
 
 
 @app.post("/processes")

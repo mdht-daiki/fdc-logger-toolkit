@@ -18,6 +18,7 @@ from portfolio_fdc.db_api.judge_repository import (
     _extract_chart_id,
     _to_float_or_none,
     _to_int_or_none,
+    _to_stop_api_status_or_default,
 )
 
 
@@ -463,6 +464,16 @@ def test_to_int_or_none_accepts_integral_floats_only() -> None:
     """_to_int_or_none should accept only finite integral floats."""
     assert _to_int_or_none(3.0) == 3
     assert _to_int_or_none(3.14) is None
+
+
+def test_to_stop_api_status_or_default_trims_valid_string() -> None:
+    """前後空白付きの stop_api_status は trim 後の値を返す。"""
+    assert _to_stop_api_status_or_default("  CALLED  ", default="NOT_CALLED") == "CALLED"
+
+
+def test_to_stop_api_status_or_default_falls_back_for_whitespace_only() -> None:
+    """空白のみの stop_api_status は既定値へフォールバックする。"""
+    assert _to_stop_api_status_or_default("   ", default="NOT_CALLED") == "NOT_CALLED"
 
 
 def test_api_float_chart_id_normalized(

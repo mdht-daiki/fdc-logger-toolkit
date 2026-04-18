@@ -230,7 +230,7 @@ dashboard read-only baseline と judge 最小実装に必要な API 契約を、
   "ok": true,
   "data": [
     {
-      "result_id": "JR_001",
+      "result_id": "JR_1",
       "chart_id": "CHART_001",
       "process_id": "P_20260414_0001",
       "lot_id": "LOT_001",
@@ -257,13 +257,20 @@ dashboard read-only baseline と judge 最小実装に必要な API 契約を、
 
 - `result_id`（必須）
 
+入力バリデーション:
+
+- 形式が `JR_[0-9]+` に一致しない場合は `422 VALIDATION_ERROR`
+- 形式は一致するが数値部が `1` 未満（例: `JR_0`）または int64 範囲外の場合は `400 Invalid result_id`
+- **入力時のマッピング**: `JR_01`、`JR_001`、`JR_1` など複数の文字列表現は、数値部を整数変換することで同一 DB レコード（PK=1）にマッピングされる
+- **レスポンス上の正規形**: API 応答に含まれる `result_id` は常に正規形（先頭ゼロなし）で返される。例えば、入力が `JR_01` であっても、レスポンスでは `JR_1` となる
+
 成功レスポンス例:
 
 ```json
 {
   "ok": true,
   "data": {
-    "result_id": "JR_001",
+    "result_id": "JR_1",
     "chart_id": "CHART_001",
     "process_id": "P_20260414_0001",
     "lot_id": "LOT_001",

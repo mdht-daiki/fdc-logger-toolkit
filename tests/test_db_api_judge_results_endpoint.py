@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import sqlite3
 from collections.abc import Iterator
@@ -21,6 +22,155 @@ class SeededJudgeResultsContext:
     process_id_without_lot: str
     recipe_id: str
     chart_id: str
+    result_id_with_lot: str
+    result_id_without_lot: str
+
+
+def insert_process_info(
+    process_id: str,
+    tool_id: str,
+    recipe_id: str,
+    lot_id: str | None,
+    wafer_id: str | None,
+    start_ts: str,
+    end_ts: str,
+) -> None:
+    """ProcessInfo 1 行を投入する。"""
+    con = _connect(MAIN_DB)
+    try:
+        con.execute(
+            """
+            INSERT INTO ProcessInfo(
+                process_id, tool_id, chamber_id, recipe_id,
+                start_ts, end_ts, raw_csv_path, lot_id, wafer_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                process_id,
+                tool_id,
+                "CH1",
+                recipe_id,
+                start_ts,
+                end_ts,
+                f"data/detail/{process_id}.csv",
+                lot_id,
+                wafer_id,
+            ),
+        )
+        con.commit()
+    finally:
+        con.close()
+
+
+def insert_chart_set_and_chart(
+    chart_set_name: str,
+    chart_attrs: dict[str, str | int | float],
+) -> tuple[str, int]:
+    """ChartSet/ChartsV2 を投入し、chart_id と chart_pk を返す。"""
+    con = _connect(MAIN_DB)
+    try:
+        now = datetime.now(UTC).isoformat()
+        con.execute(
+            "INSERT INTO ChartSet(name, note, created_at, created_by) VALUES (?, ?, ?, ?)",
+            (chart_set_name, "test", now, "test"),
+        )
+        chart_set_id = int(con.execute("SELECT last_insert_rowid()").fetchone()[0])
+        con.execute(
+            """
+            INSERT INTO ChartsV2(
+                chart_set_id, tool_id, chamber_id, recipe_id, parameter,
+                step_no, feature_type, warn_low, warn_high, crit_low, crit_high,
+                updated_at, updated_by, update_reason, update_source
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                chart_set_id,
+                chart_attrs["tool_id"],
+                chart_attrs.get("chamber_id", "CH1"),
+                chart_attrs["recipe_id"],
+                chart_attrs.get("parameter", "dc_bias"),
+                chart_attrs.get("step_no", 1),
+                chart_attrs.get("feature_type", "mean"),
+                chart_attrs.get("warn_low", 1.4),
+                chart_attrs.get("warn_high", 2.6),
+                chart_attrs.get("crit_low", 1.2),
+                chart_attrs.get("crit_high", 2.8),
+                now,
+                "test",
+                "seed",
+                "test",
+            ),
+        )
+        chart_pk = int(con.execute("SELECT last_insert_rowid()").fetchone()[0])
+        con.commit()
+        return f"CHART_{chart_pk}", chart_pk
+    finally:
+        con.close()
+
+
+def insert_judgement_result(
+    process_id: str,
+    tool_id: str,
+    chamber_id: str,
+    recipe_id: str,
+    status: str,
+    judged_at: str,
+    message_json: dict[str, object],
+) -> int:
+    """JudgementResults 1 行を投入し、rowid を返す。"""
+    con = _connect(MAIN_DB)
+    try:
+        cursor = con.execute(
+            """
+            INSERT INTO JudgementResults(
+                process_id, tool_id, chamber_id, recipe_id, status, judged_at, message_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                process_id,
+                tool_id,
+                chamber_id,
+                recipe_id,
+                status,
+                judged_at,
+                json.dumps(message_json),
+            ),
+        )
+        con.commit()
+        row_id = cursor.lastrowid
+        if row_id is None:
+            raise RuntimeError("Failed to seed JudgementResults row")
+        return int(row_id)
+    finally:
+        con.close()
+
+
+def cleanup_seeded_judge_results(process_ids: tuple[str, str], chart_set_name: str) -> None:
+    """seeded_judge_results_context で投入したデータを削除する。"""
+    con = _connect(MAIN_DB)
+    try:
+        con.execute(
+            "DELETE FROM JudgementResults WHERE process_id IN (?, ?)",
+            process_ids,
+        )
+        con.execute(
+            "DELETE FROM ProcessInfo WHERE process_id IN (?, ?)",
+            process_ids,
+        )
+        con.execute(
+            (
+                "DELETE FROM ChartsV2 WHERE chart_set_id IN "
+                "(SELECT chart_set_id FROM ChartSet WHERE name = ?)"
+            ),
+            (chart_set_name,),
+        )
+        con.execute(
+            "DELETE FROM ChartSet WHERE name = ?",
+            (chart_set_name,),
+        )
+        con.commit()
+    finally:
+        con.close()
 
 
 @pytest.fixture
@@ -31,117 +181,92 @@ def seeded_judge_results_context() -> Iterator[SeededJudgeResultsContext]:
     process_id_with_lot = f"P_JUDGE_LOT_{suffix}"
     process_id_without_lot = f"P_JUDGE_NA_{suffix}"
     recipe_id = f"RECIPE_JUDGE_{suffix}"
+    chart_set_name = f"judge_result_chart_set_{suffix}"
+    tool_id = f"TOOL_{suffix}"
 
-    con = sqlite3.connect(MAIN_DB.as_posix())
     try:
-        con.execute(
-            """
-            INSERT INTO ProcessInfo(
-                process_id, tool_id, chamber_id, recipe_id,
-                start_ts, end_ts, raw_csv_path, lot_id, wafer_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                process_id_with_lot,
-                f"TOOL_{suffix}",
-                "CH1",
-                recipe_id,
-                "2026-04-17T00:00:00+00:00",
-                "2026-04-17T00:05:00+00:00",
-                f"data/detail/{process_id_with_lot}.csv",
-                f"LOT_{suffix}",
-                "W01",
-            ),
+        insert_process_info(
+            process_id=process_id_with_lot,
+            tool_id=tool_id,
+            recipe_id=recipe_id,
+            lot_id=f"LOT_{suffix}",
+            wafer_id="W01",
+            start_ts="2026-04-17T00:00:00+00:00",
+            end_ts="2026-04-17T00:05:00+00:00",
         )
-        con.execute(
-            """
-            INSERT INTO ProcessInfo(
-                process_id, tool_id, chamber_id, recipe_id,
-                start_ts, end_ts, raw_csv_path, lot_id, wafer_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                process_id_without_lot,
-                f"TOOL_{suffix}",
-                "CH1",
-                recipe_id,
-                "2026-04-17T01:00:00+00:00",
-                "2026-04-17T01:05:00+00:00",
-                f"data/detail/{process_id_without_lot}.csv",
-                None,
-                None,
-            ),
+        insert_process_info(
+            process_id=process_id_without_lot,
+            tool_id=tool_id,
+            recipe_id=recipe_id,
+            lot_id=None,
+            wafer_id=None,
+            start_ts="2026-04-17T01:00:00+00:00",
+            end_ts="2026-04-17T01:05:00+00:00",
         )
 
-        con.execute(
-            """
-            INSERT INTO JudgementResults(
-                process_id, tool_id, chamber_id, recipe_id, status, judged_at, message_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                process_id_with_lot,
-                f"TOOL_{suffix}",
-                "CH1",
-                recipe_id,
-                "WARN",
-                "2026-04-17T09:00:00.123999+09:00",
-                json.dumps(
-                    {
-                        "chart_id": "CHART_100",
-                        "step_no": 1,
-                        "feature_type": "mean",
-                        "feature_value": 2.72,
-                    }
-                ),
-            ),
+        chart_id, _ = insert_chart_set_and_chart(
+            chart_set_name=chart_set_name,
+            chart_attrs={
+                "tool_id": tool_id,
+                "recipe_id": recipe_id,
+                "chamber_id": "CH1",
+                "parameter": "dc_bias",
+                "step_no": 1,
+                "feature_type": "mean",
+                "warn_low": 1.4,
+                "warn_high": 2.6,
+                "crit_low": 1.2,
+                "crit_high": 2.8,
+            },
         )
-        con.execute(
-            """
-            INSERT INTO JudgementResults(
-                process_id, tool_id, chamber_id, recipe_id, status, judged_at, message_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                process_id_without_lot,
-                f"TOOL_{suffix}",
-                "CH1",
-                recipe_id,
-                "OK",
-                "2026-04-17T01:10:00+00:00",
-                json.dumps(
-                    {
-                        "chart_id": "CHART_200",
-                        "step_no": 2,
-                        "feature_type": "std",
-                        "feature_value": 1.23,
-                    }
-                ),
-            ),
+
+        warn_row_id = insert_judgement_result(
+            process_id=process_id_with_lot,
+            tool_id=tool_id,
+            chamber_id="CH1",
+            recipe_id=recipe_id,
+            status="WARN",
+            judged_at="2026-04-17T09:00:00.123999+09:00",
+            message_json={
+                "chart_id": chart_id,
+                "parameter": "dc_bias",
+                "step_no": 1,
+                "feature_type": "mean",
+                "feature_value": 2.72,
+                "stop_api_called": False,
+                "stop_api_status": "NOT_CALLED",
+            },
         )
-        con.commit()
+        ok_row_id = insert_judgement_result(
+            process_id=process_id_without_lot,
+            tool_id=tool_id,
+            chamber_id="CH1",
+            recipe_id=recipe_id,
+            status="OK",
+            judged_at="2026-04-17T01:10:00+00:00",
+            message_json={
+                "chart_id": "CHART_200",
+                "step_no": 2,
+                "feature_type": "std",
+                "feature_value": 1.23,
+            },
+        )
+        result_id_with_lot = f"JR_{warn_row_id}"
+        result_id_without_lot = f"JR_{ok_row_id}"
 
         yield SeededJudgeResultsContext(
             process_id_with_lot=process_id_with_lot,
             process_id_without_lot=process_id_without_lot,
             recipe_id=recipe_id,
-            chart_id="CHART_100",
+            chart_id=chart_id,
+            result_id_with_lot=result_id_with_lot,
+            result_id_without_lot=result_id_without_lot,
         )
     finally:
-        cleanup = sqlite3.connect(MAIN_DB.as_posix())
-        try:
-            cleanup.execute(
-                "DELETE FROM JudgementResults WHERE process_id IN (?, ?)",
-                (process_id_with_lot, process_id_without_lot),
-            )
-            cleanup.execute(
-                "DELETE FROM ProcessInfo WHERE process_id IN (?, ?)",
-                (process_id_with_lot, process_id_without_lot),
-            )
-            cleanup.commit()
-        finally:
-            cleanup.close()
-        con.close()
+        cleanup_seeded_judge_results(
+            process_ids=(process_id_with_lot, process_id_without_lot),
+            chart_set_name=chart_set_name,
+        )
 
 
 def test_get_judge_results_returns_contract_fields(
@@ -185,7 +310,7 @@ def test_get_judge_results_returns_contract_fields(
         )
 
     warn_row = next(item for item in rows if item["level"] == "WARN")
-    assert warn_row["chart_id"] == "CHART_100"
+    assert warn_row["chart_id"] == seeded.chart_id
     assert warn_row["feature_type"] == "mean"
     assert warn_row["feature_value"] == 2.72
     assert warn_row["judged_at"] == "2026-04-17T00:00:00.123Z"
@@ -220,6 +345,350 @@ def test_get_judge_results_supports_filters(
     assert rows[0]["level"] == "WARN"
 
 
+def test_get_judge_result_by_id_returns_contract_fields(
+    client: TestClient,
+    seeded_judge_results_context: SeededJudgeResultsContext,
+) -> None:
+    """GET /judge/results/{result_id} が契約フィールドと詳細情報を返す。"""
+    seeded = seeded_judge_results_context
+
+    res = client.get(f"/judge/results/{seeded.result_id_with_lot}")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["ok"] is True
+    data = body["data"]
+
+    expected_keys = {
+        "result_id",
+        "chart_id",
+        "process_id",
+        "lot_id",
+        "wafer_id",
+        "tool_id",
+        "chamber_id",
+        "recipe_id",
+        "parameter",
+        "step_no",
+        "feature_type",
+        "feature_value",
+        "warning_lcl",
+        "warning_ucl",
+        "critical_lcl",
+        "critical_ucl",
+        "level",
+        "judged_at",
+        "process_start_ts",
+        "stop_api_called",
+        "stop_api_status",
+    }
+
+    assert expected_keys.issubset(data.keys())
+    assert data["result_id"] == seeded.result_id_with_lot
+    assert data["chart_id"] == seeded.chart_id
+    assert data["process_id"] == seeded.process_id_with_lot
+    assert data["level"] == "WARN"
+    assert data["parameter"] == "dc_bias"
+    assert data["step_no"] == 1
+    assert data["feature_type"] == "mean"
+    assert data["feature_value"] == 2.72
+    assert data["warning_lcl"] == 1.4
+    assert data["warning_ucl"] == 2.6
+    assert data["critical_lcl"] == 1.2
+    assert data["critical_ucl"] == 2.8
+    assert data["stop_api_called"] is False
+    assert data["stop_api_status"] == "NOT_CALLED"
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z", data["judged_at"])
+    assert re.fullmatch(
+        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z",
+        data["process_start_ts"],
+    )
+    assert data["judged_at"] == "2026-04-17T00:00:00.123Z"
+
+
+def test_get_judge_result_by_id_returns_stop_api_true_status(
+    client: TestClient,
+    seeded_judge_results_context: SeededJudgeResultsContext,
+) -> None:
+    """stop_api_called=True の payload を detail がそのまま返す。"""
+    seeded = seeded_judge_results_context
+
+    result_row_id = insert_judgement_result(
+        process_id=seeded.process_id_with_lot,
+        tool_id="TOOL_STOP_API_TRUE",
+        chamber_id="CH1",
+        recipe_id=seeded.recipe_id,
+        status="WARN",
+        judged_at="2026-04-17T02:10:00+00:00",
+        message_json={
+            "chart_id": seeded.chart_id,
+            "parameter": "dc_bias",
+            "step_no": 1,
+            "feature_type": "mean",
+            "feature_value": 2.72,
+            "stop_api_called": True,
+            "stop_api_status": "CALLED_SUCCESS",
+        },
+    )
+
+    con = _connect(MAIN_DB)
+    try:
+        res = client.get(f"/judge/results/JR_{result_row_id}")
+
+        assert res.status_code == 200
+        data = res.json()["data"]
+        assert data["stop_api_called"] is True
+        assert data["stop_api_status"] == "CALLED_SUCCESS"
+    finally:
+        con.execute(
+            "DELETE FROM JudgementResults WHERE process_id = ? AND tool_id = ?",
+            (seeded.process_id_with_lot, "TOOL_STOP_API_TRUE"),
+        )
+        con.commit()
+        con.close()
+
+
+def test_get_judge_result_by_id_returns_stop_api_defaults_when_fields_missing(
+    client: TestClient,
+    seeded_judge_results_context: SeededJudgeResultsContext,
+) -> None:
+    """stop_api_* 欠落時は既定値（False/NOT_CALLED）を返す。"""
+    seeded = seeded_judge_results_context
+
+    res = client.get(f"/judge/results/{seeded.result_id_without_lot}")
+
+    assert res.status_code == 200
+    data = res.json()["data"]
+    assert data["stop_api_called"] is False
+    assert data["stop_api_status"] == "NOT_CALLED"
+
+
+def test_get_judge_result_by_id_returns_not_found_envelope(client: TestClient) -> None:
+    """未知 result_id は契約どおり 404 NOT_FOUND envelope を返す。"""
+    res = client.get("/judge/results/JR_999999999")
+
+    assert res.status_code == 404
+    body = res.json()
+    assert body == {
+        "ok": False,
+        "error": {
+            "code": "NOT_FOUND",
+            "message": "judge result not found",
+            "details": {"result_id": "JR_999999999"},
+        },
+    }
+
+
+def test_get_judge_result_by_id_returns_422_for_invalid_result_id(client: TestClient) -> None:
+    """契約外 result_id 形式は 422 の validation error を返す。"""
+    res = client.get("/judge/results/INVALID")
+
+    assert res.status_code == 422
+    assert_validation_error_envelope(
+        res.json(),
+        expected_loc_fragment="result_id",
+        expected_message_fragment="pattern",
+    )
+
+
+def test_get_judge_result_by_id_returns_400_for_non_positive_result_id(client: TestClient) -> None:
+    """形式は正しいが 1 未満の result_id は 400 を返す。"""
+    res = client.get("/judge/results/JR_0")
+
+    assert res.status_code == 400
+    assert res.json() == {"detail": "Invalid result_id"}
+
+
+def test_get_judge_result_by_id_normalizes_leading_zeros(
+    client: TestClient,
+    seeded_judge_results_context: SeededJudgeResultsContext,
+) -> None:
+    """先頭ゼロ付き result_id は同一 PK に正規化され、正規形で返る。"""
+    seeded = seeded_judge_results_context
+    result_pk = seeded.result_id_with_lot.split("_", maxsplit=1)[1]
+    leading_zero_result_id = f"JR_0{result_pk}"
+
+    res = client.get(f"/judge/results/{leading_zero_result_id}")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["ok"] is True
+    assert body["data"]["result_id"] == seeded.result_id_with_lot
+    assert body["data"]["process_id"] == seeded.process_id_with_lot
+    assert body["data"]["chart_id"] == seeded.chart_id
+
+
+def test_get_judge_result_by_id_does_not_enrich_thresholds_for_fractional_chart_id(
+    client: TestClient,
+    seeded_judge_results_context: SeededJudgeResultsContext,
+) -> None:
+    """float chart_id は正規化して返すが detail 閾値補完には使わない。"""
+    seeded = seeded_judge_results_context
+    chart_pk = int(seeded.chart_id.split("_", maxsplit=1)[1])
+
+    result_row_id = insert_judgement_result(
+        process_id=seeded.process_id_without_lot,
+        tool_id="TOOL_FRACTIONAL_CHART",
+        chamber_id="CH1",
+        recipe_id=seeded.recipe_id,
+        status="WARN",
+        judged_at="2026-04-17T02:00:00+00:00",
+        message_json={
+            "chart_id": chart_pk + 0.7,
+            "feature_value": 9.99,
+        },
+    )
+
+    con = _connect(MAIN_DB)
+    try:
+        res = client.get(f"/judge/results/JR_{result_row_id}")
+
+        assert res.status_code == 200
+        data = res.json()["data"]
+        assert data["chart_id"] == seeded.chart_id
+        assert data["parameter"] is None
+        assert data["step_no"] is None
+        assert data["feature_type"] is None
+        assert data["warning_lcl"] is None
+        assert data["warning_ucl"] is None
+        assert data["critical_lcl"] is None
+        assert data["critical_ucl"] is None
+        assert data["feature_value"] == 9.99
+    finally:
+        con.execute(
+            "DELETE FROM JudgementResults WHERE process_id = ? AND tool_id = ?",
+            (seeded.process_id_without_lot, "TOOL_FRACTIONAL_CHART"),
+        )
+        con.commit()
+        con.close()
+
+
+def test_get_judge_result_by_id_returns_null_thresholds_when_chart_thresholds_are_null(
+    client: TestClient,
+    seeded_judge_results_context: SeededJudgeResultsContext,
+) -> None:
+    """一致する ChartsV2 行の閾値が NULL の場合は detail でも None を返す。"""
+    seeded = seeded_judge_results_context
+    chart_pk = int(seeded.chart_id.split("_", maxsplit=1)[1])
+
+    con = _connect(MAIN_DB)
+    try:
+        con.execute(
+            """
+            UPDATE ChartsV2
+            SET warn_low = NULL, warn_high = NULL, crit_low = NULL, crit_high = NULL
+            WHERE id = ?
+            """,
+            (chart_pk,),
+        )
+        con.commit()
+
+        res = client.get(f"/judge/results/{seeded.result_id_with_lot}")
+
+        assert res.status_code == 200
+        data = res.json()["data"]
+        assert data["warning_lcl"] is None
+        assert data["warning_ucl"] is None
+        assert data["critical_lcl"] is None
+        assert data["critical_ucl"] is None
+    finally:
+        con.close()
+
+
+def test_get_judge_result_by_id_returns_500_when_detail_conversion_fails(
+    client: TestClient,
+    seeded_judge_results_context: SeededJudgeResultsContext,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """_to_judge_result_detail_view が None を返す場合（invalid 時刻）に HTTP 500 を返す。"""
+    seeded = seeded_judge_results_context
+
+    result_row_id = insert_judgement_result(
+        process_id=seeded.process_id_without_lot,
+        tool_id="TOOL_DATA_CORRUPTION_TEST",
+        chamber_id="CH1",
+        recipe_id=seeded.recipe_id,
+        status="WARN",
+        judged_at="INVALID_TIMESTAMP",
+        message_json={
+            "chart_id": "CHART_999",
+            "feature_value": 1.0,
+        },
+    )
+
+    con = _connect(MAIN_DB)
+    try:
+        with caplog.at_level(logging.ERROR, logger="portfolio_fdc.db_api.app"):
+            res = client.get(f"/judge/results/JR_{result_row_id}")
+
+        assert res.status_code == 500
+        body = res.json()
+        expected = {"detail": "Internal server error"}
+        assert body == expected
+        assert "JUDGE_DATA_CORRUPTION" in caplog.text
+    finally:
+        con.execute(
+            "DELETE FROM JudgementResults WHERE process_id = ? AND tool_id = ?",
+            (seeded.process_id_without_lot, "TOOL_DATA_CORRUPTION_TEST"),
+        )
+        con.commit()
+        con.close()
+
+
+def test_get_judge_result_by_id_returns_500_when_process_start_ts_is_corrupted(
+    client: TestClient,
+    seeded_judge_results_context: SeededJudgeResultsContext,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """invalid ProcessInfo.start_ts で detail 変換が失敗した場合に HTTP 500 を返す。"""
+    seeded = seeded_judge_results_context
+
+    con = _connect(MAIN_DB)
+    original_start_ts = con.execute(
+        "SELECT start_ts FROM ProcessInfo WHERE process_id = ?",
+        (seeded.process_id_without_lot,),
+    ).fetchone()
+    try:
+        result_row_id = insert_judgement_result(
+            process_id=seeded.process_id_without_lot,
+            tool_id="TOOL_DATA_CORRUPTION_TEST",
+            chamber_id="CH1",
+            recipe_id=seeded.recipe_id,
+            status="WARN",
+            judged_at="2026-04-17T02:30:00+00:00",
+            message_json={
+                "chart_id": "CHART_999",
+                "feature_value": 1.0,
+            },
+        )
+        con.execute(
+            "UPDATE ProcessInfo SET start_ts = ? WHERE process_id = ?",
+            ("INVALID_TIMESTAMP", seeded.process_id_without_lot),
+        )
+        con.commit()
+
+        with caplog.at_level(logging.ERROR, logger="portfolio_fdc.db_api.app"):
+            res = client.get(f"/judge/results/JR_{result_row_id}")
+
+        assert res.status_code == 500
+        body = res.json()
+        expected = {"detail": "Internal server error"}
+        assert body == expected
+        assert "JUDGE_DATA_CORRUPTION" in caplog.text
+    finally:
+        if original_start_ts is not None:
+            con.execute(
+                "UPDATE ProcessInfo SET start_ts = ? WHERE process_id = ?",
+                (original_start_ts[0], seeded.process_id_without_lot),
+            )
+        con.execute(
+            "DELETE FROM JudgementResults WHERE process_id = ? AND tool_id = ?",
+            (seeded.process_id_without_lot, "TOOL_DATA_CORRUPTION_TEST"),
+        )
+        con.commit()
+        con.close()
+
+
 def test_get_judge_results_supports_pagination(
     client: TestClient,
     seeded_judge_results_context: SeededJudgeResultsContext,
@@ -252,7 +721,7 @@ def test_get_judge_results_pagination_ignores_invalid_status_rows(
 ) -> None:
     """invalid status 行が存在しても SQL 側で除外されページングが崩れないことを検証する。"""
     seeded = seeded_judge_results_context
-    con = sqlite3.connect(MAIN_DB.as_posix())
+    con = _connect(MAIN_DB)
     try:
         # judged_at を最新にして、SQL 除外が無いと先頭ページを壊すデータを作る。
         con.execute(
@@ -305,7 +774,7 @@ def test_get_judge_results_skips_row_with_invalid_judged_at(
 ) -> None:
     """不正 judged_at を含む行があっても 500 にならず当該行をスキップする。"""
     seeded = seeded_judge_results_context
-    con = sqlite3.connect(MAIN_DB.as_posix())
+    con = _connect(MAIN_DB)
     try:
         con.execute(
             """
@@ -357,7 +826,7 @@ def test_get_judge_results_skips_row_with_invalid_process_start_ts(
 ) -> None:
     """不正 ProcessInfo.start_ts を持つ process の行を 500 なくスキップする。"""
     seeded = seeded_judge_results_context
-    con = sqlite3.connect(MAIN_DB.as_posix())
+    con = _connect(MAIN_DB)
     original_start_ts = con.execute(
         "SELECT start_ts FROM ProcessInfo WHERE process_id = ?",
         (seeded.process_id_with_lot,),

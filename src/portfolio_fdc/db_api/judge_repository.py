@@ -22,6 +22,10 @@ def _allowed_levels_sql() -> str:
     return ", ".join(f"'{level}'" for level in sorted(_ALLOWED_LEVELS))
 
 
+class JudgeDataCorruptionError(RuntimeError):
+    """DB 行が存在するのに API モデルへ変換できない場合の例外。"""
+
+
 @dataclass(frozen=True)
 class JudgeResultsQueryCriteria:
     """`GET /judge/results` の検索条件を保持する DTO。"""
@@ -55,8 +59,50 @@ class JudgeResultView:
     process_start_ts: str
 
 
+@dataclass(frozen=True)
+class JudgeResultDetailView:
+    """`GET /judge/results/{result_id}` レスポンス DTO。"""
+
+    result_id: str
+    chart_id: str | None
+    process_id: str
+    lot_id: str | None
+    wafer_id: str | None
+    tool_id: str
+    chamber_id: str
+    recipe_id: str
+    parameter: str | None
+    step_no: int | None
+    feature_type: str | None
+    feature_value: float | None
+    warning_lcl: float | None
+    warning_ucl: float | None
+    critical_lcl: float | None
+    critical_ucl: float | None
+    level: str
+    judged_at: str
+    process_start_ts: str
+    stop_api_called: bool
+    stop_api_status: str
+
+
+@dataclass(frozen=True)
+class JudgeResultPayloadFields:
+    """detail 変換時に message_json から抽出するフィールド群。"""
+
+    payload: dict[str, Any]
+    parameter: str | None
+    step_no: int | None
+    feature_type: str | None
+    feature_value: float | None
+    stop_api_called: bool
+    stop_api_status: str
+
+
 class JudgeRepository:
     """判定結果一覧を取得するリポジトリ。"""
+
+    _ALLOWED_LEVELS_SQL = _allowed_levels_sql()
 
     _SELECT_SQL = """
         SELECT
@@ -81,6 +127,44 @@ class JudgeRepository:
         -- If this changes, reconsider LEFT JOIN + NULL handling.
         INNER JOIN ProcessInfo p
             ON p.process_id = j.process_id
+    """
+
+    _SELECT_DETAIL_SQL = """
+        SELECT
+            j.id,
+            j.process_id,
+            p.lot_id,
+            p.wafer_id,
+            j.tool_id,
+            j.chamber_id,
+            j.recipe_id,
+            j.status,
+            j.judged_at,
+            p.start_ts,
+            j.message_json,
+            CASE
+                WHEN json_valid(j.message_json)
+                THEN json_extract(j.message_json, '$.chart_id')
+                ELSE NULL
+            END AS extracted_chart_id
+        FROM JudgementResults j
+        INNER JOIN ProcessInfo p
+            ON p.process_id = j.process_id
+                WHERE j.id = ?
+                    AND UPPER(j.status) IN ({allowed_levels})
+    """
+
+    _SELECT_CHART_THRESHOLDS_SQL = """
+        SELECT
+            c.parameter,
+            c.step_no,
+            c.feature_type,
+            c.warn_low,
+            c.warn_high,
+            c.crit_low,
+            c.crit_high
+        FROM ChartsV2 c
+        WHERE c.id = ?
     """
 
     def find_results(self, criteria: JudgeResultsQueryCriteria) -> list[JudgeResultView]:
@@ -159,6 +243,24 @@ class JudgeRepository:
                 views.append(view)
         return views
 
+    def find_result_by_id(self, result_pk: int) -> JudgeResultDetailView | None:
+        """`result_pk` に一致する判定結果詳細を返す。"""
+        con = _connect(MAIN_DB)
+        try:
+            sql = self._SELECT_DETAIL_SQL.format(allowed_levels=self._ALLOWED_LEVELS_SQL)
+            row = con.execute(sql, (result_pk,)).fetchone()
+        finally:
+            con.close()
+
+        if row is None:
+            return None
+        detail = self._to_judge_result_detail_view(row)
+        if detail is None:
+            raise JudgeDataCorruptionError(
+                f"Failed to convert judge result detail row for result_pk={result_pk}"
+            )
+        return detail
+
     @staticmethod
     def _append_filter_condition(
         value: Any,
@@ -233,6 +335,222 @@ class JudgeRepository:
             level=normalized_level,
             judged_at=judged_at_utc,
             process_start_ts=process_start_ts_utc,
+        )
+
+    def _to_judge_result_detail_view(
+        self,
+        row: tuple[Any, ...],
+    ) -> JudgeResultDetailView | None:
+        """DB 行を `JudgeResultDetailView` へ変換する。"""
+        (
+            result_pk,
+            process_id,
+            lot_id,
+            wafer_id,
+            tool_id,
+            chamber_id,
+            recipe_id,
+            status,
+            judged_at,
+            process_start_ts,
+            message_json,
+            extracted_chart_id,
+        ) = row
+
+        normalized_level = _normalize_level(status)
+        result_id = f"JR_{int(result_pk)}"
+        converted_timestamps = self._convert_timestamps(
+            result_id=result_id,
+            judged_at=judged_at,
+            process_start_ts=process_start_ts,
+        )
+        if converted_timestamps is None:
+            return None
+        judged_at_utc, process_start_ts_utc = converted_timestamps
+
+        payload_fields = self._extract_payload_fields(message_json)
+        chart_id = _extract_chart_id(payload_fields.payload, extracted_chart_id)
+        raw_chart_candidate = payload_fields.payload.get("chart_id")
+        if raw_chart_candidate is None:
+            raw_chart_candidate = extracted_chart_id
+
+        (
+            parameter,
+            step_no,
+            feature_type,
+            warning_lcl,
+            warning_ucl,
+            critical_lcl,
+            critical_ucl,
+        ) = self._enrich_with_chart_thresholds(
+            chart_id,
+            payload_fields.parameter,
+            payload_fields.step_no,
+            payload_fields.feature_type,
+            raw_chart_candidate=raw_chart_candidate,
+        )
+
+        return JudgeResultDetailView(
+            result_id=result_id,
+            chart_id=chart_id,
+            process_id=str(process_id),
+            lot_id=_to_str_or_none(lot_id),
+            wafer_id=_to_str_or_none(wafer_id),
+            tool_id=str(tool_id),
+            chamber_id=str(chamber_id),
+            recipe_id=str(recipe_id),
+            parameter=parameter,
+            step_no=step_no,
+            feature_type=feature_type,
+            feature_value=payload_fields.feature_value,
+            warning_lcl=_to_float_or_none(warning_lcl),
+            warning_ucl=_to_float_or_none(warning_ucl),
+            critical_lcl=_to_float_or_none(critical_lcl),
+            critical_ucl=_to_float_or_none(critical_ucl),
+            level=normalized_level,
+            judged_at=judged_at_utc,
+            process_start_ts=process_start_ts_utc,
+            stop_api_called=payload_fields.stop_api_called,
+            stop_api_status=payload_fields.stop_api_status,
+        )
+
+    @staticmethod
+    def _convert_timestamps(
+        *,
+        result_id: str,
+        judged_at: Any,
+        process_start_ts: Any,
+    ) -> tuple[str, str] | None:
+        """detail 用時刻フィールドを UTC ミリ秒固定精度へ正規化する。"""
+        try:
+            judged_at_utc = to_utc_millis(str(judged_at))
+        except ValueError:
+            _LOGGER.warning(
+                "Skipping judge result detail due to invalid judged_at: result_id=%s judged_at=%r",
+                result_id,
+                judged_at,
+                exc_info=True,
+            )
+            return None
+
+        try:
+            process_start_ts_utc = to_utc_millis(str(process_start_ts))
+        except ValueError:
+            _LOGGER.warning(
+                "Skipping judge result detail due to invalid process_start_ts: "
+                "result_id=%s process_start_ts=%r",
+                result_id,
+                process_start_ts,
+                exc_info=True,
+            )
+            return None
+
+        return judged_at_utc, process_start_ts_utc
+
+    @staticmethod
+    def _extract_payload_fields(message_json: Any) -> JudgeResultPayloadFields:
+        """message_json を parse し、detail DTO で使う値へ変換する。"""
+        payload = _parse_message_json(message_json)
+        return JudgeResultPayloadFields(
+            payload=payload,
+            parameter=_to_str_value_or_none(payload.get("parameter")),
+            step_no=_to_int_or_none(payload.get("step_no")),
+            feature_type=_to_str_value_or_none(payload.get("feature_type")),
+            feature_value=_to_float_or_none(payload.get("feature_value")),
+            stop_api_called=_to_bool_or_default(payload.get("stop_api_called"), default=False),
+            stop_api_status=_to_stop_api_status_or_default(
+                payload.get("stop_api_status"),
+                default="NOT_CALLED",
+            ),
+        )
+
+    def _enrich_with_chart_thresholds(
+        self,
+        chart_id: str | None,
+        parameter: str | None,
+        step_no: int | None,
+        feature_type: str | None,
+        *,
+        raw_chart_candidate: Any,
+    ) -> tuple[
+        str | None,
+        int | None,
+        str | None,
+        float | None,
+        float | None,
+        float | None,
+        float | None,
+    ]:
+        """chart 由来で補完可能な detail フィールドと閾値を埋める。"""
+        warning_lcl: float | None = None
+        warning_ucl: float | None = None
+        critical_lcl: float | None = None
+        critical_ucl: float | None = None
+
+        if not _is_integer_chart_candidate(raw_chart_candidate):
+            return (
+                parameter,
+                step_no,
+                feature_type,
+                warning_lcl,
+                warning_ucl,
+                critical_lcl,
+                critical_ucl,
+            )
+
+        chart_pk = _chart_pk_from_chart_id(chart_id)
+        if chart_pk is None:
+            return (
+                parameter,
+                step_no,
+                feature_type,
+                warning_lcl,
+                warning_ucl,
+                critical_lcl,
+                critical_ucl,
+            )
+
+        chart_con = _connect(MAIN_DB)
+        try:
+            chart_row = chart_con.execute(self._SELECT_CHART_THRESHOLDS_SQL, (chart_pk,)).fetchone()
+        finally:
+            chart_con.close()
+
+        if chart_row is None:
+            return (
+                parameter,
+                step_no,
+                feature_type,
+                warning_lcl,
+                warning_ucl,
+                critical_lcl,
+                critical_ucl,
+            )
+
+        (
+            chart_parameter,
+            chart_step_no,
+            chart_feature_type,
+            warning_lcl,
+            warning_ucl,
+            critical_lcl,
+            critical_ucl,
+        ) = chart_row
+        if parameter is None:
+            parameter = _to_str_or_none(chart_parameter)
+        if step_no is None:
+            step_no = _to_int_or_none(chart_step_no)
+        if feature_type is None:
+            feature_type = _to_str_or_none(chart_feature_type)
+
+        return (
+            parameter,
+            step_no,
+            feature_type,
+            warning_lcl,
+            warning_ucl,
+            critical_lcl,
+            critical_ucl,
         )
 
 
@@ -340,3 +658,47 @@ def _to_float_or_none(value: Any) -> float | None:
         return result
     except (ValueError, TypeError, OverflowError):
         return None
+
+
+def _chart_pk_from_chart_id(chart_id: str | None) -> int | None:
+    """`CHART_<id>` を chart PK へ変換する。"""
+    if chart_id is None or _CHART_ID_PATTERN.fullmatch(chart_id) is None:
+        return None
+    try:
+        chart_pk = int(chart_id.split("_", maxsplit=1)[1])
+    except (ValueError, IndexError, OverflowError):
+        return None
+    if chart_pk < 0:
+        return None
+    return chart_pk
+
+
+def _is_integer_chart_candidate(candidate: Any) -> bool:
+    """閾値補完に使ってよい整数系 chart 候補かを判定する。"""
+    if candidate is None or isinstance(candidate, bool):
+        return False
+    if isinstance(candidate, int):
+        return candidate >= 0
+    if isinstance(candidate, float):
+        return math.isfinite(candidate) and candidate >= 0 and candidate.is_integer()
+    if isinstance(candidate, str):
+        if candidate.startswith("CHART_"):
+            return _CHART_ID_PATTERN.fullmatch(candidate) is not None
+        return candidate.isascii() and candidate.isdigit()
+    return False
+
+
+def _to_bool_or_default(value: Any, *, default: bool) -> bool:
+    """bool 値として安全に解釈できる場合のみその値を返す。"""
+    if isinstance(value, bool):
+        return value
+    return default
+
+
+def _to_stop_api_status_or_default(value: Any, *, default: str) -> str:
+    """stop_api_status を文字列として返し、未指定/不正時は既定値へフォールバックする。"""
+    if isinstance(value, str):
+        normalized = value.strip()
+        if normalized:
+            return normalized
+    return default

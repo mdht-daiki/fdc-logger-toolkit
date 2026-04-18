@@ -473,9 +473,20 @@ def test_get_judge_result_by_id_returns_500_when_detail_conversion_fails(
 
         assert res.status_code == 500
         body = res.json()
-        # HTTP 500 はデフォルト FastAPI エラー or カスタムエラー構造
-        # JudgeDataCorruptionError が raise されたことをログで確認
-        assert "detail" in body or body.get("ok") is False
+        if "detail" in body:
+            detail = body["detail"]
+            assert isinstance(detail, str)
+            assert "Internal server error" in detail
+        else:
+            assert body.get("ok") is False
+            if "error" in body:
+                error = body["error"]
+                assert isinstance(error, dict)
+                message = error.get("message")
+                assert isinstance(message, str)
+            else:
+                message = body.get("message")
+                assert isinstance(message, str)
     finally:
         con.execute(
             "DELETE FROM JudgementResults WHERE process_id = ? AND tool_id = ?",

@@ -230,7 +230,7 @@ dashboard read-only baseline と judge 最小実装に必要な API 契約を、
   "ok": true,
   "data": [
     {
-      "result_id": "JR_001",
+      "result_id": "JR_1",
       "chart_id": "CHART_001",
       "process_id": "P_20260414_0001",
       "lot_id": "LOT_001",
@@ -270,7 +270,7 @@ dashboard read-only baseline と judge 最小実装に必要な API 契約を、
 {
   "ok": true,
   "data": {
-    "result_id": "JR_001",
+    "result_id": "JR_1",
     "chart_id": "CHART_001",
     "process_id": "P_20260414_0001",
     "lot_id": "LOT_001",

@@ -22,6 +22,10 @@ def _allowed_levels_sql() -> str:
     return ", ".join(f"'{level}'" for level in sorted(_ALLOWED_LEVELS))
 
 
+class JudgeDataCorruptionError(RuntimeError):
+    """DB 行が存在するのに API モデルへ変換できない場合の例外。"""
+
+
 @dataclass(frozen=True)
 class JudgeResultsQueryCriteria:
     """`GET /judge/results` の検索条件を保持する DTO。"""
@@ -85,6 +89,8 @@ class JudgeResultDetailView:
 class JudgeRepository:
     """判定結果一覧を取得するリポジトリ。"""
 
+    _ALLOWED_LEVELS_SQL = _allowed_levels_sql()
+
     _SELECT_SQL = """
         SELECT
             j.id,
@@ -131,7 +137,8 @@ class JudgeRepository:
         FROM JudgementResults j
         INNER JOIN ProcessInfo p
             ON p.process_id = j.process_id
-        WHERE j.id = ?
+                WHERE j.id = ?
+                    AND UPPER(j.status) IN ({allowed_levels})
     """
 
     _SELECT_CHART_THRESHOLDS_SQL = """
@@ -227,10 +234,16 @@ class JudgeRepository:
         """`result_pk` に一致する判定結果詳細を返す。"""
         con = _connect(MAIN_DB)
         try:
-            row = con.execute(self._SELECT_DETAIL_SQL, (result_pk,)).fetchone()
+            sql = self._SELECT_DETAIL_SQL.format(allowed_levels=self._ALLOWED_LEVELS_SQL)
+            row = con.execute(sql, (result_pk,)).fetchone()
             if row is None:
                 return None
-            return self._to_judge_result_detail_view(con, row)
+            detail = self._to_judge_result_detail_view(con, row)
+            if detail is None:
+                raise JudgeDataCorruptionError(
+                    f"Failed to convert judge result detail row for result_pk={result_pk}"
+                )
+            return detail
         finally:
             con.close()
 

@@ -415,8 +415,8 @@ class JudgeRepository:
             stop_api_status=payload_fields.stop_api_status,
         )
 
+    @staticmethod
     def _convert_timestamps(
-        self,
         *,
         result_id: str,
         judged_at: Any,
@@ -448,7 +448,8 @@ class JudgeRepository:
 
         return judged_at_utc, process_start_ts_utc
 
-    def _extract_payload_fields(self, message_json: Any) -> JudgeResultPayloadFields:
+    @staticmethod
+    def _extract_payload_fields(message_json: Any) -> JudgeResultPayloadFields:
         """message_json を parse し、detail DTO で使う値へ変換する。"""
         payload = _parse_message_json(message_json)
         return JudgeResultPayloadFields(

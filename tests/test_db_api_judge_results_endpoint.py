@@ -434,6 +434,57 @@ def test_get_judge_result_by_id_does_not_enrich_thresholds_for_fractional_chart_
         con.close()
 
 
+def test_get_judge_result_by_id_returns_500_when_detail_conversion_fails(
+    client: TestClient,
+    seeded_judge_results_context: SeededJudgeResultsContext,
+) -> None:
+    """_to_judge_result_detail_view が None を返す場合（invalid 時刻）に HTTP 500 を返す。"""
+    seeded = seeded_judge_results_context
+
+    con = sqlite3.connect(MAIN_DB.as_posix())
+    try:
+        cursor = con.execute(
+            """
+            INSERT INTO JudgementResults(
+                process_id, tool_id, chamber_id, recipe_id, status, judged_at, message_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                seeded.process_id_without_lot,
+                "TOOL_DATA_CORRUPTION_TEST",
+                "CH1",
+                seeded.recipe_id,
+                "WARN",
+                "INVALID_TIMESTAMP",
+                json.dumps(
+                    {
+                        "chart_id": "CHART_999",
+                        "feature_value": 1.0,
+                    }
+                ),
+            ),
+        )
+        con.commit()
+        result_row_id = cursor.lastrowid
+        if result_row_id is None:
+            raise RuntimeError("Failed to seed invalid judge result")
+
+        res = client.get(f"/judge/results/JR_{result_row_id}")
+
+        assert res.status_code == 500
+        body = res.json()
+        # HTTP 500 はデフォルト FastAPI エラー or カスタムエラー構造
+        # JudgeDataCorruptionError が raise されたことをログで確認
+        assert "detail" in body or body.get("ok") is False
+    finally:
+        con.execute(
+            "DELETE FROM JudgementResults WHERE process_id = ? AND tool_id = ?",
+            (seeded.process_id_without_lot, "TOOL_DATA_CORRUPTION_TEST"),
+        )
+        con.commit()
+        con.close()
+
+
 def test_get_judge_results_supports_pagination(
     client: TestClient,
     seeded_judge_results_context: SeededJudgeResultsContext,

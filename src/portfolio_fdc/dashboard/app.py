@@ -482,6 +482,13 @@ def _render_judge_tab(base_url: str, recipe_id: str, chart_id: str, result_id: s
     detail_block: Any = html.Div("Select/enter result_id to load detail")
     if detail is not None:
         level = str(detail.get("level", ""))
+        judged_at_val = parse_utc_millis(
+            str(detail.get("judged_at")) if detail.get("judged_at") else None
+        )
+        process_start_ts_val = parse_utc_millis(
+            str(detail.get("process_start_ts")) if detail.get("process_start_ts") else None
+        )
+
         detail_block = html.Pre(
             "\n".join(
                 [
@@ -495,8 +502,8 @@ def _render_judge_tab(base_url: str, recipe_id: str, chart_id: str, result_id: s
                         f"warn[{detail.get('warning_lcl')}, {detail.get('warning_ucl')}], "
                         f"crit[{detail.get('critical_lcl')}, {detail.get('critical_ucl')}]"
                     ),
-                    f"judged_at: {parse_utc_millis(str(detail.get('judged_at')))}",
-                    f"process_start_ts: {parse_utc_millis(str(detail.get('process_start_ts')))}",
+                    f"judged_at: {judged_at_val}",
+                    f"process_start_ts: {process_start_ts_val}",
                 ]
             ),
             style={

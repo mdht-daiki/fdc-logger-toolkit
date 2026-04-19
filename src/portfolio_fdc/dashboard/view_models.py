@@ -38,11 +38,21 @@ def build_chart_name(row: dict[str, Any]) -> str:
     if isinstance(chart_name, str) and chart_name.strip():
         return chart_name
 
-    recipe_id = str(row.get("recipe_id") or "-")
-    parameter = str(row.get("parameter") or "-")
-    step_no = str(row.get("step_no") or "-")
-    feature_type = str(row.get("feature_type") or "-")
-    chart_id = str(row.get("chart_id") or "-")
+    recipe_id_raw = row.get("recipe_id")
+    recipe_id = "-" if recipe_id_raw is None else str(recipe_id_raw)
+
+    parameter_raw = row.get("parameter")
+    parameter = "-" if parameter_raw is None else str(parameter_raw)
+
+    step_no_raw = row.get("step_no")
+    step_no = "-" if step_no_raw is None else str(step_no_raw)
+
+    feature_type_raw = row.get("feature_type")
+    feature_type = "-" if feature_type_raw is None else str(feature_type_raw)
+
+    chart_id_raw = row.get("chart_id")
+    chart_id = "-" if chart_id_raw is None else str(chart_id_raw)
+
     return f"{recipe_id} / {parameter} / step:{step_no} / {feature_type} ({chart_id})"
 
 

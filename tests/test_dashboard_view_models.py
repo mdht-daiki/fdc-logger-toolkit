@@ -71,6 +71,19 @@ def test_build_chart_name_falls_back_to_composed_name() -> None:
     assert build_chart_name(row) == "RCP_A / dc_bias / step:1 / mean (CHART_10)"
 
 
+def test_build_chart_name_preserves_falsy_value_step_no_zero() -> None:
+    """Verify that step_no=0 is displayed as 0, not as "-"."""
+    row = {
+        "recipe_id": "RCP_B",
+        "parameter": "voltage",
+        "step_no": 0,
+        "feature_type": "median",
+        "chart_id": "CHART_20",
+    }
+
+    assert build_chart_name(row) == "RCP_B / voltage / step:0 / median (CHART_20)"
+
+
 def test_chart_points_figure_contains_feature_and_threshold_lines() -> None:
     figure = chart_points_figure(
         {

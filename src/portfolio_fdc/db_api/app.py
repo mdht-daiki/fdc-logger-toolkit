@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import logging
+import pathlib
 import sqlite3
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -425,6 +426,96 @@ def _not_found_error_response(*, message: str, details: dict[str, str]) -> JSONR
     )
 
 
+def _build_waveform_preview(process_id: str, limit: int) -> dict[str, object]:
+    """ProcessInfo.raw_csv_path からドリルダウン表示用の波形プレビューを返す。"""
+    con = sqlite3.connect(MAIN_DB.as_posix())
+    try:
+        row = con.execute(
+            "SELECT raw_csv_path FROM processInfo WHERE process_id = ?",
+            (process_id,),
+        ).fetchone()
+    finally:
+        con.close()
+
+    if row is None:
+        raise HTTPException(status_code=404, detail="process not found")
+
+    raw_path = row[0]
+    if raw_path is None:
+        return {
+            "process_id": process_id,
+            "source_path": None,
+            "points": [],
+        }
+
+    src = pathlib.Path(str(raw_path))
+    if not src.is_absolute():
+        src = pathlib.Path.cwd() / src
+
+    if not src.exists():
+        return {
+            "process_id": process_id,
+            "source_path": src.as_posix(),
+            "points": [],
+        }
+
+    try:
+        with src.open("r", encoding="utf-8", errors="ignore") as f:
+            lines = f.readlines()
+
+        start_row = 0
+        for idx, line in enumerate(lines[:200]):
+            if line.strip().upper().startswith("DATA"):
+                start_row = idx + 1
+                break
+
+        from io import StringIO
+
+        import pandas as pd  # Local import to avoid global import cost.
+
+        content = "".join(lines[start_row:])
+        frame = pd.read_csv(StringIO(content))
+        if frame.empty:
+            return {
+                "process_id": process_id,
+                "source_path": src.as_posix(),
+                "points": [],
+            }
+
+        x_col = frame.columns[0]
+        y_col = None
+        for col in frame.columns[1:]:
+            if pd.api.types.is_numeric_dtype(frame[col]):
+                y_col = col
+                break
+        if y_col is None:
+            return {
+                "process_id": process_id,
+                "source_path": src.as_posix(),
+                "points": [],
+            }
+
+        sample = frame[[x_col, y_col]].tail(limit)
+        points = [
+            {
+                "x": str(x),
+                "y": float(y),
+            }
+            for x, y in sample.to_records(index=False)
+        ]
+        return {
+            "process_id": process_id,
+            "source_path": src.as_posix(),
+            "points": points,
+        }
+    except Exception:
+        return {
+            "process_id": process_id,
+            "source_path": src.as_posix(),
+            "points": [],
+        }
+
+
 @app.get("/charts/history")
 def get_charts_history(
     chart_id: str | None = Query(
@@ -464,6 +555,44 @@ def get_charts_history(
         return {"ok": True, "data": [asdict(row) for row in rows]}
     except Exception as e:
         _raise_api_error(operation="GET /charts/history", error=e)
+
+
+@app.get("/charts/{chart_id}/points")
+def get_chart_points(
+    chart_id: str = Path(
+        min_length=1,
+        max_length=64,
+        pattern=CHART_ID_PATTERN,
+    ),
+    limit: int = Query(default=50, ge=1, le=500),
+):
+    """指定 chart に対応する最新特徴量点を返す。"""
+    chart_pk = _parse_chart_pk(chart_id)
+    if chart_pk is None:
+        raise HTTPException(status_code=400, detail="Invalid chart_id")
+
+    try:
+        rows = _chart_repository.find_chart_points(chart_pk, limit)
+        return {"ok": True, "data": [asdict(row) for row in rows]}
+    except Exception as e:
+        _raise_api_error(operation="GET /charts/{chart_id}/points", error=e)
+
+
+@app.get("/processes/{process_id}/waveform-preview")
+def get_process_waveform_preview(
+    process_id: str = Path(
+        min_length=1, max_length=CHARTS_FILTER_MAX_LENGTH, pattern=CHARTS_FILTER_PATTERN
+    ),
+    limit: int = Query(default=300, ge=10, le=2000),
+):
+    """process_id に紐づく元波形（raw_csv_path）のプレビューを返す。"""
+    try:
+        data = _build_waveform_preview(process_id, limit)
+        return {"ok": True, "data": data}
+    except HTTPException:
+        raise
+    except Exception as e:
+        _raise_api_error(operation="GET /processes/{process_id}/waveform-preview", error=e)
 
 
 @app.get("/judge/results")

@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 from dash import html
 
+from portfolio_fdc.dashboard.api_client import APIError
 from portfolio_fdc.dashboard.app import load_data, refresh_chart_name_options, validate_base_url
 
 
@@ -120,3 +121,13 @@ def test_refresh_chart_name_options_rejects_invalid_base_url(
     assert options == []
     assert value is None
     assert called is False
+
+
+def test_validate_base_url_rejects_credentialed_url() -> None:
+    with pytest.raises(APIError):
+        validate_base_url("http://user:pass@localhost:8000")
+
+
+def test_validate_base_url_rejects_zero_bind_host_by_default() -> None:
+    with pytest.raises(APIError):
+        validate_base_url("http://0.0.0.0:8000")

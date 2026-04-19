@@ -4,7 +4,7 @@ import os
 from typing import Any, cast
 from urllib.parse import parse_qs, urlencode
 
-from dash import Dash, Input, Output, State, callback_context, dash_table, dcc, html, no_update
+from dash import Dash, Input, Output, State, dash_table, dcc, html, no_update
 
 from .api_client import (
     APIError,
@@ -139,10 +139,7 @@ def load_data(
     chart_id: str,
     result_id: str,
 ) -> tuple[Any, str]:
-    triggered_id = callback_context.triggered_id
-    if triggered_id != "load-btn":
-        if n_clicks and n_clicks > 0:
-            return no_update, ""
+    if not n_clicks:
         return html.Div("Press Load to fetch data"), ""
 
     try:

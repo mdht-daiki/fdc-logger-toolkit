@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any
 
 LEVEL_PRIORITY: dict[str, int] = {"NG": 0, "WARN": 1, "OK": 2}
 LEVEL_COLOR: dict[str, str] = {
@@ -15,7 +15,7 @@ def sort_judge_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
     rows_by_judged_at = sorted(
         rows,
-        key=lambda row: str(row.get("judged_at", "")),
+        key=lambda row: str(row.get("judged_at") or ""),
         reverse=True,
     )
 
@@ -30,6 +30,20 @@ def format_range(low: Any, high: Any) -> str:
     if low is None or high is None:
         return "-"
     return f"{low} .. {high}"
+
+
+def safe_cast_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        trimmed = value.strip()
+        if not trimmed:
+            return None
+        value = trimmed
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def build_chart_name(row: dict[str, Any]) -> str:
@@ -63,7 +77,12 @@ def chart_band_figure(chart: dict[str, Any]) -> dict[str, Any]:
     critical_lcl = chart.get("critical_lcl")
     critical_ucl = chart.get("critical_ucl")
 
-    if any(v is None for v in (warning_lcl, warning_ucl, critical_lcl, critical_ucl)):
+    warning_lcl_f = safe_cast_float(warning_lcl)
+    warning_ucl_f = safe_cast_float(warning_ucl)
+    critical_lcl_f = safe_cast_float(critical_lcl)
+    critical_ucl_f = safe_cast_float(critical_ucl)
+
+    if any(v is None for v in (warning_lcl_f, warning_ucl_f, critical_lcl_f, critical_ucl_f)):
         return {
             "data": [],
             "layout": {
@@ -73,10 +92,11 @@ def chart_band_figure(chart: dict[str, Any]) -> dict[str, Any]:
             },
         }
 
-    warning_lcl_f = float(cast(float, warning_lcl))
-    warning_ucl_f = float(cast(float, warning_ucl))
-    critical_lcl_f = float(cast(float, critical_lcl))
-    critical_ucl_f = float(cast(float, critical_ucl))
+    assert warning_lcl_f is not None
+    assert warning_ucl_f is not None
+    assert critical_lcl_f is not None
+    assert critical_ucl_f is not None
+
     center = (warning_lcl_f + warning_ucl_f) / 2.0
     lower_crit = min(critical_lcl_f, warning_lcl_f)
     upper_crit = max(critical_ucl_f, warning_ucl_f)
@@ -178,11 +198,29 @@ def chart_points_figure(chart: dict[str, Any], points: list[dict[str, Any]]) -> 
         }
 
     ordered = list(reversed(points))
-    x = list(range(1, len(ordered) + 1))
-    y = [float(point.get("feature_value", 0.0)) for point in ordered]
+
+    filtered_points: list[tuple[dict[str, Any], float]] = []
+    for point in ordered:
+        feature_value = safe_cast_float(point.get("feature_value"))
+        if feature_value is None:
+            continue
+        filtered_points.append((point, feature_value))
+
+    if not filtered_points:
+        return {
+            "data": [],
+            "layout": {
+                "title": "No feature points",
+                "xaxis": {"visible": False},
+                "yaxis": {"visible": False},
+            },
+        }
+
+    x = list(range(1, len(filtered_points) + 1))
+    y = [feature_value for _, feature_value in filtered_points]
     hover = [
         f"process_id={point.get('process_id')}<br>start={point.get('process_start_ts')}"
-        for point in ordered
+        for point, _ in filtered_points
     ]
 
     warning_lcl = chart.get("warning_lcl")
@@ -205,13 +243,14 @@ def chart_points_figure(chart: dict[str, Any], points: list[dict[str, Any]]) -> 
     ]
 
     def _hline(name: str, value: Any, color: str, dash: str) -> dict[str, Any] | None:
-        if value is None:
+        value_f = safe_cast_float(value)
+        if value_f is None:
             return None
         return {
             "type": "scatter",
             "mode": "lines",
             "x": [x[0], x[-1]],
-            "y": [value, value],
+            "y": [value_f, value_f],
             "name": name,
             "line": {"color": color, "dash": dash},
             "hoverinfo": "skip",
@@ -246,23 +285,39 @@ def spc_band_with_points_figure(
         return chart_band_figure(chart)
 
     ordered = list(reversed(points))
-    x = list(range(1, len(ordered) + 1))
-    y = [float(point.get("feature_value", 0.0)) for point in ordered]
-    process_ids = [str(point.get("process_id", "")) for point in ordered]
+    filtered_points: list[tuple[dict[str, Any], float]] = []
+    for point in ordered:
+        feature_value = safe_cast_float(point.get("feature_value"))
+        if feature_value is None:
+            continue
+        filtered_points.append((point, feature_value))
+
+    if not filtered_points:
+        return chart_band_figure(chart)
+
+    x = list(range(1, len(filtered_points) + 1))
+    y = [feature_value for _, feature_value in filtered_points]
+    process_ids = [str(point.get("process_id", "")) for point, _ in filtered_points]
     hover = [
         "process_id="
         f"{point.get('process_id')}<br>start={point.get('process_start_ts')}"
-        f"<br>value={point.get('feature_value')}"
-        for point in ordered
+        f"<br>value={feature_value}"
+        for point, feature_value in filtered_points
     ]
 
     warning_lcl = chart.get("warning_lcl")
     warning_ucl = chart.get("warning_ucl")
     critical_lcl = chart.get("critical_lcl")
     critical_ucl = chart.get("critical_ucl")
+
+    warning_lcl_f = safe_cast_float(warning_lcl)
+    warning_ucl_f = safe_cast_float(warning_ucl)
+    critical_lcl_f = safe_cast_float(critical_lcl)
+    critical_ucl_f = safe_cast_float(critical_ucl)
+
     center = None
-    if warning_lcl is not None and warning_ucl is not None:
-        center = (float(cast(float, warning_lcl)) + float(cast(float, warning_ucl))) / 2.0
+    if warning_lcl_f is not None and warning_ucl_f is not None:
+        center = (warning_lcl_f + warning_ucl_f) / 2.0
 
     traces: list[dict[str, Any]] = [
         {
@@ -295,17 +350,17 @@ def spc_band_with_points_figure(
         )
 
     _hline("Center", center, "#2e7d32", "solid", 3)
-    _hline("Warning LCL", warning_lcl, "#f57c00", "dot")
-    _hline("Warning UCL", warning_ucl, "#f57c00", "dot")
-    _hline("Critical LCL", critical_lcl, "#b00020", "dash")
-    _hline("Critical UCL", critical_ucl, "#b00020", "dash")
+    _hline("Warning LCL", warning_lcl_f, "#f57c00", "dot")
+    _hline("Warning UCL", warning_ucl_f, "#f57c00", "dot")
+    _hline("Critical LCL", critical_lcl_f, "#b00020", "dash")
+    _hline("Critical UCL", critical_ucl_f, "#b00020", "dash")
 
     shapes: list[dict[str, Any]] = []
-    if None not in (warning_lcl, warning_ucl, critical_lcl, critical_ucl):
-        warning_lcl_f = float(cast(float, warning_lcl))
-        warning_ucl_f = float(cast(float, warning_ucl))
-        critical_lcl_f = float(cast(float, critical_lcl))
-        critical_ucl_f = float(cast(float, critical_ucl))
+    if None not in (warning_lcl_f, warning_ucl_f, critical_lcl_f, critical_ucl_f):
+        assert warning_lcl_f is not None
+        assert warning_ucl_f is not None
+        assert critical_lcl_f is not None
+        assert critical_ucl_f is not None
         lower_crit = min(critical_lcl_f, warning_lcl_f)
         upper_crit = max(critical_ucl_f, warning_ucl_f)
         x0 = x[0]
@@ -381,8 +436,23 @@ def waveform_figure(wave_points: list[dict[str, Any]], process_id: str) -> dict[
     if not wave_points:
         return empty_drilldown_figure("No waveform preview data for this process")
 
-    x = [str(p.get("x", "")) for p in wave_points]
-    y = [float(p.get("y", 0.0)) for p in wave_points]
+    valid_wave_points: list[dict[str, Any]] = []
+    for point in wave_points:
+        y_val = safe_cast_float(point.get("y"))
+        if y_val is None:
+            continue
+        valid_wave_points.append(
+            {
+                "x": str(point.get("x", "")),
+                "y": y_val,
+            }
+        )
+
+    if not valid_wave_points:
+        return empty_drilldown_figure("No valid waveform preview data for this process")
+
+    x = [point["x"] for point in valid_wave_points]
+    y = [point["y"] for point in valid_wave_points]
     return {
         "data": [
             {

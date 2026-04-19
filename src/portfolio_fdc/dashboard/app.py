@@ -4,7 +4,7 @@ import os
 from typing import Any, cast
 from urllib.parse import parse_qs, urlencode
 
-from dash import Dash, Input, Output, State, dash_table, dcc, html, no_update
+from dash import Dash, Input, Output, State, callback_context, dash_table, dcc, html, no_update
 
 from .api_client import (
     APIError,
@@ -126,19 +126,25 @@ def sync_filters_from_url(search: str) -> tuple[str, str, str, str]:
     Output("error-banner", "children"),
     Input("tabs", "value"),
     Input("load-btn", "n_clicks"),
-    Input("base-url", "value"),
-    Input("recipe-id", "value"),
-    Input("chart-id", "value"),
-    Input("result-id", "value"),
+    State("base-url", "value"),
+    State("recipe-id", "value"),
+    State("chart-id", "value"),
+    State("result-id", "value"),
 )
 def load_data(
     active_tab: str,
-    _n_clicks: int,
+    n_clicks: int,
     base_url: str,
     recipe_id: str,
     chart_id: str,
     result_id: str,
 ) -> tuple[Any, str]:
+    triggered_id = callback_context.triggered_id
+    if triggered_id != "load-btn":
+        if n_clicks and n_clicks > 0:
+            return no_update, ""
+        return html.Div("Press Load to fetch data"), ""
+
     try:
         if active_tab == "charts":
             return _render_charts_tab(base_url, recipe_id), ""
@@ -156,16 +162,19 @@ def load_data(
     Output("chart-name", "options"),
     Output("chart-name", "value"),
     Input("load-btn", "n_clicks"),
-    Input("base-url", "value"),
-    Input("recipe-id", "value"),
-    Input("chart-id", "value"),
+    State("base-url", "value"),
+    State("recipe-id", "value"),
+    State("chart-id", "value"),
 )
 def refresh_chart_name_options(
-    _n_clicks: int,
+    n_clicks: int,
     base_url: str,
     recipe_id: str,
     chart_id: str,
 ) -> tuple[list[dict[str, str]], str | None]:
+    if not n_clicks:
+        return [], None
+
     params: dict[str, Any] = {}
     if recipe_id:
         params["recipe_id"] = recipe_id
@@ -258,7 +267,19 @@ def _render_charts_tab(base_url: str, recipe_id: str) -> html.Div:
                 str(row.get("updated_at")) if row.get("updated_at") else None
             ),
             "open": (
-                f"[Open](?tab=active&chart_id={row.get('chart_id')}&recipe_id={recipe_id})"
+                (
+                    "[Open](?"
+                    + urlencode(
+                        {
+                            "tab": "active",
+                            "chart_id": str(row.get("chart_id")),
+                            "recipe_id": recipe_id,
+                        },
+                        doseq=False,
+                        safe="",
+                    )
+                    + ")"
+                )
                 if row.get("chart_id")
                 else ""
             ),
@@ -468,11 +489,15 @@ def _render_judge_tab(base_url: str, recipe_id: str, chart_id: str, result_id: s
         rid = row.get("result_id")
         if not isinstance(rid, str):
             continue
-        href = f"?tab=judge&result_id={rid}"
+        params_for_href: dict[str, str] = {
+            "tab": "judge",
+            "result_id": rid,
+        }
         if recipe_id:
-            href += f"&recipe_id={recipe_id}"
+            params_for_href["recipe_id"] = recipe_id
         if chart_id:
-            href += f"&chart_id={chart_id}"
+            params_for_href["chart_id"] = chart_id
+        href = f"?{urlencode(params_for_href, doseq=False, safe='')}"
         drilldown_links.append(html.Li(html.A(rid, href=href)))
 
     detail: dict[str, Any] | None = None

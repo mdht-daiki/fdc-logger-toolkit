@@ -1,3 +1,5 @@
+from typing import Any
+
 from portfolio_fdc.dashboard.view_models import (
     build_chart_name,
     chart_band_figure,
@@ -24,6 +26,18 @@ def test_sort_judge_rows_prioritizes_ng_warn_ok() -> None:
 def test_sort_judge_rows_same_level_descending_judged_at() -> None:
     rows = [
         {"result_id": "JR_1", "level": "WARN", "judged_at": "2026-04-17T00:00:00.000Z"},
+        {"result_id": "JR_2", "level": "WARN", "judged_at": "2026-04-17T00:00:02.000Z"},
+        {"result_id": "JR_3", "level": "WARN", "judged_at": "2026-04-17T00:00:01.000Z"},
+    ]
+
+    sorted_rows = sort_judge_rows(rows)
+
+    assert [row["result_id"] for row in sorted_rows] == ["JR_2", "JR_3", "JR_1"]
+
+
+def test_sort_judge_rows_places_missing_judged_at_last_within_level() -> None:
+    rows: list[dict[str, Any]] = [
+        {"result_id": "JR_1", "level": "WARN", "judged_at": None},
         {"result_id": "JR_2", "level": "WARN", "judged_at": "2026-04-17T00:00:02.000Z"},
         {"result_id": "JR_3", "level": "WARN", "judged_at": "2026-04-17T00:00:01.000Z"},
     ]
@@ -112,6 +126,38 @@ def test_chart_points_figure_contains_feature_and_threshold_lines() -> None:
     assert "Critical UCL" in names
 
 
+def test_chart_points_figure_ignores_non_numeric_feature_values() -> None:
+    figure = chart_points_figure(
+        {
+            "warning_lcl": "1.4",
+            "warning_ucl": "2.6",
+            "critical_lcl": "1.2",
+            "critical_ucl": "2.8",
+        },
+        [
+            {
+                "process_id": "P1",
+                "feature_value": "abc",
+                "process_start_ts": "2026-04-19T00:00:00.000Z",
+            },
+            {
+                "process_id": "P2",
+                "feature_value": "",
+                "process_start_ts": "2026-04-19T00:10:00.000Z",
+            },
+            {
+                "process_id": "P3",
+                "feature_value": "2.4",
+                "process_start_ts": "2026-04-19T00:20:00.000Z",
+            },
+        ],
+    )
+
+    feature_trace = figure["data"][0]
+    assert feature_trace["name"] == "Feature value"
+    assert feature_trace["y"] == [2.4]
+
+
 def test_spc_band_with_points_figure_contains_feature_trace_and_customdata() -> None:
     figure = spc_band_with_points_figure(
         {
@@ -140,3 +186,16 @@ def test_waveform_figure_and_empty_drilldown() -> None:
     wf = waveform_figure([{"x": "t1", "y": 1.0}, {"x": "t2", "y": 2.0}], "P1")
     assert wf["layout"]["title"] == "Raw Waveform Preview (P1)"
     assert wf["data"][0]["name"] == "Raw waveform"
+
+
+def test_waveform_figure_ignores_invalid_points() -> None:
+    wf = waveform_figure(
+        [
+            {"x": "t1", "y": "abc"},
+            {"x": "t2", "y": ""},
+            {"x": "t3", "y": "1.5"},
+        ],
+        "P1",
+    )
+
+    assert wf["data"][0]["y"] == [1.5]

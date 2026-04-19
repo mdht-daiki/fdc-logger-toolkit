@@ -120,6 +120,16 @@ class ChartHistoryView:
     changed_at: str
 
 
+@dataclass(frozen=True)
+class ChartPointView:
+    """`GET /charts/{chart_id}/points` レスポンス 1 件分の DTO。"""
+
+    process_id: str
+    feature_value: float
+    process_start_ts: str
+    raw_csv_path: str | None
+
+
 class ChartRepository:
     """ChartsV2 から chart 一覧を取得するリポジトリ。"""
 
@@ -161,6 +171,27 @@ class ChartRepository:
             h.changed_by,
             h.changed_at
         FROM ChartsHistory h
+    """
+
+    _CHART_POINTS_SQL = """
+        SELECT
+            p.process_id,
+            p.feature_value,
+            pi.start_ts,
+            pi.raw_csv_path
+        FROM ChartsV2 c
+        INNER JOIN Parameters p
+            ON p.parameter = c.parameter
+           AND p.step_no = c.step_no
+           AND p.feature_type = c.feature_type
+        INNER JOIN ProcessInfo pi
+            ON pi.process_id = p.process_id
+           AND pi.tool_id = c.tool_id
+           AND pi.chamber_id = c.chamber_id
+           AND pi.recipe_id = c.recipe_id
+        WHERE c.id = ?
+        ORDER BY julianday(pi.start_ts) DESC, p.id DESC
+        LIMIT ?
     """
 
     _FILTERED_CHARTS_CTE = """
@@ -417,6 +448,16 @@ class ChartRepository:
 
         return [self._to_chart_history_view(row) for row in rows]
 
+    def find_chart_points(self, chart_pk: int, limit: int) -> list[ChartPointView]:
+        """指定 chart に対応する最新特徴量点を返す。"""
+        con = _connect(MAIN_DB)
+        try:
+            rows = con.execute(self._CHART_POINTS_SQL, (chart_pk, limit)).fetchall()
+        finally:
+            con.close()
+
+        return [self._to_chart_point_view(row) for row in rows]
+
     @staticmethod
     def _append_filter_condition(
         value: Any,
@@ -538,6 +579,17 @@ class ChartRepository:
             ),
             changed_by=None if changed_by is None else str(changed_by),
             changed_at=to_utc_millis(str(changed_at)),
+        )
+
+    @staticmethod
+    def _to_chart_point_view(row: tuple[Any, ...]) -> ChartPointView:
+        """DB 行を `ChartPointView` へ変換する。"""
+        process_id, feature_value, process_start_ts, raw_csv_path = row
+        return ChartPointView(
+            process_id=str(process_id),
+            feature_value=float(feature_value),
+            process_start_ts=to_utc_millis(str(process_start_ts)),
+            raw_csv_path=None if raw_csv_path is None else str(raw_csv_path),
         )
 
 

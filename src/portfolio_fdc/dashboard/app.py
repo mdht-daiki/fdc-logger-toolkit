@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import ipaddress
+import logging
 import os
+import socket
 from typing import Any, cast
-from urllib.parse import parse_qs, urlencode
+from urllib.parse import parse_qs, urlencode, urlparse
 
 from dash import Dash, Input, Output, State, dash_table, dcc, html, no_update
 
@@ -28,6 +31,83 @@ from .view_models import (
 )
 
 DEFAULT_DB_API_BASE_URL = os.getenv("PORTFOLIO_DB_API_URL", "http://localhost:8000")
+logger = logging.getLogger(__name__)
+
+
+def _default_allowed_db_api_hosts() -> set[str]:
+    hosts = {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
+    parsed_default = urlparse(DEFAULT_DB_API_BASE_URL)
+    if parsed_default.hostname:
+        hosts.add(parsed_default.hostname.lower())
+    return hosts
+
+
+def _allowed_db_api_hosts() -> set[str]:
+    env_hosts = os.getenv("PORTFOLIO_DB_API_ALLOWED_HOSTS", "")
+    hosts = _default_allowed_db_api_hosts()
+    for host in env_hosts.split(","):
+        normalized = host.strip().lower()
+        if normalized:
+            hosts.add(normalized)
+    return hosts
+
+
+def _is_restricted_ip(ip_value: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    return (
+        ip_value.is_private
+        or ip_value.is_loopback
+        or ip_value.is_link_local
+        or ip_value.is_multicast
+        or ip_value.is_reserved
+        or ip_value.is_unspecified
+    )
+
+
+def validate_base_url(base_url: str) -> str:
+    raw_value = (base_url or "").strip()
+    if not raw_value:
+        logger.warning("Rejected empty db_api base URL")
+        raise APIError(message="Invalid db_api base URL", code="INVALID_BASE_URL")
+
+    parsed = urlparse(raw_value)
+    if parsed.scheme not in {"http", "https"}:
+        logger.warning("Rejected db_api base URL with unsupported scheme: %s", raw_value)
+        raise APIError(message="Invalid db_api base URL", code="INVALID_BASE_URL")
+
+    if not parsed.hostname:
+        logger.warning("Rejected db_api base URL without hostname: %s", raw_value)
+        raise APIError(message="Invalid db_api base URL", code="INVALID_BASE_URL")
+
+    if parsed.path not in {"", "/"} or parsed.params or parsed.query or parsed.fragment:
+        logger.warning("Rejected db_api base URL with path/query/fragment: %s", raw_value)
+        raise APIError(message="Invalid db_api base URL", code="INVALID_BASE_URL")
+
+    hostname = parsed.hostname.lower()
+    if hostname in _allowed_db_api_hosts():
+        return raw_value.rstrip("/")
+
+    try:
+        resolved = socket.getaddrinfo(hostname, parsed.port or 80, type=socket.SOCK_STREAM)
+    except OSError:
+        logger.warning("Rejected db_api base URL; hostname resolution failed: %s", raw_value)
+        raise APIError(message="Invalid db_api base URL", code="INVALID_BASE_URL") from None
+
+    for result in resolved:
+        sockaddr = result[4]
+        if not sockaddr:
+            continue
+        candidate_ip = sockaddr[0]
+        try:
+            ip_value = ipaddress.ip_address(candidate_ip)
+        except ValueError:
+            logger.warning("Rejected db_api base URL; invalid resolved IP: %s", raw_value)
+            raise APIError(message="Invalid db_api base URL", code="INVALID_BASE_URL") from None
+        if _is_restricted_ip(ip_value):
+            logger.warning("Rejected db_api base URL; restricted network target: %s", raw_value)
+            raise APIError(message="Invalid db_api base URL", code="INVALID_BASE_URL")
+
+    return raw_value.rstrip("/")
+
 
 app = Dash(__name__, suppress_callback_exceptions=True, title="FDC Dashboard Baseline")
 typed_dash_table = cast(Any, dash_table)
@@ -143,13 +223,14 @@ def load_data(
         return html.Div("Press Load to fetch data"), ""
 
     try:
+        safe_base_url = validate_base_url(base_url)
         if active_tab == "charts":
-            return _render_charts_tab(base_url, recipe_id), ""
+            return _render_charts_tab(safe_base_url, recipe_id), ""
         if active_tab == "active":
-            return _render_active_tab(base_url, recipe_id, chart_id), ""
+            return _render_active_tab(safe_base_url, recipe_id, chart_id), ""
         if active_tab == "history":
-            return _render_history_tab(base_url, chart_id), ""
-        return _render_judge_tab(base_url, recipe_id, chart_id, result_id), ""
+            return _render_history_tab(safe_base_url, chart_id), ""
+        return _render_judge_tab(safe_base_url, recipe_id, chart_id, result_id), ""
     except APIError as exc:
         code = f" [{exc.code}]" if exc.code else ""
         return html.Div(""), f"{exc.message}{code}"
@@ -172,12 +253,17 @@ def refresh_chart_name_options(
     if not n_clicks:
         return [], None
 
+    try:
+        safe_base_url = validate_base_url(base_url)
+    except APIError:
+        return [], None
+
     params: dict[str, Any] = {}
     if recipe_id:
         params["recipe_id"] = recipe_id
 
     try:
-        rows = get_charts(base_url, params=params)
+        rows = get_charts(safe_base_url, params=params)
     except APIError:
         return [], None
 
@@ -407,8 +493,9 @@ def render_active_drilldown(
         return empty_drilldown_figure("Only feature points are clickable for drilldown")
 
     try:
+        safe_base_url = validate_base_url(base_url)
         preview = get_process_waveform_preview(
-            base_url,
+            safe_base_url,
             process_id,
             params={"limit": 500},
         )
@@ -454,13 +541,10 @@ def _render_history_tab(base_url: str, chart_id: str) -> html.Div:
     )
 
 
-def _render_judge_tab(base_url: str, recipe_id: str, chart_id: str, result_id: str) -> html.Div:
-    params: dict[str, Any] = {"limit": 200}
-    if recipe_id:
-        params["recipe_id"] = recipe_id
-    if chart_id:
-        params["chart_id"] = chart_id
-
+def _build_judge_table_rows(
+    base_url: str,
+    params: dict[str, Any],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     rows = sort_judge_rows(get_judge_results(base_url, params=params))
     table_rows = [
         {
@@ -480,7 +564,14 @@ def _render_judge_tab(base_url: str, recipe_id: str, chart_id: str, result_id: s
         }
         for row in rows
     ]
+    return rows, table_rows
 
+
+def _build_judge_drilldown_links(
+    rows: list[dict[str, Any]],
+    recipe_id: str,
+    chart_id: str,
+) -> list[html.Li]:
     drilldown_links: list[html.Li] = []
     for row in rows[:20]:
         rid = row.get("result_id")
@@ -496,44 +587,64 @@ def _render_judge_tab(base_url: str, recipe_id: str, chart_id: str, result_id: s
             params_for_href["chart_id"] = chart_id
         href = f"?{urlencode(params_for_href, doseq=False, safe='')}"
         drilldown_links.append(html.Li(html.A(rid, href=href)))
+    return drilldown_links
+
+
+def _build_judge_detail_block(
+    detail: dict[str, Any] | None,
+    level_color_map: dict[str, str],
+) -> Any:
+    if detail is None:
+        return html.Div("Select/enter result_id to load detail")
+
+    level = str(detail.get("level", ""))
+    judged_at_val = parse_utc_millis(
+        str(detail.get("judged_at")) if detail.get("judged_at") else None
+    )
+    process_start_ts_val = parse_utc_millis(
+        str(detail.get("process_start_ts")) if detail.get("process_start_ts") else None
+    )
+
+    return html.Pre(
+        "\n".join(
+            [
+                f"result_id: {detail.get('result_id')}",
+                f"level: {level}",
+                f"chart_id: {detail.get('chart_id')}",
+                f"process_id: {detail.get('process_id')}",
+                f"feature: {detail.get('feature_type')}={detail.get('feature_value')}",
+                (
+                    "thresholds: "
+                    f"warn[{detail.get('warning_lcl')}, {detail.get('warning_ucl')}], "
+                    f"crit[{detail.get('critical_lcl')}, {detail.get('critical_ucl')}]"
+                ),
+                f"judged_at: {judged_at_val}",
+                f"process_start_ts: {process_start_ts_val}",
+            ]
+        ),
+        style={
+            "padding": "10px",
+            "backgroundColor": "#f5f5f5",
+            "borderLeft": f"6px solid {level_color_map.get(level, '#555555')}",
+        },
+    )
+
+
+def _render_judge_tab(base_url: str, recipe_id: str, chart_id: str, result_id: str) -> html.Div:
+    params: dict[str, Any] = {"limit": 200}
+    if recipe_id:
+        params["recipe_id"] = recipe_id
+    if chart_id:
+        params["chart_id"] = chart_id
+
+    rows, table_rows = _build_judge_table_rows(base_url, params)
+    drilldown_links = _build_judge_drilldown_links(rows, recipe_id, chart_id)
 
     detail: dict[str, Any] | None = None
     if result_id:
         detail = get_judge_result(base_url, result_id=result_id)
 
-    detail_block: Any = html.Div("Select/enter result_id to load detail")
-    if detail is not None:
-        level = str(detail.get("level", ""))
-        judged_at_val = parse_utc_millis(
-            str(detail.get("judged_at")) if detail.get("judged_at") else None
-        )
-        process_start_ts_val = parse_utc_millis(
-            str(detail.get("process_start_ts")) if detail.get("process_start_ts") else None
-        )
-
-        detail_block = html.Pre(
-            "\n".join(
-                [
-                    f"result_id: {detail.get('result_id')}",
-                    f"level: {level}",
-                    f"chart_id: {detail.get('chart_id')}",
-                    f"process_id: {detail.get('process_id')}",
-                    f"feature: {detail.get('feature_type')}={detail.get('feature_value')}",
-                    (
-                        "thresholds: "
-                        f"warn[{detail.get('warning_lcl')}, {detail.get('warning_ucl')}], "
-                        f"crit[{detail.get('critical_lcl')}, {detail.get('critical_ucl')}]"
-                    ),
-                    f"judged_at: {judged_at_val}",
-                    f"process_start_ts: {process_start_ts_val}",
-                ]
-            ),
-            style={
-                "padding": "10px",
-                "backgroundColor": "#f5f5f5",
-                "borderLeft": f"6px solid {LEVEL_COLOR.get(level, '#555555')}",
-            },
-        )
+    detail_block = _build_judge_detail_block(detail, LEVEL_COLOR)
 
     return html.Div(
         [

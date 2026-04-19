@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 from dash import html
 
-from portfolio_fdc.dashboard.app import load_data, refresh_chart_name_options
+from portfolio_fdc.dashboard.app import load_data, refresh_chart_name_options, validate_base_url
 
 
 def test_refresh_chart_name_options_keeps_dropdown_unselected_without_chart_id(
@@ -90,3 +90,33 @@ def test_load_data_renders_active_tab_after_load_click(
     assert isinstance(content, html.Div)
     assert content.children == "ACTIVE_RENDERED"
     assert error == ""
+
+
+def test_validate_base_url_accepts_localhost() -> None:
+    assert validate_base_url("http://localhost:8000") == "http://localhost:8000"
+
+
+def test_load_data_rejects_invalid_base_url() -> None:
+    content, error = load_data("active", 1, "file:///etc/passwd", "", "", "")
+
+    assert isinstance(content, html.Div)
+    assert error == "Invalid db_api base URL [INVALID_BASE_URL]"
+
+
+def test_refresh_chart_name_options_rejects_invalid_base_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    called = False
+
+    def _fake_get_charts(*_args: Any, **_kwargs: Any) -> list[dict[str, Any]]:
+        nonlocal called
+        called = True
+        return [{"chart_id": "CHART_1", "chart_name": "Chart One"}]
+
+    monkeypatch.setattr("portfolio_fdc.dashboard.app.get_charts", _fake_get_charts)
+
+    options, value = refresh_chart_name_options(1, "ftp://localhost:8000", "", "")
+
+    assert options == []
+    assert value is None
+    assert called is False

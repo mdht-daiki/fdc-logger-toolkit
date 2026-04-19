@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Any
+from typing import Any, cast
 from urllib.parse import parse_qs, urlencode
 
 from dash import Dash, Input, Output, State, dash_table, dcc, html, no_update
@@ -30,7 +30,8 @@ from .view_models import (
 DEFAULT_DB_API_BASE_URL = os.getenv("PORTFOLIO_DB_API_URL", "http://localhost:8000")
 
 app = Dash(__name__, suppress_callback_exceptions=True, title="FDC Dashboard Baseline")
-DataTable: Any = dash_table.DataTable
+typed_dash_table = cast(Any, dash_table)
+DataTable: Any = typed_dash_table.DataTable
 
 app.layout = html.Div(
     [

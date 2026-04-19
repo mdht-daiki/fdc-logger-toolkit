@@ -89,16 +89,29 @@ def validate_base_url(base_url: str) -> str:
         logger.warning("Rejected db_api base URL with path/query/fragment: %s", log_target)
         raise APIError(message="Invalid db_api base URL", code="INVALID_BASE_URL")
 
+    try:
+        parsed_port = parsed.port
+    except ValueError:
+        logger.warning("Rejected db_api base URL with invalid port: %s", log_target)
+        raise APIError(message="Invalid db_api base URL", code="INVALID_BASE_URL") from None
+
+    if parsed_port == 0:
+        logger.warning("Rejected db_api base URL with disallowed port: %s", log_target)
+        raise APIError(message="Invalid db_api base URL", code="INVALID_BASE_URL")
+
     hostname = parsed.hostname.lower()
-    safe_base_url = f"{parsed.scheme}://{hostname}"
-    if parsed.port is not None:
-        safe_base_url = f"{safe_base_url}:{parsed.port}"
+    bracketed_host = f"[{hostname}]" if ":" in hostname else hostname
+    safe_base_url = f"{parsed.scheme}://{bracketed_host}"
+    if parsed_port is not None:
+        safe_base_url = f"{safe_base_url}:{parsed_port}"
 
     if hostname in _allowed_db_api_hosts():
         return safe_base_url
 
+    resolve_host = bracketed_host[1:-1] if bracketed_host.startswith("[") else bracketed_host
+
     try:
-        resolved = socket.getaddrinfo(hostname, parsed.port or 80, type=socket.SOCK_STREAM)
+        resolved = socket.getaddrinfo(resolve_host, parsed_port or 80, type=socket.SOCK_STREAM)
     except OSError:
         logger.warning("Rejected db_api base URL; hostname resolution failed: %s", log_target)
         raise APIError(message="Invalid db_api base URL", code="INVALID_BASE_URL") from None

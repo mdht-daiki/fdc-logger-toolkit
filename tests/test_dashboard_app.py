@@ -131,3 +131,12 @@ def test_validate_base_url_rejects_credentialed_url() -> None:
 def test_validate_base_url_rejects_zero_bind_host_by_default() -> None:
     with pytest.raises(APIError):
         validate_base_url("http://0.0.0.0:8000")
+
+
+def test_validate_base_url_accepts_ipv6_loopback() -> None:
+    assert validate_base_url("http://[::1]:8000") == "http://[::1]:8000"
+
+
+def test_validate_base_url_rejects_out_of_range_port() -> None:
+    with pytest.raises(APIError):
+        validate_base_url("http://localhost:70000")

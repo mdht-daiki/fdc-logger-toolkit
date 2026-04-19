@@ -36,7 +36,7 @@ from .chart_repository import (
     ChartsHistoryQueryCriteria,
     ChartsQueryCriteria,
 )
-from .db import MAIN_DB, TEMP_DB, _init_schema
+from .db import MAIN_DB, TEMP_DB, _connect, _init_schema
 from .judge_repository import (
     JudgeDataCorruptionError,
     JudgeRepository,
@@ -428,10 +428,10 @@ def _not_found_error_response(*, message: str, details: dict[str, str]) -> JSONR
 
 def _build_waveform_preview(process_id: str, limit: int) -> dict[str, object]:
     """ProcessInfo.raw_csv_path からドリルダウン表示用の波形プレビューを返す。"""
-    con = sqlite3.connect(MAIN_DB.as_posix())
+    con = _connect(MAIN_DB)
     try:
         row = con.execute(
-            "SELECT raw_csv_path FROM processInfo WHERE process_id = ?",
+            "SELECT raw_csv_path FROM ProcessInfo WHERE process_id = ?",
             (process_id,),
         ).fetchone()
     finally:
@@ -509,6 +509,11 @@ def _build_waveform_preview(process_id: str, limit: int) -> dict[str, object]:
             "points": points,
         }
     except Exception:
+        logger.exception(
+            "Failed to build waveform preview for process_id=%s source_path=%s",
+            process_id,
+            src.as_posix(),
+        )
         return {
             "process_id": process_id,
             "source_path": src.as_posix(),

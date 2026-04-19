@@ -126,10 +126,10 @@ def sync_filters_from_url(search: str) -> tuple[str, str, str, str]:
     Output("error-banner", "children"),
     Input("tabs", "value"),
     Input("load-btn", "n_clicks"),
-    State("base-url", "value"),
-    State("recipe-id", "value"),
-    State("chart-id", "value"),
-    State("result-id", "value"),
+    Input("base-url", "value"),
+    Input("recipe-id", "value"),
+    Input("chart-id", "value"),
+    Input("result-id", "value"),
 )
 def load_data(
     active_tab: str,
@@ -156,9 +156,9 @@ def load_data(
     Output("chart-name", "options"),
     Output("chart-name", "value"),
     Input("load-btn", "n_clicks"),
-    State("base-url", "value"),
-    State("recipe-id", "value"),
-    State("chart-id", "value"),
+    Input("base-url", "value"),
+    Input("recipe-id", "value"),
+    Input("chart-id", "value"),
 )
 def refresh_chart_name_options(
     _n_clicks: int,
@@ -186,8 +186,6 @@ def refresh_chart_name_options(
 
     if chart_id and any(opt["value"] == chart_id for opt in options):
         return options, chart_id
-    if options:
-        return options, options[0]["value"]
     return options, None
 
 
@@ -546,4 +544,7 @@ def _render_judge_tab(base_url: str, recipe_id: str, chart_id: str, result_id: s
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8050, debug=True)
+    host = os.getenv("HOST", "127.0.0.1")
+    port = int(os.getenv("PORT", "8050"))
+    debug = os.getenv("DEBUG", "false").strip().lower() in {"1", "true", "yes", "on"}
+    app.run(host=host, port=port, debug=debug)

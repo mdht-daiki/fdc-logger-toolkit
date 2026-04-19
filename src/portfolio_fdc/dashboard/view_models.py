@@ -13,12 +13,17 @@ LEVEL_COLOR: dict[str, str] = {
 def sort_judge_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """NG > WARN > OK を優先し、同順位内は judged_at 降順に並べる。"""
 
-    def _key(row: dict[str, Any]) -> tuple[int, str]:
-        level = str(row.get("level", "")).upper()
-        judged_at = str(row.get("judged_at", ""))
-        return (LEVEL_PRIORITY.get(level, 9), judged_at)
+    rows_by_judged_at = sorted(
+        rows,
+        key=lambda row: str(row.get("judged_at", "")),
+        reverse=True,
+    )
 
-    return sorted(rows, key=_key)
+    def _key(row: dict[str, Any]) -> int:
+        level = str(row.get("level", "")).upper()
+        return LEVEL_PRIORITY.get(level, 9)
+
+    return sorted(rows_by_judged_at, key=_key)
 
 
 def format_range(low: Any, high: Any) -> str:

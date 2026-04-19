@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, NoReturn
 
 import requests
 
@@ -94,19 +94,31 @@ def _request_envelope(
     return payload.get("data")
 
 
+def _raise_invalid_shape(endpoint: str, expected: str, actual: Any) -> NoReturn:
+    raise APIError(
+        message=(f"Malformed API response for {endpoint}: expected {expected}, got {actual!r}")
+    )
+
+
 def get_charts(base_url: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     data = _request_envelope(base_url, "/charts", params=params)
-    return data if isinstance(data, list) else []
+    if not isinstance(data, list):
+        _raise_invalid_shape("/charts", "list", data)
+    return data
 
 
 def get_active_charts(base_url: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
     data = _request_envelope(base_url, "/charts/active", params=params)
-    return data if isinstance(data, dict) else {}
+    if not isinstance(data, dict):
+        _raise_invalid_shape("/charts/active", "dict", data)
+    return data
 
 
 def get_charts_history(base_url: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     data = _request_envelope(base_url, "/charts/history", params=params)
-    return data if isinstance(data, list) else []
+    if not isinstance(data, list):
+        _raise_invalid_shape("/charts/history", "list", data)
+    return data
 
 
 def get_chart_points(
@@ -115,7 +127,9 @@ def get_chart_points(
     params: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     data = _request_envelope(base_url, f"/charts/{chart_id}/points", params=params)
-    return data if isinstance(data, list) else []
+    if not isinstance(data, list):
+        _raise_invalid_shape(f"/charts/{chart_id}/points", "list", data)
+    return data
 
 
 def get_process_waveform_preview(
@@ -128,14 +142,20 @@ def get_process_waveform_preview(
         f"/processes/{process_id}/waveform-preview",
         params=params,
     )
-    return data if isinstance(data, dict) else {}
+    if not isinstance(data, dict):
+        _raise_invalid_shape(f"/processes/{process_id}/waveform-preview", "dict", data)
+    return data
 
 
 def get_judge_results(base_url: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     data = _request_envelope(base_url, "/judge/results", params=params)
-    return data if isinstance(data, list) else []
+    if not isinstance(data, list):
+        _raise_invalid_shape("/judge/results", "list", data)
+    return data
 
 
 def get_judge_result(base_url: str, result_id: str) -> dict[str, Any]:
     data = _request_envelope(base_url, f"/judge/results/{result_id}")
-    return data if isinstance(data, dict) else {}
+    if not isinstance(data, dict):
+        _raise_invalid_shape(f"/judge/results/{result_id}", "dict", data)
+    return data

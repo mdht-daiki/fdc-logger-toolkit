@@ -6,8 +6,12 @@ import pytest
 
 from portfolio_fdc.dashboard.api_client import (
     APIError,
+    get_active_charts,
     get_chart_points,
     get_charts,
+    get_charts_history,
+    get_judge_result,
+    get_judge_results,
     get_process_waveform_preview,
 )
 
@@ -114,3 +118,65 @@ def test_get_process_waveform_preview_returns_data(monkeypatch: pytest.MonkeyPat
 
     assert data["process_id"] == "P1"
     assert data["points"][0]["y"] == 1.2
+
+
+@pytest.mark.parametrize(
+    ("call", "expected_fragment"),
+    [
+        (lambda: get_charts("http://localhost:8000"), "/charts"),
+        (lambda: get_charts_history("http://localhost:8000"), "/charts/history"),
+        (
+            lambda: get_chart_points("http://localhost:8000", chart_id="CHART_1"),
+            "/charts/CHART_1/points",
+        ),
+        (lambda: get_judge_results("http://localhost:8000"), "/judge/results"),
+    ],
+)
+def test_list_getters_raise_api_error_for_invalid_shape(
+    monkeypatch: pytest.MonkeyPatch,
+    call: Any,
+    expected_fragment: str,
+) -> None:
+    def _fake_get(*_args: Any, **_kwargs: Any) -> _FakeResponse:
+        return _FakeResponse(200, {"ok": True, "data": {"unexpected": True}})
+
+    monkeypatch.setattr("portfolio_fdc.dashboard.api_client.requests.get", _fake_get)
+
+    with pytest.raises(APIError) as exc_info:
+        call()
+
+    assert expected_fragment in exc_info.value.message
+    assert "expected list" in exc_info.value.message
+    assert "unexpected" in exc_info.value.message
+
+
+@pytest.mark.parametrize(
+    ("call", "expected_fragment"),
+    [
+        (lambda: get_active_charts("http://localhost:8000"), "/charts/active"),
+        (
+            lambda: get_process_waveform_preview("http://localhost:8000", process_id="P1"),
+            "/processes/P1/waveform-preview",
+        ),
+        (
+            lambda: get_judge_result("http://localhost:8000", result_id="JR_1"),
+            "/judge/results/JR_1",
+        ),
+    ],
+)
+def test_dict_getters_raise_api_error_for_invalid_shape(
+    monkeypatch: pytest.MonkeyPatch,
+    call: Any,
+    expected_fragment: str,
+) -> None:
+    def _fake_get(*_args: Any, **_kwargs: Any) -> _FakeResponse:
+        return _FakeResponse(200, {"ok": True, "data": ["unexpected"]})
+
+    monkeypatch.setattr("portfolio_fdc.dashboard.api_client.requests.get", _fake_get)
+
+    with pytest.raises(APIError) as exc_info:
+        call()
+
+    assert expected_fragment in exc_info.value.message
+    assert "expected dict" in exc_info.value.message
+    assert "unexpected" in exc_info.value.message

@@ -21,6 +21,18 @@ def test_sort_judge_rows_prioritizes_ng_warn_ok() -> None:
     assert [row["result_id"] for row in sorted_rows] == ["JR_3", "JR_2", "JR_1"]
 
 
+def test_sort_judge_rows_same_level_descending_judged_at() -> None:
+    rows = [
+        {"result_id": "JR_1", "level": "WARN", "judged_at": "2026-04-17T00:00:00.000Z"},
+        {"result_id": "JR_2", "level": "WARN", "judged_at": "2026-04-17T00:00:02.000Z"},
+        {"result_id": "JR_3", "level": "WARN", "judged_at": "2026-04-17T00:00:01.000Z"},
+    ]
+
+    sorted_rows = sort_judge_rows(rows)
+
+    assert [row["result_id"] for row in sorted_rows] == ["JR_2", "JR_3", "JR_1"]
+
+
 def test_chart_band_figure_contains_center_warning_critical() -> None:
     figure = chart_band_figure(
         {

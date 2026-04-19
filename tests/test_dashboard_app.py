@@ -128,7 +128,7 @@ def test_validate_base_url_rejects_credentialed_url() -> None:
         validate_base_url("http://user:pass@localhost:8000")
 
 
-def test_validate_base_url_rejects_zero_bind_host_by_default(
+def test_validate_base_url_rejects_zero_bind_host_when_allowed_hosts_empty(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("PORTFOLIO_DB_API_ALLOWED_HOSTS", "")
@@ -141,7 +141,7 @@ def test_validate_base_url_accepts_ipv6_loopback() -> None:
     assert validate_base_url("http://[::1]:8000") == "http://[::1]:8000"
 
 
-def test_validate_base_url_rejects_out_of_range_port() -> None:
+def test_validate_base_url_rejects_invalid_and_zero_ports() -> None:
     with pytest.raises(APIError):
         validate_base_url("http://localhost:70000")
 

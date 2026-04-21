@@ -113,7 +113,7 @@ def _raise_invalid_shape(endpoint: str, expected: str, actual: Any) -> NoReturn:
     raise APIError(
         message=(
             f"Malformed API response for {endpoint}: expected {expected}, "
-            f"got {type(actual).__name__} (full payload: {repr(actual)})"
+            f"got {type(actual).__name__}"
         )
     )
 
@@ -144,10 +144,10 @@ def get_chart_points(
     chart_id: str,
     params: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    seg = _path_segment(chart_id)
-    data = _request_envelope(base_url, f"/charts/{seg}/points", params=params)
+    encoded_chart_id = _path_segment(chart_id)
+    data = _request_envelope(base_url, f"/charts/{encoded_chart_id}/points", params=params)
     if not isinstance(data, list):
-        _raise_invalid_shape(f"/charts/{seg}/points", "list", data)
+        _raise_invalid_shape(f"/charts/{encoded_chart_id}/points", "list", data)
     return data
 
 
@@ -156,14 +156,14 @@ def get_process_waveform_preview(
     process_id: str,
     params: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    seg = _path_segment(process_id)
+    encoded_process_id = _path_segment(process_id)
     data = _request_envelope(
         base_url,
-        f"/processes/{seg}/waveform-preview",
+        f"/processes/{encoded_process_id}/waveform-preview",
         params=params,
     )
     if not isinstance(data, dict):
-        _raise_invalid_shape(f"/processes/{seg}/waveform-preview", "dict", data)
+        _raise_invalid_shape(f"/processes/{encoded_process_id}/waveform-preview", "dict", data)
     return data
 
 
@@ -175,8 +175,8 @@ def get_judge_results(base_url: str, params: dict[str, Any] | None = None) -> li
 
 
 def get_judge_result(base_url: str, result_id: str) -> dict[str, Any]:
-    seg = _path_segment(result_id)
-    data = _request_envelope(base_url, f"/judge/results/{seg}")
+    encoded_result_id = _path_segment(result_id)
+    data = _request_envelope(base_url, f"/judge/results/{encoded_result_id}")
     if not isinstance(data, dict):
-        _raise_invalid_shape(f"/judge/results/{seg}", "dict", data)
+        _raise_invalid_shape(f"/judge/results/{encoded_result_id}", "dict", data)
     return data

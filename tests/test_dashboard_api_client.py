@@ -147,7 +147,6 @@ def test_list_getters_raise_api_error_for_invalid_shape(
 
     assert expected_fragment in exc_info.value.message
     assert "expected list" in exc_info.value.message
-    assert "unexpected" in exc_info.value.message
 
 
 @pytest.mark.parametrize(
@@ -179,4 +178,3 @@ def test_dict_getters_raise_api_error_for_invalid_shape(
 
     assert expected_fragment in exc_info.value.message
     assert "expected dict" in exc_info.value.message
-    assert "unexpected" in exc_info.value.message

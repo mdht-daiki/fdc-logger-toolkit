@@ -113,7 +113,7 @@ def _raise_invalid_shape(endpoint: str, expected: str, actual: Any) -> NoReturn:
     raise APIError(
         message=(
             f"Malformed API response for {endpoint}: expected {expected}, "
-            f"got {type(actual).__name__}"
+            f"got {type(actual).__name__} (full payload: {repr(actual)})"
         )
     )
 

@@ -39,7 +39,10 @@ class ChartNameOptionService:
         try:
             rows = self._deps.get_charts(safe_base_url, params=params)
         except APIError:
+            # get_charts/_request_envelopeはAPIErrorのみをraiseする設計
             return [], None
+        # Defensive: 依存先の将来の例外漏れや予期せぬバグも拾うため、意図的にException全体をcatch
+        # Stack traceはlogger.exceptionで必ず出力し、運用監視で検知可能にする
         except Exception:
             self._logger.exception("Unexpected error while refreshing chart options")
             return [], None

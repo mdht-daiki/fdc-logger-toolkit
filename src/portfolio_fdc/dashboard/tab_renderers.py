@@ -324,15 +324,15 @@ def render_judge_tab(base_url: str, recipe_id: str, chart_id: str, result_id: st
                 page_size=12,
                 style_data_conditional=[
                     {
-                        "if": {"filter_query": "{level} = NG"},
+                        "if": {"filter_query": '{level} = "NG"'},
                         "backgroundColor": "rgba(176,0,32,0.08)",
                     },
                     {
-                        "if": {"filter_query": "{level} = WARN"},
+                        "if": {"filter_query": '{level} = "WARN"'},
                         "backgroundColor": "rgba(245,124,0,0.08)",
                     },
                     {
-                        "if": {"filter_query": "{level} = OK"},
+                        "if": {"filter_query": '{level} = "OK"'},
                         "backgroundColor": "rgba(46,125,50,0.08)",
                     },
                 ],

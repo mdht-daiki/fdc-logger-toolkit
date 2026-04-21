@@ -26,12 +26,18 @@ class ActiveDrilldownService:
             return empty_drilldown_figure("Click a feature point to show raw waveform")
 
         point = points[0]
+        if not isinstance(point, dict):
+            return empty_drilldown_figure("Only feature points are clickable for drilldown")
         process_id = point.get("customdata")
         if not isinstance(process_id, str) or not process_id:
             return empty_drilldown_figure("Only feature points are clickable for drilldown")
 
         try:
-            safe_base_url = self._deps.validate_base_url(base_url)
+            result = self._deps.validate_base_url(base_url)
+            if isinstance(result, tuple):
+                safe_base_url = result[0]
+            else:
+                safe_base_url = result
             preview = self._deps.get_process_waveform_preview(
                 safe_base_url,
                 process_id,

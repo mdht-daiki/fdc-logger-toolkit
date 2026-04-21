@@ -27,7 +27,11 @@ class TabLoadService:
             return html.Div("Press Load to fetch data"), ""
 
         try:
-            safe_base_url = self._deps.validate_base_url(base_url)
+            result = self._deps.validate_base_url(base_url)
+            if isinstance(result, tuple):
+                safe_base_url = result[0]
+            else:
+                safe_base_url = result
             if active_tab == "charts":
                 return self._deps.render_charts_tab(safe_base_url, recipe_id), ""
             if active_tab == "active":

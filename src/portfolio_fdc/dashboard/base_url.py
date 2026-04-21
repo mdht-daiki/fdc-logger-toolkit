@@ -41,7 +41,7 @@ def _is_restricted_ip(ip_value: ipaddress.IPv4Address | ipaddress.IPv6Address) -
     )
 
 
-def validate_base_url(base_url: str) -> str:
+def validate_base_url(base_url: str) -> tuple[str, str]:
     raw_value = (base_url or "").strip()
     if not raw_value:
         logger.warning("Rejected empty db_api base URL")
@@ -84,7 +84,19 @@ def validate_base_url(base_url: str) -> str:
         safe_base_url = f"{safe_base_url}:{parsed_port}"
 
     if hostname in _allowed_db_api_hosts():
-        return safe_base_url
+        # ローカルホスト等は127.0.0.1等にピンできる
+        resolved_ip = None
+        try:
+            resolved = socket.getaddrinfo(hostname, parsed_port or 80, type=socket.SOCK_STREAM)
+            for result in resolved:
+                sockaddr = result[4]
+                if sockaddr:
+                    candidate_ip = sockaddr[0]
+                    resolved_ip = candidate_ip
+                    break
+        except Exception:
+            resolved_ip = None
+        return safe_base_url, (resolved_ip or "127.0.0.1")
 
     resolve_host = bracketed_host[1:-1] if bracketed_host.startswith("[") else bracketed_host
 
@@ -94,6 +106,7 @@ def validate_base_url(base_url: str) -> str:
         logger.warning("Rejected db_api base URL; hostname resolution failed: %s", log_target)
         raise APIError(message="Invalid db_api base URL", code="INVALID_BASE_URL") from None
 
+    resolved_ip = None
     for result in resolved:
         sockaddr = result[4]
         if not sockaddr:
@@ -107,5 +120,11 @@ def validate_base_url(base_url: str) -> str:
         if _is_restricted_ip(ip_value):
             logger.warning("Rejected db_api base URL; restricted network target: %s", log_target)
             raise APIError(message="Invalid db_api base URL", code="INVALID_BASE_URL")
+        resolved_ip = candidate_ip
+        break
 
-    return safe_base_url
+    if not resolved_ip:
+        logger.warning("Rejected db_api base URL; could not resolve valid IP: %s", log_target)
+        raise APIError(message="Invalid db_api base URL", code="INVALID_BASE_URL")
+
+    return safe_base_url, resolved_ip

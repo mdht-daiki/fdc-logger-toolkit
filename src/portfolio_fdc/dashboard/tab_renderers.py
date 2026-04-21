@@ -42,7 +42,7 @@ def render_charts_tab(base_url: str, recipe_id: str) -> html.Div:
             "parameter": row.get("parameter"),
             "step_no": row.get("step_no"),
             "feature_type": row.get("feature_type"),
-            "center": format_range(row.get("warning_lcl"), row.get("warning_ucl")),
+            "warning": format_range(row.get("warning_lcl"), row.get("warning_ucl")),
             "critical": format_range(row.get("critical_lcl"), row.get("critical_ucl")),
             "updated_at": parse_utc_millis(
                 str(row.get("updated_at")) if row.get("updated_at") else None
@@ -83,7 +83,7 @@ def render_charts_tab(base_url: str, recipe_id: str) -> html.Div:
                         {"name": "parameter", "id": "parameter"},
                         {"name": "step_no", "id": "step_no"},
                         {"name": "feature_type", "id": "feature_type"},
-                        {"name": "center", "id": "center"},
+                        {"name": "warning", "id": "warning"},
                         {"name": "critical", "id": "critical"},
                         {"name": "updated_at", "id": "updated_at"},
                         {"name": "open", "id": "open", "presentation": "markdown"},

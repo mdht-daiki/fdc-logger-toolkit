@@ -11,7 +11,7 @@ TabRenderer = Callable[..., html.Div]
 
 @dataclass(frozen=True)
 class DashboardDependencies:
-    validate_base_url: Callable[[str], Any]
+    validate_base_url: Callable[[str], tuple[str, str]]
     get_charts: Callable[..., list[dict[str, Any]]]
     get_process_waveform_preview: Callable[..., dict[str, Any]]
     render_charts_tab: TabRenderer

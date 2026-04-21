@@ -24,11 +24,7 @@ class ChartNameOptionService:
             return [], None
 
         try:
-            result = self._deps.validate_base_url(base_url)
-            if isinstance(result, tuple):
-                safe_base_url = result[0]
-            else:
-                safe_base_url = result
+            safe_base_url = self._deps.validate_base_url(base_url)[0]
         except APIError:
             return [], None
 

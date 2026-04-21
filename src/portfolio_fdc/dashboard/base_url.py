@@ -110,9 +110,9 @@ def validate_base_url(base_url: str) -> tuple[str, str]:
         logger.warning("Rejected db_api base URL; could not resolve valid IP: %s", log_target)
         raise APIError(message="Invalid db_api base URL", code="INVALID_BASE_URL")
 
-    # localhostは元のURLをそのまま返す（テスト互換性のため）
+    # localhostはtrim/normalize後のraw_valueを返す
     if hostname == "localhost":
-        return base_url, hostname
+        return raw_value, hostname
 
     bracketed_ip = f"[{resolved_ip}]" if ":" in resolved_ip else resolved_ip
     ip_url = f"{parsed.scheme}://{bracketed_ip}"

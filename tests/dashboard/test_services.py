@@ -158,6 +158,13 @@ def test_navigation_service_current_search_equal():
 
 def test_tab_load_service_load_data(logger, deps):
     service = TabLoadService(logger, deps)
+    # n_clicks=0 early return
+    result, msg = service.load_data("charts", 0, "base_url", "r1", "c1", "res1")
+    from dash import html
+
+    assert isinstance(result, html.Div)
+    assert "Press Load" in result.children
+
     deps.validate_base_url.return_value = "safe_url"
     deps.render_charts_tab.return_value = ("charts", "")
     result, _ = service.load_data("charts", 1, "base_url", "r1", "c1", "res1")
@@ -246,6 +253,73 @@ def test_tab_load_service_unexpected_exception(logger, deps, caplog):
     deps.render_charts_tab.side_effect = Exception("unexpected")
     with caplog.at_level(logging.ERROR, logger="test"):
         result, msg = service.load_data("charts", 1, "base_url", "r1", "c1", "res1")
+    assert "Unexpected error while loading dashboard data" in msg
+    assert any(
+        r.levelname == "ERROR" and "Unexpected error in load_data callback" in r.getMessage()
+        for r in caplog.records
+    )
+
+
+def test_tab_load_service_validate_base_url_apierror(logger, deps):
+    service = TabLoadService(logger, deps)
+    deps.validate_base_url.side_effect = APIError("msg", code="E001")
+    result, msg = service.load_data("charts", 1, "base_url", "r1", "c1", "res1")
+    assert msg == "msg [E001]"
+    deps.validate_base_url.side_effect = APIError("msg2")
+    result, msg = service.load_data("charts", 1, "base_url", "r1", "c1", "res1")
+    assert msg == "msg2"
+
+
+def test_tab_load_service_unknown_tab_fallback(logger, deps):
+    service = TabLoadService(logger, deps)
+    deps.validate_base_url.return_value = "safe_url"
+    deps.render_judge_tab.return_value = ("judge", "")
+    # 未知タブはjudge_tabにフォールバック
+    result, _ = service.load_data("unknown", 1, "base_url", "r1", "c1", "res1")
+    assert result == ("judge", "")
+
+
+def test_chart_name_option_service_n_clicks_zero(logger, deps):
+    service = ChartNameOptionService(logger, deps)
+    options, selected = service.refresh_chart_name_options(0, "base_url", "r1", "c1")
+    assert options == []
+    assert selected is None
+
+
+def test_chart_name_option_service_validate_base_url_apierror(logger, deps, caplog):
+    service = ChartNameOptionService(logger, deps)
+    deps.validate_base_url.side_effect = APIError("msg", code="E001")
+    with caplog.at_level(logging.ERROR, logger="test"):
+        options, selected = service.refresh_chart_name_options(1, "base_url", "r1", "c1")
+    assert options == []
+    assert selected is None
+
+
+def test_chart_name_option_service_get_charts_apierror(logger, deps, caplog):
+    service = ChartNameOptionService(logger, deps)
+    deps.validate_base_url.return_value = "safe_url"
+    deps.get_charts.side_effect = APIError("msg2")
+    with caplog.at_level(logging.ERROR, logger="test"):
+        options, selected = service.refresh_chart_name_options(1, "base_url", "r1", "c1")
+    assert options == []
+    assert selected is None
+
+    def test_chart_name_option_service_recipe_id_omitted(logger, deps):
+        service = ChartNameOptionService(logger, deps)
+        deps.validate_base_url.return_value = "safe_url"
+        deps.get_charts.return_value = [{"chart_id": "c1", "chart_name": "name1"}]
+        service.refresh_chart_name_options(1, "base_url", "", "c1")
+        # recipe_idが空の場合、paramsに含まれない
+        called_args = deps.get_charts.call_args[1]["params"]
+        assert "recipe_id" not in called_args
+
+    def test_chart_name_option_service_selected_none_when_not_found(logger, deps):
+        service = ChartNameOptionService(logger, deps)
+        deps.validate_base_url.return_value = "safe_url"
+        deps.get_charts.return_value = [{"chart_id": "c1", "chart_name": "name1"}]
+        options, selected = service.refresh_chart_name_options(1, "base_url", "r1", "not_found")
+        assert options
+        assert selected is None
 
     def test_active_drilldown_service_validate_base_url_tuple(logger, deps):
         service = ActiveDrilldownService(logger, deps)
@@ -254,14 +328,10 @@ def test_tab_load_service_unexpected_exception(logger, deps, caplog):
         deps.get_process_waveform_preview.return_value = {"points": [1, 2, 3]}
         click_data = {"points": [{"customdata": "pid"}]}
         result = service.render_active_drilldown(click_data, "base_url")
-        # waveform_figureが返る（pointsが渡る）
+        deps.get_process_waveform_preview.assert_called_with(
+            "safe_url", "pid", params={"limit": 500}
+        )
         assert result["data"]
-
-    assert "Unexpected error while loading dashboard data" in msg
-    assert any(
-        r.levelname == "ERROR" and "Unexpected error in load_data callback" in r.getMessage()
-        for r in caplog.records
-    )
 
 
 def test_navigation_service_select_chart_from_table_none_cases():

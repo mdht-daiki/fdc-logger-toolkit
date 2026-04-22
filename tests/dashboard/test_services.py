@@ -67,7 +67,7 @@ def test_active_drilldown_service_unexpected_exception(logger, deps, caplog):
     deps.validate_base_url.return_value = "safe_url"
     deps.get_process_waveform_preview.side_effect = Exception("unexpected")
     click_data = {"points": [{"customdata": "pid"}]}
-    with caplog.at_level("ERROR"):
+    with caplog.at_level(logging.ERROR, logger="test"):
         result = service.render_active_drilldown(click_data, "base_url")
     assert "unexpected error" in result["layout"]["annotations"][0]["text"]
     assert any(
@@ -93,7 +93,7 @@ def test_chart_name_option_service_get_charts_unexpected_exception(logger, deps,
     service = ChartNameOptionService(logger, deps)
     deps.validate_base_url.return_value = "safe_url"
     deps.get_charts.side_effect = Exception("unexpected")
-    with caplog.at_level("ERROR"):
+    with caplog.at_level(logging.ERROR, logger="test"):
         options, selected = service.refresh_chart_name_options(1, "base_url", "r1", "c1")
     assert options == []
     assert selected is None
@@ -244,8 +244,19 @@ def test_tab_load_service_unexpected_exception(logger, deps, caplog):
     service = TabLoadService(logger, deps)
     deps.validate_base_url.return_value = "safe_url"
     deps.render_charts_tab.side_effect = Exception("unexpected")
-    with caplog.at_level("ERROR"):
+    with caplog.at_level(logging.ERROR, logger="test"):
         result, msg = service.load_data("charts", 1, "base_url", "r1", "c1", "res1")
+
+    def test_active_drilldown_service_validate_base_url_tuple(logger, deps):
+        service = ActiveDrilldownService(logger, deps)
+        # validate_base_urlがtupleを返す場合の分岐網羅
+        deps.validate_base_url.return_value = ("safe_url", "dummy")
+        deps.get_process_waveform_preview.return_value = {"points": [1, 2, 3]}
+        click_data = {"points": [{"customdata": "pid"}]}
+        result = service.render_active_drilldown(click_data, "base_url")
+        # waveform_figureが返る（pointsが渡る）
+        assert result["data"]
+
     assert "Unexpected error while loading dashboard data" in msg
     assert any(
         r.levelname == "ERROR" and "Unexpected error in load_data callback" in r.getMessage()

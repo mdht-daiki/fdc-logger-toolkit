@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import socket
 from typing import Any
 
 import pytest
@@ -147,3 +148,54 @@ def test_validate_base_url_rejects_invalid_and_zero_ports() -> None:
 
     with pytest.raises(APIError):
         validate_base_url("http://localhost:0")
+
+
+# --- 以下 #159 テストギャップ対応 ---
+
+
+def test_validate_base_url_rejects_path_query_fragment() -> None:
+    # パス付き
+    with pytest.raises(APIError):
+        validate_base_url("http://localhost:8000/api")
+    # クエリ付き
+    with pytest.raises(APIError):
+        validate_base_url("http://localhost:8000?foo=bar")
+    # フラグメント付き
+    with pytest.raises(APIError):
+        validate_base_url("http://localhost:8000#frag")
+
+
+def test_validate_base_url_allowed_hosts_env(monkeypatch):
+    # 許可リスト追加ホストの動作確認
+    monkeypatch.setenv("PORTFOLIO_DB_API_ALLOWED_HOSTS", "example.com")
+    # example.comが解決できる場合のみテスト
+    try:
+        socket.gethostbyname("example.com")
+    except Exception:
+        pytest.skip("example.comが解決できない環境のためスキップ")
+    # 許可リストに含まれる場合は_is_restricted_ipチェックをスキップ
+    url = "http://example.com:80"
+    result = validate_base_url(url)
+    assert result[1] == "example.com"
+
+
+def test_validate_base_url_returns_correct_hostname() -> None:
+    # 戻り値[1]が正規化済みhostname
+    assert validate_base_url("http://LOCALHOST:8000")[1] == "localhost"
+    assert validate_base_url("http://127.0.0.1:8000")[1] == "127.0.0.1"
+
+
+def test_validate_base_url_ip_url_conversion(monkeypatch):
+    # 非localhost外部URLのip_url変換
+    # 例: github.com (外部IPに変換されること)
+    monkeypatch.delenv("PORTFOLIO_DB_API_ALLOWED_HOSTS", raising=False)
+    try:
+        socket.gethostbyname("github.com")
+    except Exception:
+        pytest.skip("github.comが解決できない環境のためスキップ")
+    url = "http://github.com:80"
+    ip_url, hostname = validate_base_url(url)
+    # ip_urlは http://[IP]:80 または http://IP:80 形式
+    assert ip_url.startswith("http://")
+    assert ip_url.endswith(":80")
+    assert hostname == "github.com"

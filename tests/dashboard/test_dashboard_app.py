@@ -166,17 +166,25 @@ def test_validate_base_url_rejects_path_query_fragment() -> None:
 
 
 def test_validate_base_url_allowed_hosts_env(monkeypatch):
-    # 許可リスト追加ホストの動作確認
-    monkeypatch.setenv("PORTFOLIO_DB_API_ALLOWED_HOSTS", "example.com")
-    # example.comが解決できる場合のみテスト
-    try:
-        socket.gethostbyname("example.com")
-    except Exception:
-        pytest.skip("example.comが解決できない環境のためスキップ")
-    # 許可リストに含まれる場合は_is_restricted_ipチェックをスキップ
-    url = "http://example.com:80"
+    # 許可リスト追加ホストの動作確認（mockでrestricted IPを返す）
+    test_host = "example.com"
+    url = f"http://{test_host}:80"
+
+    # restricted IP (127.0.0.1) を返すようにmock
+    def fake_getaddrinfo(host, port, *args, **kwargs):
+        return [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", port)),
+        ]
+
+    monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
+    # 許可リスト未設定ならreject（_is_restricted_ip分岐）
+    monkeypatch.delenv("PORTFOLIO_DB_API_ALLOWED_HOSTS", raising=False)
+    with pytest.raises(APIError):
+        validate_base_url(url)
+    # 許可リストに含めれば通る
+    monkeypatch.setenv("PORTFOLIO_DB_API_ALLOWED_HOSTS", test_host)
     result = validate_base_url(url)
-    assert result[1] == "example.com"
+    assert result[1] == test_host
 
 
 def test_validate_base_url_returns_correct_hostname() -> None:
@@ -186,16 +194,18 @@ def test_validate_base_url_returns_correct_hostname() -> None:
 
 
 def test_validate_base_url_ip_url_conversion(monkeypatch):
-    # 非localhost外部URLのip_url変換
-    # 例: github.com (外部IPに変換されること)
+    # 非localhost外部URLのip_url変換（mockで固定IP返却）
     monkeypatch.delenv("PORTFOLIO_DB_API_ALLOWED_HOSTS", raising=False)
-    try:
-        socket.gethostbyname("github.com")
-    except Exception:
-        pytest.skip("github.comが解決できない環境のためスキップ")
-    url = "http://github.com:80"
+    test_host = "github.com"
+    url = f"http://{test_host}:80"
+
+    # 固定IP（8.8.8.8: Google Public DNS）を返すようにmock
+    def fake_getaddrinfo(host, port, *args, **kwargs):
+        return [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", port)),
+        ]
+
+    monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
     ip_url, hostname = validate_base_url(url)
-    # ip_urlは http://[IP]:80 または http://IP:80 形式
-    assert ip_url.startswith("http://")
-    assert ip_url.endswith(":80")
-    assert hostname == "github.com"
+    assert ip_url == "http://8.8.8.8:80"
+    assert hostname == test_host

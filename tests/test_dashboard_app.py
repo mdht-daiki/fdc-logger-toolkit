@@ -94,7 +94,7 @@ def test_load_data_renders_active_tab_after_load_click(
 
 
 def test_validate_base_url_accepts_localhost() -> None:
-    assert validate_base_url("http://localhost:8000") == "http://localhost:8000"
+    assert validate_base_url("http://localhost:8000")[0] == "http://localhost:8000"
 
 
 def test_load_data_rejects_invalid_base_url() -> None:
@@ -138,7 +138,7 @@ def test_validate_base_url_rejects_zero_bind_host_when_allowed_hosts_empty(
 
 
 def test_validate_base_url_accepts_ipv6_loopback() -> None:
-    assert validate_base_url("http://[::1]:8000") == "http://[::1]:8000"
+    assert validate_base_url("http://[::1]:8000")[0] == "http://[::1]:8000"
 
 
 def test_validate_base_url_rejects_invalid_and_zero_ports() -> None:

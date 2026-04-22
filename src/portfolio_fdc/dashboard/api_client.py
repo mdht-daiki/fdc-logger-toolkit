@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, NoReturn
+from urllib.parse import quote
 
 import requests
 
 DEFAULT_TIMEOUT_SEC = 8.0
+
+
+def _path_segment(segment: str) -> str:
+    """URLパスセグメント用にID等をエンコードする（/や?等を安全化）"""
+    return quote(str(segment), safe="")
 
 
 @dataclass(frozen=True)
@@ -95,8 +102,19 @@ def _request_envelope(
 
 
 def _raise_invalid_shape(endpoint: str, expected: str, actual: Any) -> NoReturn:
+    logger = logging.getLogger(__name__)
+    logger.error(
+        "Malformed API response for %s: expected %s, got %s (full payload: %r)",
+        endpoint,
+        expected,
+        type(actual).__name__,
+        actual,
+    )
     raise APIError(
-        message=(f"Malformed API response for {endpoint}: expected {expected}, got {actual!r}")
+        message=(
+            f"Malformed API response for {endpoint}: expected {expected}, "
+            f"got {type(actual).__name__}"
+        )
     )
 
 
@@ -126,9 +144,10 @@ def get_chart_points(
     chart_id: str,
     params: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    data = _request_envelope(base_url, f"/charts/{chart_id}/points", params=params)
+    encoded_chart_id = _path_segment(chart_id)
+    data = _request_envelope(base_url, f"/charts/{encoded_chart_id}/points", params=params)
     if not isinstance(data, list):
-        _raise_invalid_shape(f"/charts/{chart_id}/points", "list", data)
+        _raise_invalid_shape(f"/charts/{encoded_chart_id}/points", "list", data)
     return data
 
 
@@ -137,13 +156,14 @@ def get_process_waveform_preview(
     process_id: str,
     params: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    encoded_process_id = _path_segment(process_id)
     data = _request_envelope(
         base_url,
-        f"/processes/{process_id}/waveform-preview",
+        f"/processes/{encoded_process_id}/waveform-preview",
         params=params,
     )
     if not isinstance(data, dict):
-        _raise_invalid_shape(f"/processes/{process_id}/waveform-preview", "dict", data)
+        _raise_invalid_shape(f"/processes/{encoded_process_id}/waveform-preview", "dict", data)
     return data
 
 
@@ -155,7 +175,8 @@ def get_judge_results(base_url: str, params: dict[str, Any] | None = None) -> li
 
 
 def get_judge_result(base_url: str, result_id: str) -> dict[str, Any]:
-    data = _request_envelope(base_url, f"/judge/results/{result_id}")
+    encoded_result_id = _path_segment(result_id)
+    data = _request_envelope(base_url, f"/judge/results/{encoded_result_id}")
     if not isinstance(data, dict):
-        _raise_invalid_shape(f"/judge/results/{result_id}", "dict", data)
+        _raise_invalid_shape(f"/judge/results/{encoded_result_id}", "dict", data)
     return data

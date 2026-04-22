@@ -460,21 +460,34 @@ def _build_waveform_preview(process_id: str, limit: int) -> dict[str, object]:
         }
 
     try:
-        with src.open("r", encoding="utf-8", errors="ignore") as f:
-            lines = f.readlines()
-
-        start_row = 0
-        for idx, line in enumerate(lines[:200]):
-            if line.strip().upper().startswith("DATA"):
-                start_row = idx + 1
-                break
-
-        from io import StringIO
-
         import pandas as pd  # Local import to avoid global import cost.
 
-        content = "".join(lines[start_row:])
-        frame = pd.read_csv(StringIO(content))
+        with src.open("r", encoding="utf-8", errors="ignore") as f:
+            start_row = 0
+            for idx, line in enumerate(f):
+                if idx >= 200:
+                    break
+                if line.strip().upper().startswith("DATA"):
+                    start_row = idx + 1
+                    break
+            # DATA行の直後からpandasで読み込む
+            f.seek(0)
+            for _ in range(start_row):
+                next(f)
+            try:
+                frame = pd.read_csv(f)
+            except pd.errors.ParserError as e:
+                logger.error(
+                    "CSV parse error in waveform preview for process_id=%s source_path=%s: %s",
+                    process_id,
+                    src.as_posix(),
+                    str(e),
+                )
+                return {
+                    "process_id": process_id,
+                    "source_path": src.as_posix(),
+                    "points": [],
+                }
         if frame.empty:
             return {
                 "process_id": process_id,
@@ -499,7 +512,7 @@ def _build_waveform_preview(process_id: str, limit: int) -> dict[str, object]:
         points = [
             {
                 "x": str(x),
-                "y": float(y),
+                "y": None if pd.isna(y) else float(y),
             }
             for x, y in sample.to_records(index=False)
         ]

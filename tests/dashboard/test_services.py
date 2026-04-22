@@ -315,8 +315,9 @@ def test_tab_load_service_unknown_tab_fallback(logger, deps):
     deps.validate_base_url.return_value = "safe_url"
     deps.render_judge_tab.return_value = ("judge", "")
     # 未知タブはjudge_tabにフォールバック
-    result, _ = service.load_data("unknown", 1, "base_url", "r1", "c1", "res1")
+    result, msg = service.load_data("unknown", 1, "base_url", "r1", "c1", "res1")
     assert result == ("judge", "")
+    assert msg == ""
 
 
 def test_chart_name_option_service_n_clicks_zero(logger, deps):

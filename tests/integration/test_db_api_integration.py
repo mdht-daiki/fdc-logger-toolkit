@@ -14,7 +14,7 @@ from pydantic import ValidationError
 from portfolio_fdc.db_api import app as db_app
 from portfolio_fdc.db_api.db import MAIN_DB
 from portfolio_fdc.db_api.schemas import ParameterIn
-from tests.test_utils import assert_validation_error_envelope
+from tests.utils.test_utils import assert_validation_error_envelope
 
 pytestmark = pytest.mark.integration
 

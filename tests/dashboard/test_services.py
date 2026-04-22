@@ -262,3 +262,50 @@ def test_tab_load_service_unexpected_exception(logger, deps, caplog):
         r.levelname == "ERROR" and "Unexpected error in load_data callback" in r.getMessage()
         for r in caplog.records
     )
+
+
+def test_navigation_service_select_chart_from_table_none_cases():
+    service = NavigationService()
+    from dash import no_update
+
+    # active_cell=None
+    assert service.select_chart_from_table(None, [{"chart_id": "c1"}]) is no_update
+    # data=None
+    assert service.select_chart_from_table({"row": 0}, None) is no_update
+
+
+def test_navigation_service_select_chart_from_table_row_idx_cases():
+    service = NavigationService()
+    from dash import no_update
+
+    data = [{"chart_id": "c1"}, {"chart_id": "c2"}]
+    # row_idx out of range
+    assert service.select_chart_from_table({"row": 2}, data) is no_update
+    # row_idx negative
+    assert service.select_chart_from_table({"row": -1}, data) is no_update
+    # row_idx not int
+    assert service.select_chart_from_table({"row": "0"}, data) is no_update
+
+
+def test_navigation_service_select_chart_from_table_chart_id_empty():
+    service = NavigationService()
+    from dash import no_update
+
+    data = [{"chart_id": ""}]
+    assert service.select_chart_from_table({"row": 0}, data) is no_update
+
+
+def test_navigation_service_select_chart_from_table_normal():
+    service = NavigationService()
+    data = [{"chart_id": "c1"}, {"chart_id": "c2"}]
+    assert service.select_chart_from_table({"row": 1}, data) == "c2"
+
+
+def test_navigation_service_sync_active_selected_base_url():
+    service = NavigationService()
+    from src.portfolio_fdc.dashboard.base_url import DEFAULT_DB_API_BASE_URL
+
+    # 空文字列→デフォルト
+    assert service.sync_active_selected_base_url("") == DEFAULT_DB_API_BASE_URL
+    # 非空はそのまま
+    assert service.sync_active_selected_base_url("http://example.com") == "http://example.com"

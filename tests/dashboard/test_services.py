@@ -71,7 +71,9 @@ def test_active_drilldown_service_unexpected_exception(logger, deps, caplog):
         result = service.render_active_drilldown(click_data, "base_url")
     assert "unexpected error" in result["layout"]["annotations"][0]["text"]
     assert any(
-        "Unexpected error while rendering active drilldown" in r for r in caplog.text.splitlines()
+        r.levelname == "ERROR"
+        and "Unexpected error while rendering active drilldown" in r.getMessage()
+        for r in caplog.records
     )
 
 
@@ -96,16 +98,25 @@ def test_chart_name_option_service_get_charts_unexpected_exception(logger, deps,
     assert options == []
     assert selected is None
     assert any(
-        "Unexpected error while refreshing chart options" in r for r in caplog.text.splitlines()
+        r.levelname == "ERROR"
+        and "Unexpected error while refreshing chart options" in r.getMessage()
+        for r in caplog.records
     )
 
 
 def test_navigation_service_move_to_active_by_chart_name():
+    import urllib.parse
+
     service = NavigationService()
     tab, chart_id, search = service.move_to_active_by_chart_name("c1", "r1", "")
     assert tab == "active"
     assert chart_id == "c1"
     assert search.startswith("?")
+    # searchの内容を厳密に検証
+    parsed = urllib.parse.parse_qs(search.lstrip("?"))
+    assert parsed["tab"] == ["active"]
+    assert parsed["chart_id"] == ["c1"]
+    assert parsed["recipe_id"] == ["r1"]
 
 
 def test_navigation_service_selected_chart_id_none():
@@ -236,4 +247,7 @@ def test_tab_load_service_unexpected_exception(logger, deps, caplog):
     with caplog.at_level("ERROR"):
         result, msg = service.load_data("charts", 1, "base_url", "r1", "c1", "res1")
     assert "Unexpected error while loading dashboard data" in msg
-    assert any("Unexpected error in load_data callback" in r for r in caplog.text.splitlines())
+    assert any(
+        r.levelname == "ERROR" and "Unexpected error in load_data callback" in r.getMessage()
+        for r in caplog.records
+    )

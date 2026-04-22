@@ -295,6 +295,36 @@ def test_chart_name_option_service_validate_base_url_apierror(logger, deps, capl
     assert selected is None
 
 
+def test_chart_name_option_service_recipe_id_omitted(logger, deps):
+    service = ChartNameOptionService(logger, deps)
+    deps.validate_base_url.return_value = "safe_url"
+    deps.get_charts.return_value = [{"chart_id": "c1", "chart_name": "name1"}]
+    service.refresh_chart_name_options(1, "base_url", "", "c1")
+    # recipe_idが空の場合、paramsに含まれない
+    called_args = deps.get_charts.call_args[1]["params"]
+    assert "recipe_id" not in called_args
+
+
+def test_chart_name_option_service_selected_none_when_not_found(logger, deps):
+    service = ChartNameOptionService(logger, deps)
+    deps.validate_base_url.return_value = "safe_url"
+    deps.get_charts.return_value = [{"chart_id": "c1", "chart_name": "name1"}]
+    options, selected = service.refresh_chart_name_options(1, "base_url", "r1", "not_found")
+    assert options
+    assert selected is None
+
+
+def test_active_drilldown_service_validate_base_url_tuple(logger, deps):
+    service = ActiveDrilldownService(logger, deps)
+    # validate_base_urlがtupleを返す場合の分岐網羅
+    deps.validate_base_url.return_value = ("safe_url", "dummy")
+    deps.get_process_waveform_preview.return_value = {"points": [{"y": 1}, {"y": 2}, {"y": 3}]}
+    click_data = {"points": [{"customdata": "pid"}]}
+    result = service.render_active_drilldown(click_data, "base_url")
+    deps.get_process_waveform_preview.assert_called_with("safe_url", "pid", params={"limit": 500})
+    assert result["data"]
+
+
 def test_chart_name_option_service_get_charts_apierror(logger, deps, caplog):
     service = ChartNameOptionService(logger, deps)
     deps.validate_base_url.return_value = "safe_url"
@@ -303,35 +333,6 @@ def test_chart_name_option_service_get_charts_apierror(logger, deps, caplog):
         options, selected = service.refresh_chart_name_options(1, "base_url", "r1", "c1")
     assert options == []
     assert selected is None
-
-    def test_chart_name_option_service_recipe_id_omitted(logger, deps):
-        service = ChartNameOptionService(logger, deps)
-        deps.validate_base_url.return_value = "safe_url"
-        deps.get_charts.return_value = [{"chart_id": "c1", "chart_name": "name1"}]
-        service.refresh_chart_name_options(1, "base_url", "", "c1")
-        # recipe_idが空の場合、paramsに含まれない
-        called_args = deps.get_charts.call_args[1]["params"]
-        assert "recipe_id" not in called_args
-
-    def test_chart_name_option_service_selected_none_when_not_found(logger, deps):
-        service = ChartNameOptionService(logger, deps)
-        deps.validate_base_url.return_value = "safe_url"
-        deps.get_charts.return_value = [{"chart_id": "c1", "chart_name": "name1"}]
-        options, selected = service.refresh_chart_name_options(1, "base_url", "r1", "not_found")
-        assert options
-        assert selected is None
-
-    def test_active_drilldown_service_validate_base_url_tuple(logger, deps):
-        service = ActiveDrilldownService(logger, deps)
-        # validate_base_urlがtupleを返す場合の分岐網羅
-        deps.validate_base_url.return_value = ("safe_url", "dummy")
-        deps.get_process_waveform_preview.return_value = {"points": [1, 2, 3]}
-        click_data = {"points": [{"customdata": "pid"}]}
-        result = service.render_active_drilldown(click_data, "base_url")
-        deps.get_process_waveform_preview.assert_called_with(
-            "safe_url", "pid", params={"limit": 500}
-        )
-        assert result["data"]
 
 
 def test_navigation_service_select_chart_from_table_none_cases():

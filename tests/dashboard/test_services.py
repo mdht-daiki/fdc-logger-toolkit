@@ -167,8 +167,9 @@ def test_tab_load_service_load_data(logger, deps):
 
     deps.validate_base_url.return_value = "safe_url"
     deps.render_charts_tab.return_value = ("charts", "")
-    result, _ = service.load_data("charts", 1, "base_url", "r1", "c1", "res1")
+    result, msg = service.load_data("charts", 1, "base_url", "r1", "c1", "res1")
     assert result == ("charts", "")
+    assert msg == ""
 
 
 def test_url_filter_service_sync_filters_from_url():
@@ -200,6 +201,40 @@ def test_url_filter_service_empty_string():
 
 
 def test_url_filter_service_url_encoded():
+    def test_url_filter_service_sync_filters_from_url_none():
+        service = UrlFilterService()
+        # Noneの場合
+        tab, recipe_id, chart_id, result_id = service.sync_filters_from_url(None)
+        assert tab == "charts"
+        assert recipe_id == ""
+        assert chart_id == ""
+        assert result_id == ""
+
+    def test_url_filter_service_sync_filters_from_url_partial_keys():
+        service = UrlFilterService()
+        # recipe_idのみ
+        tab, recipe_id, chart_id, result_id = service.sync_filters_from_url("?recipe_id=r1")
+        assert tab == "charts"
+        assert recipe_id == "r1"
+        assert chart_id == ""
+        assert result_id == ""
+
+        # tab, chart_idのみ
+        tab, recipe_id, chart_id, result_id = service.sync_filters_from_url(
+            "?tab=history&chart_id=c1"
+        )
+        assert tab == "history"
+        assert recipe_id == ""
+        assert chart_id == "c1"
+        assert result_id == ""
+
+        # tabが不正かつ他キーなし
+        tab, recipe_id, chart_id, result_id = service.sync_filters_from_url("?tab=invalid")
+        assert tab == "charts"
+        assert recipe_id == ""
+        assert chart_id == ""
+        assert result_id == ""
+
     service = UrlFilterService()
     # URLエンコードされたクエリ
     tab, recipe_id, chart_id, result_id = service.sync_filters_from_url(
@@ -219,17 +254,21 @@ def test_tab_load_service_tab_branches(logger, deps):
     deps.render_history_tab.return_value = ("history", "")
     deps.render_judge_tab.return_value = ("judge", "")
     # charts
-    result, _ = service.load_data("charts", 1, "base_url", "r1", "c1", "res1")
+    result, msg = service.load_data("charts", 1, "base_url", "r1", "c1", "res1")
     assert result == ("charts", "")
+    assert msg == ""
     # active
-    result, _ = service.load_data("active", 1, "base_url", "r1", "c1", "res1")
+    result, msg = service.load_data("active", 1, "base_url", "r1", "c1", "res1")
     assert result == ("active", "")
+    assert msg == ""
     # history
-    result, _ = service.load_data("history", 1, "base_url", "r1", "c1", "res1")
+    result, msg = service.load_data("history", 1, "base_url", "r1", "c1", "res1")
     assert result == ("history", "")
+    assert msg == ""
     # judge
-    result, _ = service.load_data("judge", 1, "base_url", "r1", "c1", "res1")
+    result, msg = service.load_data("judge", 1, "base_url", "r1", "c1", "res1")
     assert result == ("judge", "")
+    assert msg == ""
 
 
 def test_tab_load_service_apierror_code_and_no_code(logger, deps):

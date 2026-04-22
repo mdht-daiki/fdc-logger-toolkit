@@ -279,12 +279,12 @@ def test_tab_load_service_apierror_code_and_no_code(logger, deps):
     api_error = APIError("msg", code="E001")
     deps.render_charts_tab.side_effect = api_error
     result, msg = service.load_data("charts", 1, "base_url", "r1", "c1", "res1")
-    assert "E001" in msg
+    assert msg == "msg [E001]"
     # codeなし
     api_error2 = APIError("msg2")
     deps.render_charts_tab.side_effect = api_error2
     result, msg = service.load_data("charts", 1, "base_url", "r1", "c1", "res1")
-    assert "msg2" in msg and "[" not in msg
+    assert msg == "msg2"
 
 
 def test_tab_load_service_unexpected_exception(logger, deps, caplog):
@@ -347,6 +347,42 @@ def test_chart_name_option_service_recipe_id_omitted(logger, deps):
 
 
 def test_chart_name_option_service_selected_none_when_not_found(logger, deps):
+    def test_chart_name_option_service_validate_base_url_tuple(logger, deps):
+        service = ChartNameOptionService(logger, deps)
+        # validate_base_urlがtupleを返す場合の分岐網羅
+        deps.validate_base_url.return_value = ("safe_url", "dummy")
+        deps.get_charts.return_value = [{"chart_id": "c1", "chart_name": "name1"}]
+        options, selected = service.refresh_chart_name_options(1, "base_url", "r1", "c1")
+        assert isinstance(options, list)
+        assert len(options) == 1
+        assert options[0]["value"] == "c1"
+        assert "name1" in options[0]["label"]
+        assert selected == "c1"
+
+    def test_tab_load_service_validate_base_url_tuple(logger, deps):
+        service = TabLoadService(logger, deps)
+        deps.validate_base_url.return_value = ("safe_url", "dummy")
+        deps.render_charts_tab.return_value = ("charts", "")
+        deps.render_active_tab.return_value = ("active", "")
+        deps.render_history_tab.return_value = ("history", "")
+        deps.render_judge_tab.return_value = ("judge", "")
+        # charts
+        result, msg = service.load_data("charts", 1, "base_url", "r1", "c1", "res1")
+        assert result == ("charts", "")
+        assert msg == ""
+        # active
+        result, msg = service.load_data("active", 1, "base_url", "r1", "c1", "res1")
+        assert result == ("active", "")
+        assert msg == ""
+        # history
+        result, msg = service.load_data("history", 1, "base_url", "r1", "c1", "res1")
+        assert result == ("history", "")
+        assert msg == ""
+        # judge
+        result, msg = service.load_data("judge", 1, "base_url", "r1", "c1", "res1")
+        assert result == ("judge", "")
+        assert msg == ""
+
     service = ChartNameOptionService(logger, deps)
     deps.validate_base_url.return_value = "safe_url"
     deps.get_charts.return_value = [{"chart_id": "c1", "chart_name": "name1"}]

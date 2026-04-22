@@ -3,6 +3,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from src.portfolio_fdc.dashboard.api_client import APIError
 from src.portfolio_fdc.dashboard.services.active_drilldown import ActiveDrilldownService
 from src.portfolio_fdc.dashboard.services.chart_name_options import ChartNameOptionService
 from src.portfolio_fdc.dashboard.services.navigation import NavigationService
@@ -51,13 +52,14 @@ def test_active_drilldown_service_process_id_invalid(logger, deps):
 def test_active_drilldown_service_apierror(logger, deps):
     service = ActiveDrilldownService(logger, deps)
     deps.validate_base_url.return_value = "safe_url"
-    deps.get_process_waveform_preview.side_effect = __import__(
-        "src.portfolio_fdc.dashboard.api_client"
-    ).portfolio_fdc.dashboard.api_client.APIError("msg")
+    deps.get_process_waveform_preview.side_effect = APIError("msg")
     # APIError発生時
     click_data = {"points": [{"customdata": "pid"}]}
     result = service.render_active_drilldown(click_data, "base_url")
-    assert "Failed to load waveform" in result["layout"]["annotations"][0]["text"]
+    # 厳密にAPIError.messageが含まれることを検証
+    text = result["layout"]["annotations"][0]["text"]
+    assert "Failed to load waveform" in text
+    assert "msg" in text
 
 
 def test_active_drilldown_service_unexpected_exception(logger, deps, caplog):
@@ -77,8 +79,12 @@ def test_chart_name_option_service_refresh_chart_name_options(logger, deps):
     service = ChartNameOptionService(logger, deps)
     deps.validate_base_url.return_value = "safe_url"
     deps.get_charts.return_value = [{"chart_id": "c1", "chart_name": "name1"}]
-    options, _ = service.refresh_chart_name_options(1, "base_url", "r1", "c1")
+    options, selected = service.refresh_chart_name_options(1, "base_url", "r1", "c1")
     assert isinstance(options, list)
+    assert len(options) == 1
+    assert options[0]["value"] == "c1"
+    assert "name1" in options[0]["label"]
+    assert selected == "c1"
 
 
 def test_chart_name_option_service_get_charts_unexpected_exception(logger, deps, caplog):
@@ -144,7 +150,7 @@ def test_tab_load_service_load_data(logger, deps):
     deps.validate_base_url.return_value = "safe_url"
     deps.render_charts_tab.return_value = ("charts", "")
     result, _ = service.load_data("charts", 1, "base_url", "r1", "c1", "res1")
-    assert result == ("charts", "") or hasattr(result, "children")
+    assert result == ("charts", "")
 
 
 def test_url_filter_service_sync_filters_from_url():
@@ -196,32 +202,28 @@ def test_tab_load_service_tab_branches(logger, deps):
     deps.render_judge_tab.return_value = ("judge", "")
     # charts
     result, _ = service.load_data("charts", 1, "base_url", "r1", "c1", "res1")
-    assert result == ("charts", "") or hasattr(result, "children")
+    assert result == ("charts", "")
     # active
     result, _ = service.load_data("active", 1, "base_url", "r1", "c1", "res1")
-    assert result == ("active", "") or hasattr(result, "children")
+    assert result == ("active", "")
     # history
     result, _ = service.load_data("history", 1, "base_url", "r1", "c1", "res1")
-    assert result == ("history", "") or hasattr(result, "children")
+    assert result == ("history", "")
     # judge
     result, _ = service.load_data("judge", 1, "base_url", "r1", "c1", "res1")
-    assert result == ("judge", "") or hasattr(result, "children")
+    assert result == ("judge", "")
 
 
 def test_tab_load_service_apierror_code_and_no_code(logger, deps):
     service = TabLoadService(logger, deps)
     deps.validate_base_url.return_value = "safe_url"
     # codeあり
-    api_error = __import__(
-        "src.portfolio_fdc.dashboard.api_client"
-    ).portfolio_fdc.dashboard.api_client.APIError("msg", code="E001")
+    api_error = APIError("msg", code="E001")
     deps.render_charts_tab.side_effect = api_error
     result, msg = service.load_data("charts", 1, "base_url", "r1", "c1", "res1")
     assert "E001" in msg
     # codeなし
-    api_error2 = __import__(
-        "src.portfolio_fdc.dashboard.api_client"
-    ).portfolio_fdc.dashboard.api_client.APIError("msg2")
+    api_error2 = APIError("msg2")
     deps.render_charts_tab.side_effect = api_error2
     result, msg = service.load_data("charts", 1, "base_url", "r1", "c1", "res1")
     assert "msg2" in msg and "[" not in msg

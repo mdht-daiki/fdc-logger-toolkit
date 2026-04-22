@@ -49,6 +49,40 @@ def test_active_drilldown_service_process_id_invalid(logger, deps):
     assert "Only feature points" in result["layout"]["annotations"][0]["text"]
 
 
+def test_active_drilldown_service_validate_base_url_apierror(logger, deps):
+    service = ActiveDrilldownService(logger, deps)
+    deps.validate_base_url.side_effect = APIError("msg")
+    click_data = {"points": [{"customdata": "pid"}]}
+    result = service.render_active_drilldown(click_data, "base_url")
+    text = result["layout"]["annotations"][0]["text"]
+    assert "Failed to load waveform" in text
+    assert "msg" in text
+
+
+def test_active_drilldown_service_preview_not_dict(logger, deps):
+    service = ActiveDrilldownService(logger, deps)
+    deps.validate_base_url.return_value = "safe_url"
+    # previewがstr
+    deps.get_process_waveform_preview.return_value = "not_a_dict"
+    click_data = {"points": [{"customdata": "pid"}]}
+    result = service.render_active_drilldown(click_data, "base_url")
+    text = result["layout"]["annotations"][0]["text"]
+    assert "No waveform preview data" in text or "No waveform" in text
+    # previewがlist
+    deps.get_process_waveform_preview.return_value = [1, 2, 3]
+    result = service.render_active_drilldown(click_data, "base_url")
+    text = result["layout"]["annotations"][0]["text"]
+    assert "No waveform preview data" in text or "No waveform" in text
+
+
+def test_active_drilldown_service_customdata_empty_string(logger, deps):
+    service = ActiveDrilldownService(logger, deps)
+    click_data = {"points": [{"customdata": ""}]}
+    result = service.render_active_drilldown(click_data, "base_url")
+    text = result["layout"]["annotations"][0]["text"]
+    assert "Only feature points" in text
+
+
 def test_active_drilldown_service_apierror(logger, deps):
     service = ActiveDrilldownService(logger, deps)
     deps.validate_base_url.return_value = "safe_url"
@@ -105,6 +139,16 @@ def test_chart_name_option_service_get_charts_unexpected_exception(logger, deps,
 
 
 def test_navigation_service_move_to_active_by_chart_name():
+    def test_navigation_service_move_to_active_by_chart_name_recipe_id_omitted():
+        service = NavigationService()
+        tab, chart_id, search = service.move_to_active_by_chart_name("c1", "", "")
+        import urllib.parse
+
+        parsed = urllib.parse.parse_qs(search.lstrip("?"))
+        assert "recipe_id" not in parsed
+        assert parsed["tab"] == ["active"]
+        assert parsed["chart_id"] == ["c1"]
+
     import urllib.parse
 
     service = NavigationService()
@@ -224,6 +268,16 @@ def test_url_filter_service_sync_filters_from_url_none():
 
 
 def test_url_filter_service_sync_filters_from_url_partial_keys():
+    def test_url_filter_service_tab_judge():
+        service = UrlFilterService()
+        tab, recipe_id, chart_id, result_id = service.sync_filters_from_url(
+            "?tab=judge&recipe_id=r1&chart_id=c1&result_id=res1"
+        )
+        assert tab == "judge"
+        assert recipe_id == "r1"
+        assert chart_id == "c1"
+        assert result_id == "res1"
+
     service = UrlFilterService()
     # recipe_idのみ
     tab, recipe_id, chart_id, result_id = service.sync_filters_from_url("?recipe_id=r1")

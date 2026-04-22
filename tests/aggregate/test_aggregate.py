@@ -14,7 +14,7 @@ from portfolio_fdc.core.segmentation.models import StepBundle, StepPeak
 from portfolio_fdc.main import aggregate
 
 DUMMY_RULES_PATH = (
-    Path(__file__).resolve().parents[1]
+    Path(__file__).resolve().parents[2]
     / "src"
     / "portfolio_fdc"
     / "configs"

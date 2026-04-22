@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 
 from portfolio_fdc.db_api.datetime_util import to_utc_millis
 from portfolio_fdc.db_api.db import MAIN_DB, _init_schema
-from tests.test_utils import assert_validation_error_envelope
+from tests.utils.test_utils import assert_validation_error_envelope
 
 _INSERT_CHART_SQL = """
     INSERT INTO ChartsV2(

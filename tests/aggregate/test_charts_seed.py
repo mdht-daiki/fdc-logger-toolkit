@@ -8,7 +8,7 @@ from portfolio_fdc.tools.sim_data_generator.generate_logger_csv import recipe_sp
 
 
 def test_charts_seed_matches_recipe_and_tool_contracts() -> None:
-    root = Path(__file__).resolve().parents[1]
+    root = Path(__file__).resolve().parents[2]
     charts_path = root / "src" / "portfolio_fdc" / "configs" / "charts_seed.yaml"
     aggregate_tools_path = root / "src" / "portfolio_fdc" / "configs" / "aggregate_tools.yaml"
 

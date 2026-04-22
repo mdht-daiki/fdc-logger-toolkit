@@ -13,7 +13,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from portfolio_fdc.db_api.db import MAIN_DB, _connect, _init_schema
-from tests.test_utils import assert_validation_error_envelope
+from tests.utils.test_utils import assert_validation_error_envelope
 
 
 @dataclass(frozen=True)

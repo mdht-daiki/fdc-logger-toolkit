@@ -264,7 +264,7 @@ def test_parse_api_error_with_no_error_or_detail_returns_generic() -> None:
 
 
 def test_parse_api_error_with_non_dict_payload_returns_generic() -> None:
-    err = parse_api_error(None, 503)  # type: ignore[arg-type]
+    err = parse_api_error(None, 503)
     assert err.message == "API error (status=503)"
     assert err.status_code == 503
 

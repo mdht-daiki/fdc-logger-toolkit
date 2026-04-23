@@ -269,6 +269,7 @@ def test_move_to_active_by_chart_name_switches_tab_and_updates_url() -> None:
     assert tab == "active"
     assert chart_id == "CHART_1"
     assert "tab=active" in search
+    assert "recipe_id=RCP_1" in search
     assert "chart_id=CHART_1" in search
 
 

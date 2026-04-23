@@ -7,7 +7,16 @@ import pytest
 from dash import html
 
 from portfolio_fdc.dashboard.api_client import APIError
-from portfolio_fdc.dashboard.app import load_data, refresh_chart_name_options, validate_base_url
+from portfolio_fdc.dashboard.app import (
+    load_data,
+    move_to_active_by_chart_name,
+    refresh_chart_name_options,
+    render_active_drilldown,
+    select_chart_from_table,
+    sync_active_selected_base_url,
+    sync_filters_from_url,
+    validate_base_url,
+)
 
 
 def test_refresh_chart_name_options_keeps_dropdown_unselected_without_chart_id(
@@ -209,3 +218,149 @@ def test_validate_base_url_ip_url_conversion(monkeypatch):
     ip_url, hostname = validate_base_url(url)
     assert ip_url == "http://8.8.8.8:80"
     assert hostname == test_host
+
+
+# --- #153 / #161: sync_filters_from_url ---
+
+
+def test_sync_filters_from_url_accepts_valid_tabs() -> None:
+    for tab in ("charts", "active", "history", "judge"):
+        result_tab, _, _, _ = sync_filters_from_url(f"?tab={tab}")
+        assert result_tab == tab
+
+
+def test_sync_filters_from_url_falls_back_to_charts_for_invalid_tab() -> None:
+    result_tab, _, _, _ = sync_filters_from_url("?tab=unknown")
+    assert result_tab == "charts"
+
+
+def test_sync_filters_from_url_parses_multiple_query_params() -> None:
+    tab, recipe_id, chart_id, result_id = sync_filters_from_url(
+        "?tab=judge&recipe_id=RCP_1&chart_id=CHART_2&result_id=JR_3"
+    )
+    assert tab == "judge"
+    assert recipe_id == "RCP_1"
+    assert chart_id == "CHART_2"
+    assert result_id == "JR_3"
+
+
+def test_sync_filters_from_url_handles_empty_search() -> None:
+    tab, recipe_id, chart_id, result_id = sync_filters_from_url("")
+    assert tab == "charts"
+    assert recipe_id == ""
+    assert chart_id == ""
+    assert result_id == ""
+
+
+# --- #153 / #161: move_to_active_by_chart_name ---
+
+
+def test_move_to_active_by_chart_name_returns_no_update_for_none() -> None:
+    from dash import no_update
+
+    tab, chart_id, search = move_to_active_by_chart_name(None, "", "")
+    assert tab is no_update
+    assert chart_id is no_update
+    assert search is no_update
+
+
+def test_move_to_active_by_chart_name_switches_tab_and_updates_url() -> None:
+    tab, chart_id, search = move_to_active_by_chart_name("CHART_1", "RCP_1", "")
+    assert tab == "active"
+    assert chart_id == "CHART_1"
+    assert "tab=active" in search
+    assert "chart_id=CHART_1" in search
+
+
+# --- #153 / #161: select_chart_from_table ---
+
+
+def test_select_chart_from_table_returns_no_update_for_none_cell() -> None:
+    from dash import no_update
+
+    result = select_chart_from_table(None, [{"chart_id": "CHART_1"}])
+    assert result is no_update
+
+
+def test_select_chart_from_table_returns_no_update_for_out_of_bounds_row() -> None:
+    from dash import no_update
+
+    result = select_chart_from_table({"row": 5}, [{"chart_id": "CHART_1"}])
+    assert result is no_update
+
+
+def test_select_chart_from_table_returns_chart_id_on_valid_cell() -> None:
+    data = [{"chart_id": "CHART_1"}, {"chart_id": "CHART_2"}]
+    result = select_chart_from_table({"row": 1}, data)
+    assert result == "CHART_2"
+
+
+# --- #153 / #161: sync_active_selected_base_url ---
+
+
+def test_sync_active_selected_base_url_returns_given_url() -> None:
+    result = sync_active_selected_base_url("http://localhost:8000")
+    assert result == "http://localhost:8000"
+
+
+# --- #153 / #161: render_active_drilldown ---
+
+
+def test_render_active_drilldown_returns_empty_figure_for_none_click_data() -> None:
+    figure = render_active_drilldown(None, "http://localhost:8000")
+    assert figure["layout"]["title"] == "Raw Waveform Drilldown"
+
+
+def test_render_active_drilldown_returns_empty_figure_for_empty_points() -> None:
+    figure = render_active_drilldown({"points": []}, "http://localhost:8000")
+    assert figure["layout"]["title"] == "Raw Waveform Drilldown"
+
+
+def test_render_active_drilldown_returns_empty_figure_when_customdata_not_str() -> None:
+    figure = render_active_drilldown({"points": [{"customdata": 123}]}, "http://localhost:8000")
+    assert figure["layout"]["title"] == "Raw Waveform Drilldown"
+
+
+def test_render_active_drilldown_returns_waveform_figure_on_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "portfolio_fdc.dashboard.app.validate_base_url",
+        lambda url: (url, "localhost"),
+    )
+
+    def _fake_preview(base_url: str, process_id: str, params: Any = None) -> dict[str, Any]:
+        return {"process_id": process_id, "points": [{"x": "t1", "y": 1.0}]}
+
+    monkeypatch.setattr(
+        "portfolio_fdc.dashboard.app.get_process_waveform_preview",
+        _fake_preview,
+    )
+
+    click_data = {"points": [{"customdata": "P1"}]}
+    figure = render_active_drilldown(click_data, "http://localhost:8000")
+    assert figure["layout"]["title"] == "Raw Waveform Preview (P1)"
+
+
+def test_render_active_drilldown_returns_empty_figure_on_api_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "portfolio_fdc.dashboard.app.validate_base_url",
+        lambda url: (url, "localhost"),
+    )
+
+    def _raise_api_error(*_args: Any, **_kwargs: Any) -> None:
+        raise APIError(message="not found")
+
+    monkeypatch.setattr(
+        "portfolio_fdc.dashboard.app.get_process_waveform_preview",
+        _raise_api_error,
+    )
+
+    click_data = {"points": [{"customdata": "P1"}]}
+    figure = render_active_drilldown(click_data, "http://localhost:8000")
+    assert figure["layout"]["title"] == "Raw Waveform Drilldown"
+    annotations = figure["layout"].get("annotations", [])
+    error_text = " ".join(a.get("text", "") for a in annotations)
+    assert "not found" in error_text

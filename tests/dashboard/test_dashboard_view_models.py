@@ -5,6 +5,7 @@ from portfolio_fdc.dashboard.view_models import (
     chart_band_figure,
     chart_points_figure,
     empty_drilldown_figure,
+    format_range,
     sort_judge_rows,
     spc_band_with_points_figure,
     waveform_figure,
@@ -199,3 +200,31 @@ def test_waveform_figure_ignores_invalid_points() -> None:
     )
 
     assert wf["data"][0]["y"] == [1.5]
+
+
+# --- #153: sort_judge_rows 未知のレベル ---
+
+
+def test_sort_judge_rows_places_unknown_level_at_end() -> None:
+    rows = [
+        {"result_id": "JR_1", "level": "UNKNOWN", "judged_at": "2026-04-17T00:00:00.000Z"},
+        {"result_id": "JR_2", "level": "OK", "judged_at": "2026-04-17T00:00:01.000Z"},
+    ]
+
+    sorted_rows = sort_judge_rows(rows)
+
+    # OK は priority=2, UNKNOWN は priority=9 → OK が先
+    assert sorted_rows[0]["result_id"] == "JR_2"
+    assert sorted_rows[1]["result_id"] == "JR_1"
+
+
+# --- #153: format_range falsy だが有効な値 ---
+
+
+def test_format_range_handles_zero_values() -> None:
+    assert format_range(0.0, 0.0) == "0.0 .. 0.0"
+
+
+def test_format_range_returns_dash_for_none() -> None:
+    assert format_range(None, 1.0) == "-"
+    assert format_range(1.0, None) == "-"

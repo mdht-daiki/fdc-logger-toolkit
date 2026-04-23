@@ -182,9 +182,12 @@ def test_dict_getters_raise_api_error_for_invalid_shape(
 
 def test_path_segment_encodes_special_chars(monkeypatch):
     # chart_idに/や%など特殊文字を含めた場合のエンドポイントパスを検証
-    called = {}
 
-    def _fake_get(url, *args, **kwargs):
+    import urllib.parse
+
+    called: dict[str, Any] = {}
+
+    def _fake_get(url: str, *args, **kwargs) -> _FakeResponse:
         called["url"] = url
         # レスポンスは最低限でOK
         return _FakeResponse(200, {"ok": True, "data": []})
@@ -194,5 +197,6 @@ def test_path_segment_encodes_special_chars(monkeypatch):
     # / → %2F, % → %25 など
     chart_id = "CHART/1%"
     get_chart_points("http://localhost:8000", chart_id=chart_id)
-    # 呼び出しURLのパス部分を検証
-    assert "/charts/CHART%2F1%25/points" in called["url"]
+    # 呼び出しURLのパス部分を厳密に検証
+    parsed = urllib.parse.urlparse(called["url"])
+    assert parsed.path == "/charts/CHART%2F1%25/points"

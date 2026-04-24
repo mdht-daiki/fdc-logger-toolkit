@@ -386,16 +386,40 @@ def test_get_process_waveform_preview_returns_empty_points_when_file_missing(
         _delete_waveform_process(process_id)
 
 
-def test_get_process_waveform_preview_parses_csv_with_data_header(
+@pytest.mark.parametrize(
+    ("process_id_prefix", "csv_filename", "csv_content", "expected_points"),
+    [
+        (
+            "wave_data_header",
+            "wave_with_data_header.csv",
+            "# preface\nDATA\ntimestamp,signal\nt1,1.5\nt2,2.5\n",
+            [{"x": "t1", "y": 1.5}, {"x": "t2", "y": 2.5}],
+        ),
+        (
+            "wave_no_data_header",
+            "wave_without_data_header.csv",
+            "timestamp,signal\nt1,3.0\nt2,4.0\n",
+            [{"x": "t1", "y": 3.0}, {"x": "t2", "y": 4.0}],
+        ),
+        (
+            "wave_no_numeric",
+            "wave_no_numeric.csv",
+            "timestamp,label\nt1,high\nt2,low\n",
+            [],
+        ),
+    ],
+)
+def test_get_process_waveform_preview_csv_parsing_variants(
     client: TestClient,
     tmp_path: Path,
+    process_id_prefix: str,
+    csv_filename: str,
+    csv_content: str,
+    expected_points: list[dict[str, float | str]],
 ) -> None:
-    process_id = f"wave_data_header_{uuid4().hex[:8]}"
-    csv_path = tmp_path / "wave_with_data_header.csv"
-    csv_path.write_text(
-        "# preface\nDATA\ntimestamp,signal\nt1,1.5\nt2,2.5\n",
-        encoding="utf-8",
-    )
+    process_id = f"{process_id_prefix}_{uuid4().hex[:8]}"
+    csv_path = tmp_path / csv_filename
+    csv_path.write_text(csv_content, encoding="utf-8")
 
     try:
         _insert_waveform_process(process_id, csv_path.as_posix())
@@ -405,58 +429,6 @@ def test_get_process_waveform_preview_parses_csv_with_data_header(
         assert res.status_code == 200
         body = res.json()
         assert body["ok"] is True
-        assert len(body["data"]["points"]) == 2
-        assert body["data"]["points"][0] == {"x": "t1", "y": 1.5}
-        assert body["data"]["points"][1] == {"x": "t2", "y": 2.5}
-    finally:
-        _delete_waveform_process(process_id)
-
-
-def test_get_process_waveform_preview_falls_back_without_data_header(
-    client: TestClient,
-    tmp_path: Path,
-) -> None:
-    process_id = f"wave_no_data_header_{uuid4().hex[:8]}"
-    csv_path = tmp_path / "wave_without_data_header.csv"
-    csv_path.write_text(
-        "timestamp,signal\nt1,3.0\nt2,4.0\n",
-        encoding="utf-8",
-    )
-
-    try:
-        _insert_waveform_process(process_id, csv_path.as_posix())
-
-        res = client.get(f"/processes/{process_id}/waveform-preview")
-
-        assert res.status_code == 200
-        body = res.json()
-        assert body["ok"] is True
-        assert len(body["data"]["points"]) == 2
-        assert body["data"]["points"][0] == {"x": "t1", "y": 3.0}
-        assert body["data"]["points"][1] == {"x": "t2", "y": 4.0}
-    finally:
-        _delete_waveform_process(process_id)
-
-
-def test_get_process_waveform_preview_returns_empty_when_no_numeric_column(
-    client: TestClient,
-    tmp_path: Path,
-) -> None:
-    process_id = f"wave_no_numeric_{uuid4().hex[:8]}"
-    csv_path = tmp_path / "wave_no_numeric.csv"
-    csv_path.write_text(
-        "timestamp,label\nt1,high\nt2,low\n",
-        encoding="utf-8",
-    )
-
-    try:
-        _insert_waveform_process(process_id, csv_path.as_posix())
-
-        res = client.get(f"/processes/{process_id}/waveform-preview")
-
-        assert res.status_code == 200
-        body = res.json()
-        assert body["ok"] is True
-        assert body["data"]["points"] == []
+        assert body["data"]["points"] == expected_points
     finally:
         _delete_waveform_process(process_id)

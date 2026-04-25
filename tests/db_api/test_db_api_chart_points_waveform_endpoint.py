@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -253,6 +254,15 @@ def _delete_waveform_process(process_id: str) -> None:
         con.close()
 
 
+@contextmanager
+def _waveform_process_ctx(process_id: str, raw_csv_path: str) -> Iterator[None]:
+    _insert_waveform_process(process_id, raw_csv_path)
+    try:
+        yield
+    finally:
+        _delete_waveform_process(process_id)
+
+
 # --- GET /charts/{chart_id}/points ---
 
 
@@ -329,6 +339,7 @@ def test_get_chart_points_rejects_limit_too_small(client: TestClient) -> None:
     res = client.get("/charts/CHART_999/points?limit=0")
 
     assert res.status_code == 422
+    assert_validation_error_envelope(res.json(), expected_loc_fragment="limit")
 
 
 def test_get_chart_points_rejects_limit_too_large(client: TestClient) -> None:
@@ -336,6 +347,7 @@ def test_get_chart_points_rejects_limit_too_large(client: TestClient) -> None:
     res = client.get("/charts/CHART_999/points?limit=501")
 
     assert res.status_code == 422
+    assert_validation_error_envelope(res.json(), expected_loc_fragment="limit")
 
 
 def test_get_chart_points_rejects_oversized_chart_pk(client: TestClient) -> None:
@@ -414,6 +426,53 @@ def test_find_chart_points_applies_limit(
     assert rows[0].raw_csv_path == f"data/raw/{seeded.process_ids[2]}.csv"
 
 
+def test_find_chart_points_tiebreaker_with_same_start_ts() -> None:
+    suffix = uuid4().hex[:10]
+    same_start_ts = "2026-04-14T00:05:00Z"
+    process_ids: tuple[str, str] = (
+        f"p_points_tie_{suffix}_a",
+        f"p_points_tie_{suffix}_b",
+    )
+    chart_set_id: int | None = None
+
+    con = _connect(MAIN_DB)
+    try:
+        chart_set_id = _insert_chart_set(con, suffix)
+        chart_pk = _insert_chart(con, chart_set_id, suffix)
+
+        _insert_process_and_parameter(
+            con,
+            process_ids[0],
+            suffix,
+            start_ts=same_start_ts,
+            feature_value=1.1,
+        )
+        _insert_process_and_parameter(
+            con,
+            process_ids[1],
+            suffix,
+            start_ts=same_start_ts,
+            feature_value=1.2,
+        )
+        con.commit()
+
+        repository = ChartRepository()
+        rows = repository.find_chart_points(chart_pk=chart_pk, limit=2)
+
+        assert len(rows) == 2
+        # Same start_ts should be tie-broken by Parameters.id DESC (second insert first)
+        assert rows[0].process_id == process_ids[1]
+        assert rows[1].process_id == process_ids[0]
+        assert rows[0].process_start_ts == to_utc_millis(same_start_ts)
+        assert rows[1].process_start_ts == to_utc_millis(same_start_ts)
+        assert rows[0].raw_csv_path == f"data/raw/{process_ids[1]}.csv"
+        assert rows[1].raw_csv_path == f"data/raw/{process_ids[0]}.csv"
+    finally:
+        con.close()
+        if chart_set_id is not None:
+            _cleanup_chart_set(chart_set_id, process_ids)
+
+
 # --- GET /processes/{process_id}/waveform-preview ---
 
 
@@ -459,8 +518,11 @@ def test_get_process_waveform_preview_returns_empty_points_when_raw_csv_path_nul
     class _DetailedConnection:
         """Mock connection that returns _DetailedCursor for execute()."""
 
+        def __init__(self) -> None:
+            self._cursor = _DetailedCursor()
+
         def execute(self, *_args: object, **_kwargs: object) -> _DetailedCursor:
-            return _DetailedCursor()
+            return self._cursor
 
         def close(self) -> None:
             pass
@@ -483,9 +545,7 @@ def test_get_process_waveform_preview_returns_empty_points_when_file_missing(
     process_id = f"wave_missing_{uuid4().hex[:8]}"
     missing_path = tmp_path / "missing_wave.csv"
 
-    try:
-        _insert_waveform_process(process_id, missing_path.as_posix())
-
+    with _waveform_process_ctx(process_id, missing_path.as_posix()):
         res = client.get(f"/processes/{process_id}/waveform-preview")
 
         assert res.status_code == 200
@@ -493,8 +553,6 @@ def test_get_process_waveform_preview_returns_empty_points_when_file_missing(
         assert body["ok"] is True
         assert body["data"]["points"] == []
         assert body["data"]["source_path"].endswith("missing_wave.csv")
-    finally:
-        _delete_waveform_process(process_id)
 
 
 def test_get_process_waveform_preview_applies_limit_to_tail(
@@ -520,9 +578,7 @@ def test_get_process_waveform_preview_applies_limit_to_tail(
         encoding="utf-8",
     )
 
-    try:
-        _insert_waveform_process(process_id, csv_path.as_posix())
-
+    with _waveform_process_ctx(process_id, csv_path.as_posix()):
         res = client.get(f"/processes/{process_id}/waveform-preview?limit=10")
 
         assert res.status_code == 200
@@ -542,8 +598,6 @@ def test_get_process_waveform_preview_applies_limit_to_tail(
             {"x": "t11", "y": 11.0},
             {"x": "t12", "y": 12.0},
         ]
-    finally:
-        _delete_waveform_process(process_id)
 
 
 @pytest.mark.parametrize("limit", [9, 2001])
@@ -580,9 +634,7 @@ def test_get_process_waveform_preview_returns_null_for_nan_y(
     csv_path = tmp_path / "wave_nan.csv"
     csv_path.write_text("timestamp,signal\nt1,1.5\nt2,\n", encoding="utf-8")
 
-    try:
-        _insert_waveform_process(process_id, csv_path.as_posix())
-
+    with _waveform_process_ctx(process_id, csv_path.as_posix()):
         res = client.get(f"/processes/{process_id}/waveform-preview")
 
         assert res.status_code == 200
@@ -594,8 +646,6 @@ def test_get_process_waveform_preview_returns_null_for_nan_y(
             {"x": "t1", "y": 1.5},
             {"x": "t2", "y": None},
         ]
-    finally:
-        _delete_waveform_process(process_id)
 
 
 def test_get_process_waveform_preview_returns_empty_points_on_parser_error(
@@ -613,9 +663,7 @@ def test_get_process_waveform_preview_returns_empty_points_on_parser_error(
 
     monkeypatch.setattr(pd, "read_csv", raise_parser_error)
 
-    try:
-        _insert_waveform_process(process_id, csv_path.as_posix())
-
+    with _waveform_process_ctx(process_id, csv_path.as_posix()):
         res = client.get(f"/processes/{process_id}/waveform-preview")
 
         assert res.status_code == 200
@@ -626,8 +674,6 @@ def test_get_process_waveform_preview_returns_empty_points_on_parser_error(
             "source_path": csv_path.as_posix(),
             "points": [],
         }
-    finally:
-        _delete_waveform_process(process_id)
 
 
 def test_get_process_waveform_preview_returns_empty_points_for_header_only_csv(
@@ -638,9 +684,7 @@ def test_get_process_waveform_preview_returns_empty_points_for_header_only_csv(
     csv_path = tmp_path / "wave_header_only.csv"
     csv_path.write_text("timestamp,signal\n", encoding="utf-8")
 
-    try:
-        _insert_waveform_process(process_id, csv_path.as_posix())
-
+    with _waveform_process_ctx(process_id, csv_path.as_posix()):
         res = client.get(f"/processes/{process_id}/waveform-preview")
 
         assert res.status_code == 200
@@ -651,8 +695,6 @@ def test_get_process_waveform_preview_returns_empty_points_for_header_only_csv(
             "source_path": csv_path.as_posix(),
             "points": [],
         }
-    finally:
-        _delete_waveform_process(process_id)
 
 
 def test_get_process_waveform_preview_resolves_relative_source_path(
@@ -672,9 +714,7 @@ def test_get_process_waveform_preview_resolves_relative_source_path(
         classmethod(lambda _cls: tmp_path),
     )
 
-    try:
-        _insert_waveform_process(process_id, relative_path.as_posix())
-
+    with _waveform_process_ctx(process_id, relative_path.as_posix()):
         res = client.get(f"/processes/{process_id}/waveform-preview")
 
         assert res.status_code == 200
@@ -683,8 +723,6 @@ def test_get_process_waveform_preview_resolves_relative_source_path(
         assert body["data"]["process_id"] == process_id
         assert body["data"]["source_path"] == absolute_path.as_posix()
         assert body["data"]["points"] == [{"x": "t1", "y": 7.0}]
-    finally:
-        _delete_waveform_process(process_id)
 
 
 def test_get_process_waveform_preview_uses_first_numeric_column(
@@ -698,9 +736,7 @@ def test_get_process_waveform_preview_uses_first_numeric_column(
         encoding="utf-8",
     )
 
-    try:
-        _insert_waveform_process(process_id, csv_path.as_posix())
-
+    with _waveform_process_ctx(process_id, csv_path.as_posix()):
         res = client.get(f"/processes/{process_id}/waveform-preview")
 
         assert res.status_code == 200
@@ -712,8 +748,6 @@ def test_get_process_waveform_preview_uses_first_numeric_column(
             {"x": "t1", "y": 1.0},
             {"x": "t2", "y": 2.0},
         ]
-    finally:
-        _delete_waveform_process(process_id)
 
 
 def test_get_process_waveform_preview_returns_503_on_transient_db_error(
@@ -767,9 +801,7 @@ def test_get_process_waveform_preview_csv_parsing_variants(
     csv_path = tmp_path / csv_filename
     csv_path.write_text(csv_content, encoding="utf-8")
 
-    try:
-        _insert_waveform_process(process_id, csv_path.as_posix())
-
+    with _waveform_process_ctx(process_id, csv_path.as_posix()):
         res = client.get(f"/processes/{process_id}/waveform-preview")
 
         assert res.status_code == 200
@@ -778,5 +810,3 @@ def test_get_process_waveform_preview_csv_parsing_variants(
         assert body["data"]["process_id"] == process_id
         assert body["data"]["source_path"] == csv_path.as_posix()
         assert body["data"]["points"] == expected_points
-    finally:
-        _delete_waveform_process(process_id)

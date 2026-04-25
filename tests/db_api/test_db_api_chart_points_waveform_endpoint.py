@@ -383,6 +383,25 @@ def test_get_chart_points_response_field_types(
     assert point["raw_csv_path"] is None or isinstance(point["raw_csv_path"], str)
 
 
+def test_get_chart_points_transient_db_error_returns_503(
+    client: TestClient,
+    seeded_chart_points_context: SeededChartPointsContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seeded = seeded_chart_points_context
+
+    def fail_find_chart_points(*args: object, **kwargs: object) -> list[object]:
+        _ = args, kwargs
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(db_app._chart_repository, "find_chart_points", fail_find_chart_points)
+
+    res = client.get(f"/charts/{seeded.chart_id}/points")
+
+    assert res.status_code == 503
+    assert res.json()["detail"] == "Database temporarily unavailable"
+
+
 # --- ChartRepository.find_chart_points ---
 
 
@@ -520,14 +539,19 @@ def test_get_process_waveform_preview_returns_empty_points_when_raw_csv_path_nul
 
         def __init__(self) -> None:
             self._cursor = _DetailedCursor()
+            self.last_sql: str | None = None
+            self.last_params: tuple[object, ...] | None = None
 
-        def execute(self, *_args: object, **_kwargs: object) -> _DetailedCursor:
+        def execute(self, sql: str, params: tuple[object, ...]) -> _DetailedCursor:
+            self.last_sql = sql
+            self.last_params = params
             return self._cursor
 
         def close(self) -> None:
             pass
 
-    monkeypatch.setattr(db_app, "_connect", lambda _db_path: _DetailedConnection())
+    connection = _DetailedConnection()
+    monkeypatch.setattr(db_app, "_connect", lambda _db_path: connection)
 
     res = client.get("/processes/wave_null_path/waveform-preview")
 
@@ -536,6 +560,8 @@ def test_get_process_waveform_preview_returns_empty_points_when_raw_csv_path_nul
     assert body["ok"] is True
     assert body["data"]["source_path"] is None
     assert body["data"]["points"] == []
+    assert connection.last_sql == "SELECT raw_csv_path FROM ProcessInfo WHERE process_id = ?"
+    assert connection.last_params == ("wave_null_path",)
 
 
 def test_get_process_waveform_preview_returns_empty_points_when_file_missing(

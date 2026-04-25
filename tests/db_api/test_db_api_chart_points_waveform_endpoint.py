@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 
 from portfolio_fdc.db_api import app as db_app
 from portfolio_fdc.db_api.chart_repository import ChartRepository
+from portfolio_fdc.db_api.datetime_util import to_utc_millis
 from portfolio_fdc.db_api.db import MAIN_DB, _connect, _init_schema
 from tests.utils.test_utils import assert_validation_error_envelope
 
@@ -384,6 +385,8 @@ def test_find_chart_points_returns_rows(
     assert len(rows) == 3
     assert rows[0].process_id == seeded.process_ids[2]
     assert rows[0].feature_value == 1.3
+    assert rows[0].process_start_ts == to_utc_millis("2026-04-14T00:02:00Z")
+    assert rows[0].raw_csv_path == f"data/raw/{seeded.process_ids[2]}.csv"
 
 
 def test_find_chart_points_returns_empty_for_no_matching_records(
@@ -407,6 +410,8 @@ def test_find_chart_points_applies_limit(
 
     assert len(rows) == 1
     assert rows[0].process_id == seeded.process_ids[2]
+    assert rows[0].process_start_ts == to_utc_millis("2026-04-14T00:02:00Z")
+    assert rows[0].raw_csv_path == f"data/raw/{seeded.process_ids[2]}.csv"
 
 
 # --- GET /processes/{process_id}/waveform-preview ---
@@ -652,12 +657,20 @@ def test_get_process_waveform_preview_returns_empty_points_for_header_only_csv(
 
 def test_get_process_waveform_preview_resolves_relative_source_path(
     client: TestClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     process_id = f"wave_relative_{uuid4().hex[:8]}"
     relative_path = Path("data/raw") / f"{process_id}.csv"
-    absolute_path = Path.cwd() / relative_path
+    absolute_path = tmp_path / relative_path
     absolute_path.parent.mkdir(parents=True, exist_ok=True)
     absolute_path.write_text("timestamp,signal\nt1,7.0\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        db_app.pathlib.Path,
+        "cwd",
+        classmethod(lambda _cls: tmp_path),
+    )
 
     try:
         _insert_waveform_process(process_id, relative_path.as_posix())
@@ -672,7 +685,6 @@ def test_get_process_waveform_preview_resolves_relative_source_path(
         assert body["data"]["points"] == [{"x": "t1", "y": 7.0}]
     finally:
         _delete_waveform_process(process_id)
-        absolute_path.unlink(missing_ok=True)
 
 
 def test_get_process_waveform_preview_uses_first_numeric_column(

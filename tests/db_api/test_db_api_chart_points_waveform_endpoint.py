@@ -272,7 +272,16 @@ def test_get_chart_points_returns_points(
         seeded.process_ids[1],
         seeded.process_ids[0],
     ]
+    # Verify all response fields (process_start_ts, raw_csv_path, feature_value)
     assert rows[0]["feature_value"] == 1.3
+    # process_start_ts is converted to UTC ISO 8601 format with milliseconds by to_utc_millis()
+    assert isinstance(rows[0]["process_start_ts"], str)
+    assert rows[0]["process_start_ts"].endswith("Z")
+    # raw_csv_path matches seeded process
+    assert rows[0]["raw_csv_path"] == f"data/raw/{seeded.process_ids[2]}.csv"
+    # Verify ordering by start_ts
+    assert rows[1]["raw_csv_path"] == f"data/raw/{seeded.process_ids[1]}.csv"
+    assert rows[2]["raw_csv_path"] == f"data/raw/{seeded.process_ids[0]}.csv"
 
 
 def test_get_chart_points_returns_empty_for_no_matching_records(
@@ -293,6 +302,70 @@ def test_get_chart_points_rejects_invalid_chart_id(client: TestClient) -> None:
 
     assert res.status_code == 400
     assert res.json()["detail"] == "Invalid chart_id"
+
+
+def test_get_chart_points_respects_limit_parameter(
+    client: TestClient, seeded_chart_points_context: SeededChartPointsContext
+) -> None:
+    """Verify that limit query parameter limits returned rows."""
+    seeded = seeded_chart_points_context
+
+    # Request with limit=2
+    res = client.get(f"/charts/{seeded.chart_id}/points?limit=2")
+
+    assert res.status_code == 200
+    rows = res.json()["data"]
+    # Should return only 2 rows (most recent first)
+    assert len(rows) == 2
+    assert rows[0]["process_id"] == seeded.process_ids[2]
+    assert rows[1]["process_id"] == seeded.process_ids[1]
+
+
+def test_get_chart_points_rejects_limit_too_small(client: TestClient) -> None:
+    """Verify that limit=0 is rejected with 422 (Pydantic validation)."""
+    res = client.get("/charts/CHART_999/points?limit=0")
+
+    assert res.status_code == 422
+
+
+def test_get_chart_points_rejects_limit_too_large(client: TestClient) -> None:
+    """Verify that limit=501 (exceeds max=500) is rejected with 422."""
+    res = client.get("/charts/CHART_999/points?limit=501")
+
+    assert res.status_code == 422
+
+
+def test_get_chart_points_rejects_oversized_chart_pk(client: TestClient) -> None:
+    """Verify that oversized chart_pk (exceeds int64 range) is rejected with 400."""
+    # CHART_99999999999999999999 exceeds int64 max (9223372036854775807)
+    res = client.get("/charts/CHART_99999999999999999999/points")
+
+    assert res.status_code == 400
+    assert "Invalid chart_id" in res.json().get("detail", "")
+
+
+def test_get_chart_points_response_field_types(
+    client: TestClient, seeded_chart_points_context: SeededChartPointsContext
+) -> None:
+    """Verify response field types and structures."""
+    seeded = seeded_chart_points_context
+
+    res = client.get(f"/charts/{seeded.chart_id}/points")
+
+    assert res.status_code == 200
+    rows = res.json()["data"]
+    assert len(rows) > 0
+
+    # Check all required fields and types for first row
+    point = rows[0]
+    assert isinstance(point["process_id"], str)
+    assert len(point["process_id"]) > 0
+    assert isinstance(point["feature_value"], (int, float))
+    # process_start_ts should be UTC ISO 8601 format string with 'Z' suffix
+    assert isinstance(point["process_start_ts"], str)
+    assert point["process_start_ts"].endswith("Z")
+    # raw_csv_path can be string or null
+    assert point["raw_csv_path"] is None or isinstance(point["raw_csv_path"], str)
 
 
 # --- ChartRepository.find_chart_points ---

@@ -7,12 +7,14 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
+import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
 from portfolio_fdc.db_api import app as db_app
 from portfolio_fdc.db_api.chart_repository import ChartRepository
 from portfolio_fdc.db_api.db import MAIN_DB, _connect, _init_schema
+from tests.utils.test_utils import assert_validation_error_envelope
 
 
 @dataclass(frozen=True)
@@ -490,6 +492,234 @@ def test_get_process_waveform_preview_returns_empty_points_when_file_missing(
         _delete_waveform_process(process_id)
 
 
+def test_get_process_waveform_preview_applies_limit_to_tail(
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    process_id = f"wave_limit_{uuid4().hex[:8]}"
+    csv_path = tmp_path / "wave_limit.csv"
+    csv_path.write_text(
+        "timestamp,signal\n"
+        "t1,1.0\n"
+        "t2,2.0\n"
+        "t3,3.0\n"
+        "t4,4.0\n"
+        "t5,5.0\n"
+        "t6,6.0\n"
+        "t7,7.0\n"
+        "t8,8.0\n"
+        "t9,9.0\n"
+        "t10,10.0\n"
+        "t11,11.0\n"
+        "t12,12.0\n",
+        encoding="utf-8",
+    )
+
+    try:
+        _insert_waveform_process(process_id, csv_path.as_posix())
+
+        res = client.get(f"/processes/{process_id}/waveform-preview?limit=10")
+
+        assert res.status_code == 200
+        body = res.json()
+        assert body["ok"] is True
+        assert body["data"]["process_id"] == process_id
+        assert body["data"]["source_path"] == csv_path.as_posix()
+        assert body["data"]["points"] == [
+            {"x": "t3", "y": 3.0},
+            {"x": "t4", "y": 4.0},
+            {"x": "t5", "y": 5.0},
+            {"x": "t6", "y": 6.0},
+            {"x": "t7", "y": 7.0},
+            {"x": "t8", "y": 8.0},
+            {"x": "t9", "y": 9.0},
+            {"x": "t10", "y": 10.0},
+            {"x": "t11", "y": 11.0},
+            {"x": "t12", "y": 12.0},
+        ]
+    finally:
+        _delete_waveform_process(process_id)
+
+
+@pytest.mark.parametrize("limit", [9, 2001])
+def test_get_process_waveform_preview_rejects_invalid_limit(
+    client: TestClient,
+    limit: int,
+) -> None:
+    res = client.get(f"/processes/wave_limit_invalid/waveform-preview?limit={limit}")
+
+    assert res.status_code == 422
+    assert_validation_error_envelope(
+        res.json(),
+        expected_loc_fragment="limit",
+    )
+
+
+def test_get_process_waveform_preview_rejects_invalid_process_id_pattern(
+    client: TestClient,
+) -> None:
+    res = client.get("/processes/wave%20invalid/waveform-preview")
+
+    assert res.status_code == 422
+    assert_validation_error_envelope(
+        res.json(),
+        expected_loc_fragment="process_id",
+    )
+
+
+def test_get_process_waveform_preview_returns_null_for_nan_y(
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    process_id = f"wave_nan_{uuid4().hex[:8]}"
+    csv_path = tmp_path / "wave_nan.csv"
+    csv_path.write_text("timestamp,signal\nt1,1.5\nt2,\n", encoding="utf-8")
+
+    try:
+        _insert_waveform_process(process_id, csv_path.as_posix())
+
+        res = client.get(f"/processes/{process_id}/waveform-preview")
+
+        assert res.status_code == 200
+        body = res.json()
+        assert body["ok"] is True
+        assert body["data"]["process_id"] == process_id
+        assert body["data"]["source_path"] == csv_path.as_posix()
+        assert body["data"]["points"] == [
+            {"x": "t1", "y": 1.5},
+            {"x": "t2", "y": None},
+        ]
+    finally:
+        _delete_waveform_process(process_id)
+
+
+def test_get_process_waveform_preview_returns_empty_points_on_parser_error(
+    client: TestClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    process_id = f"wave_parser_{uuid4().hex[:8]}"
+    csv_path = tmp_path / "wave_parser.csv"
+    csv_path.write_text("timestamp,signal\nt1,1.0\n", encoding="utf-8")
+
+    def raise_parser_error(*args: object, **kwargs: object) -> pd.DataFrame:
+        _ = args, kwargs
+        raise pd.errors.ParserError("synthetic parse failure")
+
+    monkeypatch.setattr(pd, "read_csv", raise_parser_error)
+
+    try:
+        _insert_waveform_process(process_id, csv_path.as_posix())
+
+        res = client.get(f"/processes/{process_id}/waveform-preview")
+
+        assert res.status_code == 200
+        body = res.json()
+        assert body["ok"] is True
+        assert body["data"] == {
+            "process_id": process_id,
+            "source_path": csv_path.as_posix(),
+            "points": [],
+        }
+    finally:
+        _delete_waveform_process(process_id)
+
+
+def test_get_process_waveform_preview_returns_empty_points_for_header_only_csv(
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    process_id = f"wave_empty_{uuid4().hex[:8]}"
+    csv_path = tmp_path / "wave_header_only.csv"
+    csv_path.write_text("timestamp,signal\n", encoding="utf-8")
+
+    try:
+        _insert_waveform_process(process_id, csv_path.as_posix())
+
+        res = client.get(f"/processes/{process_id}/waveform-preview")
+
+        assert res.status_code == 200
+        body = res.json()
+        assert body["ok"] is True
+        assert body["data"] == {
+            "process_id": process_id,
+            "source_path": csv_path.as_posix(),
+            "points": [],
+        }
+    finally:
+        _delete_waveform_process(process_id)
+
+
+def test_get_process_waveform_preview_resolves_relative_source_path(
+    client: TestClient,
+) -> None:
+    process_id = f"wave_relative_{uuid4().hex[:8]}"
+    relative_path = Path("data/raw") / f"{process_id}.csv"
+    absolute_path = Path.cwd() / relative_path
+    absolute_path.parent.mkdir(parents=True, exist_ok=True)
+    absolute_path.write_text("timestamp,signal\nt1,7.0\n", encoding="utf-8")
+
+    try:
+        _insert_waveform_process(process_id, relative_path.as_posix())
+
+        res = client.get(f"/processes/{process_id}/waveform-preview")
+
+        assert res.status_code == 200
+        body = res.json()
+        assert body["ok"] is True
+        assert body["data"]["process_id"] == process_id
+        assert body["data"]["source_path"] == absolute_path.as_posix()
+        assert body["data"]["points"] == [{"x": "t1", "y": 7.0}]
+    finally:
+        _delete_waveform_process(process_id)
+        absolute_path.unlink(missing_ok=True)
+
+
+def test_get_process_waveform_preview_uses_first_numeric_column(
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    process_id = f"wave_multi_numeric_{uuid4().hex[:8]}"
+    csv_path = tmp_path / "wave_multi_numeric.csv"
+    csv_path.write_text(
+        "timestamp,primary_signal,secondary_signal\nt1,1.0,10.0\nt2,2.0,20.0\n",
+        encoding="utf-8",
+    )
+
+    try:
+        _insert_waveform_process(process_id, csv_path.as_posix())
+
+        res = client.get(f"/processes/{process_id}/waveform-preview")
+
+        assert res.status_code == 200
+        body = res.json()
+        assert body["ok"] is True
+        assert body["data"]["process_id"] == process_id
+        assert body["data"]["source_path"] == csv_path.as_posix()
+        assert body["data"]["points"] == [
+            {"x": "t1", "y": 1.0},
+            {"x": "t2", "y": 2.0},
+        ]
+    finally:
+        _delete_waveform_process(process_id)
+
+
+def test_get_process_waveform_preview_returns_503_on_transient_db_error(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_build(*args: object, **kwargs: object) -> dict[str, object]:
+        _ = args, kwargs
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(db_app, "_build_waveform_preview", fail_build)
+
+    res = client.get("/processes/wave_db_error/waveform-preview")
+
+    assert res.status_code == 503
+    assert res.json()["detail"] == "Database temporarily unavailable"
+
+
 @pytest.mark.parametrize(
     ("process_id_prefix", "csv_filename", "csv_content", "expected_points"),
     [
@@ -519,7 +749,7 @@ def test_get_process_waveform_preview_csv_parsing_variants(
     process_id_prefix: str,
     csv_filename: str,
     csv_content: str,
-    expected_points: list[dict[str, float | str]],
+    expected_points: list[dict[str, object]],
 ) -> None:
     process_id = f"{process_id_prefix}_{uuid4().hex[:8]}"
     csv_path = tmp_path / csv_filename
@@ -533,6 +763,8 @@ def test_get_process_waveform_preview_csv_parsing_variants(
         assert res.status_code == 200
         body = res.json()
         assert body["ok"] is True
+        assert body["data"]["process_id"] == process_id
+        assert body["data"]["source_path"] == csv_path.as_posix()
         assert body["data"]["points"] == expected_points
     finally:
         _delete_waveform_process(process_id)

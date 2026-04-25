@@ -137,45 +137,51 @@ def seeded_chart_points_context() -> Iterator[SeededChartPointsContext]:
 
     con = _connect(MAIN_DB)
     try:
-        chart_set_id = _insert_chart_set(con, suffix)
-        chart_pk = _insert_chart(con, chart_set_id, suffix)
+        # Use savepoint to ensure atomic setup and proper rollback on error
+        con.execute("SAVEPOINT setup_context")
+        try:
+            chart_set_id = _insert_chart_set(con, suffix)
+            chart_pk = _insert_chart(con, chart_set_id, suffix)
 
-        base = datetime(2026, 4, 14, 0, 0, 0, tzinfo=UTC)
-        p1 = f"p_points_{suffix}_1"
-        p2 = f"p_points_{suffix}_2"
-        p3 = f"p_points_{suffix}_3"
-        process_ids = (p1, p2, p3)
+            base = datetime(2026, 4, 14, 0, 0, 0, tzinfo=UTC)
+            p1 = f"p_points_{suffix}_1"
+            p2 = f"p_points_{suffix}_2"
+            p3 = f"p_points_{suffix}_3"
+            process_ids = (p1, p2, p3)
 
-        _insert_process_and_parameter(
-            con,
-            p1,
-            suffix,
-            start_ts=(base + timedelta(minutes=0)).isoformat().replace("+00:00", "Z"),
-            feature_value=1.1,
-        )
-        _insert_process_and_parameter(
-            con,
-            p2,
-            suffix,
-            start_ts=(base + timedelta(minutes=1)).isoformat().replace("+00:00", "Z"),
-            feature_value=1.2,
-        )
-        _insert_process_and_parameter(
-            con,
-            p3,
-            suffix,
-            start_ts=(base + timedelta(minutes=2)).isoformat().replace("+00:00", "Z"),
-            feature_value=1.3,
-        )
+            _insert_process_and_parameter(
+                con,
+                p1,
+                suffix,
+                start_ts=(base + timedelta(minutes=0)).isoformat().replace("+00:00", "Z"),
+                feature_value=1.1,
+            )
+            _insert_process_and_parameter(
+                con,
+                p2,
+                suffix,
+                start_ts=(base + timedelta(minutes=1)).isoformat().replace("+00:00", "Z"),
+                feature_value=1.2,
+            )
+            _insert_process_and_parameter(
+                con,
+                p3,
+                suffix,
+                start_ts=(base + timedelta(minutes=2)).isoformat().replace("+00:00", "Z"),
+                feature_value=1.3,
+            )
 
-        con.commit()
+            con.commit()
 
-        yield SeededChartPointsContext(
-            chart_set_id=chart_set_id,
-            chart_id=f"CHART_{chart_pk}",
-            chart_pk=chart_pk,
-            process_ids=process_ids,
-        )
+            yield SeededChartPointsContext(
+                chart_set_id=chart_set_id,
+                chart_id=f"CHART_{chart_pk}",
+                chart_pk=chart_pk,
+                process_ids=process_ids,
+            )
+        except Exception:
+            con.execute("ROLLBACK TO setup_context")
+            raise
     finally:
         con.close()
         if chart_set_id is not None:
@@ -190,15 +196,21 @@ def seeded_chart_only_context() -> Iterator[SeededChartOnlyContext]:
 
     con = _connect(MAIN_DB)
     try:
-        chart_set_id = _insert_chart_set(con, suffix)
-        chart_pk = _insert_chart(con, chart_set_id, suffix)
-        con.commit()
+        # Use savepoint for atomic setup
+        con.execute("SAVEPOINT setup_context")
+        try:
+            chart_set_id = _insert_chart_set(con, suffix)
+            chart_pk = _insert_chart(con, chart_set_id, suffix)
+            con.commit()
 
-        yield SeededChartOnlyContext(
-            chart_set_id=chart_set_id,
-            chart_id=f"CHART_{chart_pk}",
-            chart_pk=chart_pk,
-        )
+            yield SeededChartOnlyContext(
+                chart_set_id=chart_set_id,
+                chart_id=f"CHART_{chart_pk}",
+                chart_pk=chart_pk,
+            )
+        except Exception:
+            con.execute("ROLLBACK TO setup_context")
+            raise
     finally:
         con.close()
         if chart_set_id is not None:
@@ -340,21 +352,40 @@ def test_get_process_waveform_preview_returns_empty_points_when_raw_csv_path_nul
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    class _FakeCursor:
-        @staticmethod
-        def fetchone() -> tuple[None]:
-            return (None,)
+    """
+    Test handling of NULL raw_csv_path via detailed monkeypatch.
 
-    class _FakeConnection:
-        @staticmethod
-        def execute(*_args: object, **_kwargs: object) -> _FakeCursor:
-            return _FakeCursor()
+    While current schema enforces NOT NULL on raw_csv_path, this test preserves
+    coverage for the NULL-handling code path (_build_waveform_preview), which is
+    valuable for schema evolution and explicit behavior verification.
 
-        @staticmethod
-        def close() -> None:
+    Uses detailed cursor mock (not just constant (None,)) to simulate real DB
+    interaction more faithfully: the cursor must return exactly one column from
+    a single-row result when raw_csv_path is NULL.
+    """
+
+    class _DetailedCursor:
+        """Mock cursor that returns a single NULL value on fetchone()."""
+
+        def __init__(self) -> None:
+            self._called = False
+
+        def fetchone(self) -> tuple[None] | None:
+            if not self._called:
+                self._called = True
+                return (None,)  # Simulate NULL raw_csv_path column
             return None
 
-    monkeypatch.setattr(db_app, "_connect", lambda _db_path: _FakeConnection())
+    class _DetailedConnection:
+        """Mock connection that returns _DetailedCursor for execute()."""
+
+        def execute(self, *_args: object, **_kwargs: object) -> _DetailedCursor:
+            return _DetailedCursor()
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(db_app, "_connect", lambda _db_path: _DetailedConnection())
 
     res = client.get("/processes/wave_null_path/waveform-preview")
 

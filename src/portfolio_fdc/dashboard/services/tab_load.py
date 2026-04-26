@@ -22,9 +22,12 @@ class TabLoadService:
         recipe_id: str,
         chart_id: str,
         result_id: str,
+        selected_chart_id: str | None,
     ) -> tuple[Any, str]:
         if not n_clicks:
             return html.Div("Press Load to fetch data"), ""
+
+        effective_chart_id = chart_id or (selected_chart_id or "")
 
         try:
             result = self._deps.validate_base_url(base_url)
@@ -35,10 +38,17 @@ class TabLoadService:
             if active_tab == "charts":
                 return self._deps.render_charts_tab(safe_base_url, recipe_id), ""
             if active_tab == "active":
-                return self._deps.render_active_tab(safe_base_url, recipe_id, chart_id), ""
+                return self._deps.render_active_tab(
+                    safe_base_url, recipe_id, effective_chart_id
+                ), ""
             if active_tab == "history":
-                return self._deps.render_history_tab(safe_base_url, chart_id), ""
-            return self._deps.render_judge_tab(safe_base_url, recipe_id, chart_id, result_id), ""
+                return self._deps.render_history_tab(safe_base_url, effective_chart_id), ""
+            return self._deps.render_judge_tab(
+                safe_base_url,
+                recipe_id,
+                effective_chart_id,
+                result_id,
+            ), ""
         except APIError as exc:
             code = f" [{exc.code}]" if exc.code else ""
             return html.Div(""), f"{exc.message}{code}"

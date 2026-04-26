@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 import pandas as pd
@@ -261,6 +262,20 @@ def _waveform_process_ctx(process_id: str, raw_csv_path: str) -> Iterator[None]:
         yield
     finally:
         _delete_waveform_process(process_id)
+
+
+def assert_waveform_preview_response(
+    response: Any,
+    expected_process_id: str,
+    expected_source_path: str | None,
+    expected_points: list[dict[str, object]],
+) -> None:
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is True
+    assert body["data"]["process_id"] == expected_process_id
+    assert body["data"]["source_path"] == expected_source_path
+    assert body["data"]["points"] == expected_points
 
 
 # --- GET /charts/{chart_id}/points ---
@@ -610,23 +625,23 @@ def test_get_process_waveform_preview_applies_limit_to_tail(
     with _waveform_process_ctx(process_id, csv_path.as_posix()):
         res = client.get(f"/processes/{process_id}/waveform-preview?limit=10")
 
-        assert res.status_code == 200
-        body = res.json()
-        assert body["ok"] is True
-        assert body["data"]["process_id"] == process_id
-        assert body["data"]["source_path"] == csv_path.as_posix()
-        assert body["data"]["points"] == [
-            {"x": "t3", "y": 3.0},
-            {"x": "t4", "y": 4.0},
-            {"x": "t5", "y": 5.0},
-            {"x": "t6", "y": 6.0},
-            {"x": "t7", "y": 7.0},
-            {"x": "t8", "y": 8.0},
-            {"x": "t9", "y": 9.0},
-            {"x": "t10", "y": 10.0},
-            {"x": "t11", "y": 11.0},
-            {"x": "t12", "y": 12.0},
-        ]
+        assert_waveform_preview_response(
+            res,
+            expected_process_id=process_id,
+            expected_source_path=csv_path.as_posix(),
+            expected_points=[
+                {"x": "t3", "y": 3.0},
+                {"x": "t4", "y": 4.0},
+                {"x": "t5", "y": 5.0},
+                {"x": "t6", "y": 6.0},
+                {"x": "t7", "y": 7.0},
+                {"x": "t8", "y": 8.0},
+                {"x": "t9", "y": 9.0},
+                {"x": "t10", "y": 10.0},
+                {"x": "t11", "y": 11.0},
+                {"x": "t12", "y": 12.0},
+            ],
+        )
 
 
 @pytest.mark.parametrize("limit", [9, 2001])
@@ -666,15 +681,15 @@ def test_get_process_waveform_preview_returns_null_for_nan_y(
     with _waveform_process_ctx(process_id, csv_path.as_posix()):
         res = client.get(f"/processes/{process_id}/waveform-preview")
 
-        assert res.status_code == 200
-        body = res.json()
-        assert body["ok"] is True
-        assert body["data"]["process_id"] == process_id
-        assert body["data"]["source_path"] == csv_path.as_posix()
-        assert body["data"]["points"] == [
-            {"x": "t1", "y": 1.5},
-            {"x": "t2", "y": None},
-        ]
+        assert_waveform_preview_response(
+            res,
+            expected_process_id=process_id,
+            expected_source_path=csv_path.as_posix(),
+            expected_points=[
+                {"x": "t1", "y": 1.5},
+                {"x": "t2", "y": None},
+            ],
+        )
 
 
 def test_get_process_waveform_preview_returns_empty_points_on_parser_error(
@@ -695,14 +710,12 @@ def test_get_process_waveform_preview_returns_empty_points_on_parser_error(
     with _waveform_process_ctx(process_id, csv_path.as_posix()):
         res = client.get(f"/processes/{process_id}/waveform-preview")
 
-        assert res.status_code == 200
-        body = res.json()
-        assert body["ok"] is True
-        assert body["data"] == {
-            "process_id": process_id,
-            "source_path": csv_path.as_posix(),
-            "points": [],
-        }
+        assert_waveform_preview_response(
+            res,
+            expected_process_id=process_id,
+            expected_source_path=csv_path.as_posix(),
+            expected_points=[],
+        )
 
 
 def test_get_process_waveform_preview_returns_empty_points_for_header_only_csv(
@@ -716,14 +729,12 @@ def test_get_process_waveform_preview_returns_empty_points_for_header_only_csv(
     with _waveform_process_ctx(process_id, csv_path.as_posix()):
         res = client.get(f"/processes/{process_id}/waveform-preview")
 
-        assert res.status_code == 200
-        body = res.json()
-        assert body["ok"] is True
-        assert body["data"] == {
-            "process_id": process_id,
-            "source_path": csv_path.as_posix(),
-            "points": [],
-        }
+        assert_waveform_preview_response(
+            res,
+            expected_process_id=process_id,
+            expected_source_path=csv_path.as_posix(),
+            expected_points=[],
+        )
 
 
 def test_get_process_waveform_preview_resolves_relative_source_path(
@@ -746,12 +757,12 @@ def test_get_process_waveform_preview_resolves_relative_source_path(
     with _waveform_process_ctx(process_id, relative_path.as_posix()):
         res = client.get(f"/processes/{process_id}/waveform-preview")
 
-        assert res.status_code == 200
-        body = res.json()
-        assert body["ok"] is True
-        assert body["data"]["process_id"] == process_id
-        assert body["data"]["source_path"] == absolute_path.as_posix()
-        assert body["data"]["points"] == [{"x": "t1", "y": 7.0}]
+        assert_waveform_preview_response(
+            res,
+            expected_process_id=process_id,
+            expected_source_path=absolute_path.as_posix(),
+            expected_points=[{"x": "t1", "y": 7.0}],
+        )
 
 
 def test_get_process_waveform_preview_uses_first_numeric_column(
@@ -768,15 +779,15 @@ def test_get_process_waveform_preview_uses_first_numeric_column(
     with _waveform_process_ctx(process_id, csv_path.as_posix()):
         res = client.get(f"/processes/{process_id}/waveform-preview")
 
-        assert res.status_code == 200
-        body = res.json()
-        assert body["ok"] is True
-        assert body["data"]["process_id"] == process_id
-        assert body["data"]["source_path"] == csv_path.as_posix()
-        assert body["data"]["points"] == [
-            {"x": "t1", "y": 1.0},
-            {"x": "t2", "y": 2.0},
-        ]
+        assert_waveform_preview_response(
+            res,
+            expected_process_id=process_id,
+            expected_source_path=csv_path.as_posix(),
+            expected_points=[
+                {"x": "t1", "y": 1.0},
+                {"x": "t2", "y": 2.0},
+            ],
+        )
 
 
 def test_get_process_waveform_preview_returns_503_on_transient_db_error(
@@ -833,9 +844,9 @@ def test_get_process_waveform_preview_csv_parsing_variants(
     with _waveform_process_ctx(process_id, csv_path.as_posix()):
         res = client.get(f"/processes/{process_id}/waveform-preview")
 
-        assert res.status_code == 200
-        body = res.json()
-        assert body["ok"] is True
-        assert body["data"]["process_id"] == process_id
-        assert body["data"]["source_path"] == csv_path.as_posix()
-        assert body["data"]["points"] == expected_points
+        assert_waveform_preview_response(
+            res,
+            expected_process_id=process_id,
+            expected_source_path=csv_path.as_posix(),
+            expected_points=expected_points,
+        )

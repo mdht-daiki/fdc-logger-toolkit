@@ -454,6 +454,7 @@ def test_find_chart_points_tiebreaker_with_same_start_ts() -> None:
     )
     chart_set_id: int | None = None
 
+    _init_schema(MAIN_DB)
     con = _connect(MAIN_DB)
     try:
         chart_set_id = _insert_chart_set(con, suffix)
@@ -558,6 +559,7 @@ def test_get_process_waveform_preview_returns_empty_points_when_raw_csv_path_nul
     assert res.status_code == 200
     body = res.json()
     assert body["ok"] is True
+    assert body["data"]["process_id"] == "wave_null_path"
     assert body["data"]["source_path"] is None
     assert body["data"]["points"] == []
     assert connection.last_sql == "SELECT raw_csv_path FROM ProcessInfo WHERE process_id = ?"
@@ -577,8 +579,9 @@ def test_get_process_waveform_preview_returns_empty_points_when_file_missing(
         assert res.status_code == 200
         body = res.json()
         assert body["ok"] is True
+        assert body["data"]["process_id"] == process_id
         assert body["data"]["points"] == []
-        assert body["data"]["source_path"].endswith("missing_wave.csv")
+        assert body["data"]["source_path"] == missing_path.as_posix()
 
 
 def test_get_process_waveform_preview_applies_limit_to_tail(

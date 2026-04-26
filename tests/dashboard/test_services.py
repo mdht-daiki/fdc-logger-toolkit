@@ -203,7 +203,7 @@ def test_navigation_service_current_search_equal():
 def test_tab_load_service_load_data(logger, deps):
     service = TabLoadService(logger, deps)
     # n_clicks=0 early return
-    result, msg = service.load_data("charts", 0, "base_url", "r1", "c1", "res1")
+    result, msg = service.load_data("charts", 0, "base_url", "r1", "c1", "res1", None)
     from dash import html
 
     assert isinstance(result, html.Div)
@@ -212,7 +212,7 @@ def test_tab_load_service_load_data(logger, deps):
 
     deps.validate_base_url.return_value = "safe_url"
     deps.render_charts_tab.return_value = ("charts", "")
-    result, msg = service.load_data("charts", 1, "base_url", "r1", "c1", "res1")
+    result, msg = service.load_data("charts", 1, "base_url", "r1", "c1", "res1", None)
     assert result == ("charts", "")
     assert msg == ""
 
@@ -309,19 +309,19 @@ def test_tab_load_service_tab_branches(logger, deps):
     deps.render_history_tab.return_value = ("history", "")
     deps.render_judge_tab.return_value = ("judge", "")
     # charts
-    result, msg = service.load_data("charts", 1, "base_url", "r1", "c1", "res1")
+    result, msg = service.load_data("charts", 1, "base_url", "r1", "c1", "res1", None)
     assert result == ("charts", "")
     assert msg == ""
     # active
-    result, msg = service.load_data("active", 1, "base_url", "r1", "c1", "res1")
+    result, msg = service.load_data("active", 1, "base_url", "r1", "c1", "res1", None)
     assert result == ("active", "")
     assert msg == ""
     # history
-    result, msg = service.load_data("history", 1, "base_url", "r1", "c1", "res1")
+    result, msg = service.load_data("history", 1, "base_url", "r1", "c1", "res1", None)
     assert result == ("history", "")
     assert msg == ""
     # judge
-    result, msg = service.load_data("judge", 1, "base_url", "r1", "c1", "res1")
+    result, msg = service.load_data("judge", 1, "base_url", "r1", "c1", "res1", None)
     assert result == ("judge", "")
     assert msg == ""
 
@@ -332,12 +332,12 @@ def test_tab_load_service_apierror_code_and_no_code(logger, deps):
     # codeあり
     api_error = APIError("msg", code="E001")
     deps.render_charts_tab.side_effect = api_error
-    result, msg = service.load_data("charts", 1, "base_url", "r1", "c1", "res1")
+    result, msg = service.load_data("charts", 1, "base_url", "r1", "c1", "res1", None)
     assert msg == "msg [E001]"
     # codeなし
     api_error2 = APIError("msg2")
     deps.render_charts_tab.side_effect = api_error2
-    result, msg = service.load_data("charts", 1, "base_url", "r1", "c1", "res1")
+    result, msg = service.load_data("charts", 1, "base_url", "r1", "c1", "res1", None)
     assert msg == "msg2"
 
 
@@ -346,7 +346,7 @@ def test_tab_load_service_unexpected_exception(logger, deps, caplog):
     deps.validate_base_url.return_value = "safe_url"
     deps.render_charts_tab.side_effect = Exception("unexpected")
     with caplog.at_level(logging.ERROR, logger="test"):
-        result, msg = service.load_data("charts", 1, "base_url", "r1", "c1", "res1")
+        result, msg = service.load_data("charts", 1, "base_url", "r1", "c1", "res1", None)
     assert "Unexpected error while loading dashboard data" in msg
     assert any(
         r.levelname == "ERROR" and "Unexpected error in load_data callback" in r.getMessage()
@@ -357,10 +357,10 @@ def test_tab_load_service_unexpected_exception(logger, deps, caplog):
 def test_tab_load_service_validate_base_url_apierror(logger, deps):
     service = TabLoadService(logger, deps)
     deps.validate_base_url.side_effect = APIError("msg", code="E001")
-    result, msg = service.load_data("charts", 1, "base_url", "r1", "c1", "res1")
+    result, msg = service.load_data("charts", 1, "base_url", "r1", "c1", "res1", None)
     assert msg == "msg [E001]"
     deps.validate_base_url.side_effect = APIError("msg2")
-    result, msg = service.load_data("charts", 1, "base_url", "r1", "c1", "res1")
+    result, msg = service.load_data("charts", 1, "base_url", "r1", "c1", "res1", None)
     assert msg == "msg2"
 
 
@@ -369,7 +369,7 @@ def test_tab_load_service_unknown_tab_fallback(logger, deps):
     deps.validate_base_url.return_value = "safe_url"
     deps.render_judge_tab.return_value = ("judge", "")
     # 未知タブはjudge_tabにフォールバック
-    result, msg = service.load_data("unknown", 1, "base_url", "r1", "c1", "res1")
+    result, msg = service.load_data("unknown", 1, "base_url", "r1", "c1", "res1", None)
     assert result == ("judge", "")
     assert msg == ""
 
@@ -401,48 +401,62 @@ def test_chart_name_option_service_recipe_id_omitted(logger, deps):
 
 
 def test_chart_name_option_service_selected_none_when_not_found(logger, deps):
-    def test_chart_name_option_service_validate_base_url_tuple(logger, deps):
-        service = ChartNameOptionService(logger, deps)
-        # validate_base_urlがtupleを返す場合の分岐網羅
-        deps.validate_base_url.return_value = ("safe_url", "dummy")
-        deps.get_charts.return_value = [{"chart_id": "c1", "chart_name": "name1"}]
-        options, selected = service.refresh_chart_name_options(1, "base_url", "r1", "c1")
-        assert isinstance(options, list)
-        assert len(options) == 1
-        assert options[0]["value"] == "c1"
-        assert "name1" in options[0]["label"]
-        assert selected == "c1"
-
-    def test_tab_load_service_validate_base_url_tuple(logger, deps):
-        service = TabLoadService(logger, deps)
-        deps.validate_base_url.return_value = ("safe_url", "dummy")
-        deps.render_charts_tab.return_value = ("charts", "")
-        deps.render_active_tab.return_value = ("active", "")
-        deps.render_history_tab.return_value = ("history", "")
-        deps.render_judge_tab.return_value = ("judge", "")
-        # charts
-        result, msg = service.load_data("charts", 1, "base_url", "r1", "c1", "res1")
-        assert result == ("charts", "")
-        assert msg == ""
-        # active
-        result, msg = service.load_data("active", 1, "base_url", "r1", "c1", "res1")
-        assert result == ("active", "")
-        assert msg == ""
-        # history
-        result, msg = service.load_data("history", 1, "base_url", "r1", "c1", "res1")
-        assert result == ("history", "")
-        assert msg == ""
-        # judge
-        result, msg = service.load_data("judge", 1, "base_url", "r1", "c1", "res1")
-        assert result == ("judge", "")
-        assert msg == ""
-
     service = ChartNameOptionService(logger, deps)
     deps.validate_base_url.return_value = "safe_url"
     deps.get_charts.return_value = [{"chart_id": "c1", "chart_name": "name1"}]
     options, selected = service.refresh_chart_name_options(1, "base_url", "r1", "not_found")
     assert options
     assert selected is None
+
+
+def test_chart_name_option_service_validate_base_url_tuple(logger, deps):
+    service = ChartNameOptionService(logger, deps)
+    # validate_base_urlがtupleを返す場合の分岐網羅
+    deps.validate_base_url.return_value = ("safe_url", "dummy")
+    deps.get_charts.return_value = [{"chart_id": "c1", "chart_name": "name1"}]
+    options, selected = service.refresh_chart_name_options(1, "base_url", "r1", "c1")
+    assert isinstance(options, list)
+    assert len(options) == 1
+    assert options[0]["value"] == "c1"
+    assert "name1" in options[0]["label"]
+    assert selected == "c1"
+
+
+def test_tab_load_service_validate_base_url_tuple(logger, deps):
+    service = TabLoadService(logger, deps)
+    deps.validate_base_url.return_value = ("safe_url", "dummy")
+    deps.render_charts_tab.return_value = ("charts", "")
+    deps.render_active_tab.return_value = ("active", "")
+    deps.render_history_tab.return_value = ("history", "")
+    deps.render_judge_tab.return_value = ("judge", "")
+    # charts
+    result, msg = service.load_data("charts", 1, "base_url", "r1", "c1", "res1", None)
+    assert result == ("charts", "")
+    assert msg == ""
+    # active
+    result, msg = service.load_data("active", 1, "base_url", "r1", "c1", "res1", None)
+    assert result == ("active", "")
+    assert msg == ""
+    # history
+    result, msg = service.load_data("history", 1, "base_url", "r1", "c1", "res1", None)
+    assert result == ("history", "")
+    assert msg == ""
+    # judge
+    result, msg = service.load_data("judge", 1, "base_url", "r1", "c1", "res1", None)
+    assert result == ("judge", "")
+    assert msg == ""
+
+
+def test_tab_load_service_uses_selected_chart_id_fallback(logger, deps):
+    service = TabLoadService(logger, deps)
+    deps.validate_base_url.return_value = "safe_url"
+    deps.render_active_tab.return_value = ("active", "")
+
+    result, msg = service.load_data("active", 1, "base_url", "r1", "", "res1", "c2")
+
+    assert result == ("active", "")
+    assert msg == ""
+    deps.render_active_tab.assert_called_once_with("safe_url", "r1", "c2")
 
 
 def test_active_drilldown_service_validate_base_url_tuple(logger, deps):

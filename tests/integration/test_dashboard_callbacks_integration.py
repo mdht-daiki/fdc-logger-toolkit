@@ -50,13 +50,21 @@ def test_load_data_callback_depends_on_chart_name_state() -> None:
     assert isinstance(dependencies, list)
 
     load_callback = next(
-        dep
-        for dep in dependencies
-        if isinstance(dep, dict)
-        and isinstance(dep.get("output"), str)
-        and "tab-content.children" in dep["output"]
-        and "error-banner.children" in dep["output"]
+        (
+            dep
+            for dep in dependencies
+            if isinstance(dep, dict)
+            and isinstance(dep.get("output"), str)
+            and "tab-content.children" in dep["output"]
+            and "error-banner.children" in dep["output"]
+        ),
+        None,
     )
+    if load_callback is None:
+        pytest.fail(
+            "expected dependency with 'tab-content.children' and 'error-banner.children' not found"
+        )
+    assert load_callback is not None
 
     states = load_callback.get("state", [])
     assert any(

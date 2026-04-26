@@ -278,6 +278,23 @@ def assert_waveform_preview_response(
     assert body["data"]["points"] == expected_points
 
 
+def assert_chart_points_rows(
+    rows: list[dict[str, object]],
+    expected_process_ids: tuple[str, ...],
+    *,
+    expected_first_feature_value: float,
+) -> None:
+    assert len(rows) == len(expected_process_ids)
+    assert [row["process_id"] for row in rows] == list(expected_process_ids)
+
+    for row, process_id in zip(rows, expected_process_ids, strict=True):
+        assert isinstance(row["process_start_ts"], str)
+        assert row["process_start_ts"].endswith("Z")
+        assert row["raw_csv_path"] == f"data/raw/{process_id}.csv"
+
+    assert rows[0]["feature_value"] == expected_first_feature_value
+
+
 # --- GET /charts/{chart_id}/points ---
 
 
@@ -291,25 +308,15 @@ def test_get_chart_points_returns_points(
     assert res.status_code == 200
     body = res.json()
     assert body["ok"] is True
-    rows = body["data"]
-    assert len(rows) == 3
-
-    # start_ts DESC のため、最新 process が先頭になる。
-    assert [row["process_id"] for row in rows] == [
-        seeded.process_ids[2],
-        seeded.process_ids[1],
-        seeded.process_ids[0],
-    ]
-    # Verify all response fields (process_start_ts, raw_csv_path, feature_value)
-    assert rows[0]["feature_value"] == 1.3
-    # process_start_ts is converted to UTC ISO 8601 format with milliseconds by to_utc_millis()
-    assert isinstance(rows[0]["process_start_ts"], str)
-    assert rows[0]["process_start_ts"].endswith("Z")
-    # raw_csv_path matches seeded process
-    assert rows[0]["raw_csv_path"] == f"data/raw/{seeded.process_ids[2]}.csv"
-    # Verify ordering by start_ts
-    assert rows[1]["raw_csv_path"] == f"data/raw/{seeded.process_ids[1]}.csv"
-    assert rows[2]["raw_csv_path"] == f"data/raw/{seeded.process_ids[0]}.csv"
+    assert_chart_points_rows(
+        body["data"],
+        expected_process_ids=(
+            seeded.process_ids[2],
+            seeded.process_ids[1],
+            seeded.process_ids[0],
+        ),
+        expected_first_feature_value=1.3,
+    )
 
 
 def test_get_chart_points_returns_empty_for_no_matching_records(
@@ -342,11 +349,15 @@ def test_get_chart_points_respects_limit_parameter(
     res = client.get(f"/charts/{seeded.chart_id}/points?limit=2")
 
     assert res.status_code == 200
-    rows = res.json()["data"]
     # Should return only 2 rows (most recent first)
-    assert len(rows) == 2
-    assert rows[0]["process_id"] == seeded.process_ids[2]
-    assert rows[1]["process_id"] == seeded.process_ids[1]
+    assert_chart_points_rows(
+        res.json()["data"],
+        expected_process_ids=(
+            seeded.process_ids[2],
+            seeded.process_ids[1],
+        ),
+        expected_first_feature_value=1.3,
+    )
 
 
 def test_get_chart_points_rejects_limit_too_small(client: TestClient) -> None:

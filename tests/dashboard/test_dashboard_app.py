@@ -78,7 +78,7 @@ def test_refresh_chart_name_options_does_not_fetch_before_load_click(
 
 
 def test_load_data_shows_prompt_before_first_load_click() -> None:
-    content, error = load_data("active", 0, "http://localhost:8000", "", "", "")
+    content, error = load_data("active", 0, "http://localhost:8000", "", "", "", None)
 
     assert isinstance(content, html.Div)
     assert content.children == "Press Load to fetch data"
@@ -96,7 +96,7 @@ def test_load_data_renders_active_tab_after_load_click(
         _fake_render_active_tab,
     )
 
-    content, error = load_data("active", 1, "http://localhost:8000", "", "", "")
+    content, error = load_data("active", 1, "http://localhost:8000", "", "", "", None)
 
     assert isinstance(content, html.Div)
     assert content.children == "ACTIVE_RENDERED"
@@ -108,10 +108,36 @@ def test_validate_base_url_accepts_localhost() -> None:
 
 
 def test_load_data_rejects_invalid_base_url() -> None:
-    content, error = load_data("active", 1, "file:///etc/passwd", "", "", "")
+    content, error = load_data("active", 1, "file:///etc/passwd", "", "", "", None)
 
     assert isinstance(content, html.Div)
     assert error == "Invalid db_api base URL [INVALID_BASE_URL]"
+
+
+def test_load_data_uses_chart_name_selection_as_fallback_for_chart_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _fake_render_active_tab(base_url: str, recipe_id: str, chart_id: str) -> html.Div:
+        return html.Div(f"ACTIVE:{chart_id}")
+
+    monkeypatch.setattr(
+        "portfolio_fdc.dashboard.app._render_active_tab",
+        _fake_render_active_tab,
+    )
+
+    content, error = load_data(
+        "active",
+        1,
+        "http://localhost:8000",
+        "",
+        "",
+        "",
+        "CHART_2",
+    )
+
+    assert isinstance(content, html.Div)
+    assert content.children == "ACTIVE:CHART_2"
+    assert error == ""
 
 
 def test_refresh_chart_name_options_rejects_invalid_base_url(

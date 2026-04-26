@@ -34,6 +34,7 @@ class DashboardController:
         recipe_id: str,
         chart_id: str,
         result_id: str,
+        selected_chart_id: str | None,
     ) -> tuple[Any, str]:
         return self._tab_loader.load_data(
             active_tab,
@@ -42,6 +43,7 @@ class DashboardController:
             recipe_id,
             chart_id,
             result_id,
+            selected_chart_id,
         )
 
     def refresh_chart_name_options(

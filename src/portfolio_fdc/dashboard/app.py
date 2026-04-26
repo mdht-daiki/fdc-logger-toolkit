@@ -32,7 +32,7 @@ def _build_controller() -> DashboardController:
     return DashboardController(logger, deps)
 
 
-app = Dash(__name__, suppress_callback_exceptions=True, title="FDC Dashboard Baseline")
+app = Dash(__name__, suppress_callback_exceptions=False, title="FDC Dashboard Baseline")
 
 # Re-exported aliases keep backward compatibility for tests that monkeypatch app symbols.
 _render_charts_tab = render_charts_tab
@@ -123,6 +123,7 @@ def sync_filters_from_url(search: str) -> tuple[str, str, str, str]:
     State("recipe-id", "value"),
     State("chart-id", "value"),
     State("result-id", "value"),
+    State("chart-name", "value"),
 )
 def load_data(
     active_tab: str,
@@ -131,6 +132,7 @@ def load_data(
     recipe_id: str,
     chart_id: str,
     result_id: str,
+    selected_chart_id: str | None,
 ) -> tuple[Any, str]:
     return _build_controller().load_data(
         active_tab,
@@ -139,6 +141,7 @@ def load_data(
         recipe_id,
         chart_id,
         result_id,
+        selected_chart_id,
     )
 
 

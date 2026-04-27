@@ -579,6 +579,7 @@ def test_get_process_waveform_preview_returns_empty_points_when_raw_csv_path_nul
 
     connection = _DetailedConnection()
     monkeypatch.setattr(db_app, "_connect", lambda _db_path: connection)
+    monkeypatch.setattr(db_app, "_connect_readonly", lambda _db_path: connection)
 
     res = client.get("/processes/wave_null_path/waveform-preview")
 

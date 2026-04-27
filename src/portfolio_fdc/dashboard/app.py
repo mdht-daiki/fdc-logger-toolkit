@@ -34,7 +34,10 @@ def _build_controller() -> DashboardController:
 
 app = Dash(__name__, suppress_callback_exceptions=False, title="FDC Dashboard Baseline")
 
-# Re-exported aliases keep backward compatibility for tests that monkeypatch app symbols.
+# Re-exported aliases for backward compatibility.
+# IMPORTANT: Tests should monkeypatch tab_renderers module directly, not these aliases,
+# to avoid silently breaking when tab_renderers is refactored.
+# See: https://github.com/mdht-daiki/fdc-logger-toolkit/issues/163
 _render_charts_tab = render_charts_tab
 _render_active_tab = render_active_tab
 _render_history_tab = render_history_tab

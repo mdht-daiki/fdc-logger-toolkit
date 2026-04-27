@@ -7,8 +7,10 @@
 from __future__ import annotations
 
 import logging
+import os as _os
 import pathlib
 import sqlite3
+import tempfile as _tempfile
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from dataclasses import asdict
@@ -36,7 +38,7 @@ from .chart_repository import (
     ChartsHistoryQueryCriteria,
     ChartsQueryCriteria,
 )
-from .db import MAIN_DB, TEMP_DB, _connect, _init_schema
+from .db import MAIN_DB, TEMP_DB, _connect_readonly, _init_schema
 from .judge_repository import (
     JudgeDataCorruptionError,
     JudgeRepository,
@@ -54,6 +56,31 @@ from .task_runner import DBTaskRunner
 
 logger = logging.getLogger(__name__)
 _runner_lock = Lock()
+
+
+# パストラバーサル対策: raw CSV ファイルの許可ベースディレクトリ
+# 環境変数 DATA_ROOT で指定可能（デフォルト: カレントワーキングディレクトリ）
+# テスト環境ではシステムの一時ディレクトリも許可
+def _get_allowed_base_dirs() -> list[pathlib.Path]:
+    """許可されたベースディレクトリリストを取得。"""
+    allowed = []
+
+    # 環境変数で指定されたディレクトリ
+    data_root = _os.environ.get("DATA_ROOT")
+    if data_root:
+        allowed.append(pathlib.Path(data_root).resolve())
+    else:
+        # デフォルトはカレントワーキングディレクトリ
+        allowed.append(pathlib.Path.cwd().resolve())
+
+    # テスト環境用: システム一時ディレクトリも許可
+    allowed.append(pathlib.Path(_tempfile.gettempdir()).resolve())
+
+    return allowed
+
+
+_ALLOWED_BASE_DIRS = _get_allowed_base_dirs()
+
 LEGACY_DELETE_PROCESSES_SUNSET_AT = datetime(2026, 6, 30, 23, 59, 59, tzinfo=UTC)
 LEGACY_DELETE_PROCESSES_SUNSET = format_datetime(LEGACY_DELETE_PROCESSES_SUNSET_AT, usegmt=True)
 CHARTS_FILTER_PATTERN = r"^[A-Za-z0-9_./:-]+$"
@@ -427,8 +454,11 @@ def _not_found_error_response(*, message: str, details: dict[str, str]) -> JSONR
 
 
 def _build_waveform_preview(process_id: str, limit: int) -> dict[str, object]:
-    """ProcessInfo.raw_csv_path からドリルダウン表示用の波形プレビューを返す。"""
-    con = _connect(MAIN_DB)
+    """ProcessInfo.raw_csv_path からドリルダウン表示用の波形プレビューを返す。
+
+    READ-ONLY 接続を使用することで、書き込み作業中の lock 競合を回避する。
+    """
+    con = _connect_readonly(MAIN_DB)
     try:
         row = con.execute(
             "SELECT raw_csv_path FROM ProcessInfo WHERE process_id = ?",
@@ -451,6 +481,24 @@ def _build_waveform_preview(process_id: str, limit: int) -> dict[str, object]:
     src = pathlib.Path(str(raw_path))
     if not src.is_absolute():
         src = pathlib.Path.cwd() / src
+
+    # パストラバーサル対策: ベースディレクトリ外のアクセスを拒否
+    src_resolved = src.resolve()
+    is_allowed = any(
+        src_resolved == allowed_dir or str(src_resolved).startswith(str(allowed_dir) + _os.sep)
+        for allowed_dir in _ALLOWED_BASE_DIRS
+    )
+    if not is_allowed:
+        logger.warning(
+            "Access attempt outside allowed directories: process_id=%s, path=%s, allowed_dirs=%s",
+            process_id,
+            src_resolved.as_posix(),
+            ", ".join(d.as_posix() for d in _ALLOWED_BASE_DIRS),
+        )
+        raise HTTPException(
+            status_code=403,
+            detail="Access to files outside the allowed base directories is forbidden",
+        )
 
     if not src.exists():
         return {

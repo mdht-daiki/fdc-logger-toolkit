@@ -74,10 +74,9 @@ class DashboardController:
 
     def select_chart_from_table(
         self,
-        active_cell: dict[str, Any] | None,
-        data: list[dict[str, Any]] | None,
+        cell_clicked: dict[str, Any] | None,
     ) -> str | Any:
-        return self._navigation.select_chart_from_table(active_cell, data)
+        return self._navigation.select_chart_from_table(cell_clicked)
 
     def sync_active_selected_base_url(self, base_url: str) -> str:
         return self._navigation.sync_active_selected_base_url(base_url)

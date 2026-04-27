@@ -33,19 +33,16 @@ class NavigationService:
 
     def select_chart_from_table(
         self,
-        active_cell: dict[str, Any] | None,
-        data: list[dict[str, Any]] | None,
+        cell_clicked: dict[str, Any] | None,
     ) -> str | Any:
-        if not active_cell or not data:
+        if not cell_clicked:
             return no_update
 
-        row_idx = active_cell.get("row")
-        if not isinstance(row_idx, int):
-            row_idx = active_cell.get("rowIndex")
-        if not isinstance(row_idx, int) or row_idx < 0 or row_idx >= len(data):
+        row_data = cell_clicked.get("data")
+        if not isinstance(row_data, dict):
             return no_update
 
-        selected = data[row_idx].get("chart_id")
+        selected = row_data.get("chart_id")
         if not selected:
             return no_update
         return str(selected)

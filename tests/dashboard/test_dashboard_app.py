@@ -305,20 +305,19 @@ def test_move_to_active_by_chart_name_switches_tab_and_updates_url() -> None:
 def test_select_chart_from_table_returns_no_update_for_none_cell() -> None:
     from dash import no_update
 
-    result = select_chart_from_table(None, [{"chart_id": "CHART_1"}])
+    result = select_chart_from_table(None)
     assert result is no_update
 
 
-def test_select_chart_from_table_returns_no_update_for_out_of_bounds_row() -> None:
+def test_select_chart_from_table_returns_no_update_when_data_key_missing() -> None:
     from dash import no_update
 
-    result = select_chart_from_table({"row": 5}, [{"chart_id": "CHART_1"}])
+    result = select_chart_from_table({"rowIndex": 0})
     assert result is no_update
 
 
 def test_select_chart_from_table_returns_chart_id_on_valid_cell() -> None:
-    data = [{"chart_id": "CHART_1"}, {"chart_id": "CHART_2"}]
-    result = select_chart_from_table({"row": 1}, data)
+    result = select_chart_from_table({"rowIndex": 1, "data": {"chart_id": "CHART_2"}})
     assert result == "CHART_2"
 
 

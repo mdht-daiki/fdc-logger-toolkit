@@ -78,22 +78,28 @@ def render_charts_tab(base_url: str, recipe_id: str) -> html.Div:
                 rowData=table_rows,
                 columnDefs=(
                     [
-                        {"headerName": "chart_id", "field": "chart_id"},
-                        {"headerName": "is_active", "field": "is_active"},
-                        {"headerName": "chart_name", "field": "chart_name"},
-                        {"headerName": "recipe_id", "field": "recipe_id"},
-                        {"headerName": "parameter", "field": "parameter"},
-                        {"headerName": "step_no", "field": "step_no"},
-                        {"headerName": "feature_type", "field": "feature_type"},
-                        {"headerName": "warning", "field": "warning"},
-                        {"headerName": "critical", "field": "critical"},
-                        {"headerName": "updated_at", "field": "updated_at"},
                         {
-                            "headerName": "open",
-                            "field": "open",
+                            **col,
                             "cellRenderer": "markdown",
                             "cellRendererParams": {"linkTarget": "_self"},
-                        },
+                        }
+                        if col["field"] == "open"
+                        else col
+                        for col in _ag_grid_columns(
+                            [
+                                "chart_id",
+                                "is_active",
+                                "chart_name",
+                                "recipe_id",
+                                "parameter",
+                                "step_no",
+                                "feature_type",
+                                "warning",
+                                "critical",
+                                "updated_at",
+                                "open",
+                            ]
+                        )
                     ]
                     if table_rows
                     else []

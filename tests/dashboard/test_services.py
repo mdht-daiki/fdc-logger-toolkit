@@ -3,12 +3,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from src.portfolio_fdc.dashboard.api_client import APIError
-from src.portfolio_fdc.dashboard.services.active_drilldown import ActiveDrilldownService
-from src.portfolio_fdc.dashboard.services.chart_name_options import ChartNameOptionService
-from src.portfolio_fdc.dashboard.services.navigation import NavigationService
-from src.portfolio_fdc.dashboard.services.tab_load import TabLoadService
-from src.portfolio_fdc.dashboard.services.url_filters import UrlFilterService
+from portfolio_fdc.dashboard.api_client import APIError
+from portfolio_fdc.dashboard.services.active_drilldown import ActiveDrilldownService
+from portfolio_fdc.dashboard.services.chart_name_options import ChartNameOptionService
+from portfolio_fdc.dashboard.services.navigation import NavigationService
+from portfolio_fdc.dashboard.services.tab_load import TabLoadService
+from portfolio_fdc.dashboard.services.url_filters import UrlFilterService
 
 
 @pytest.fixture
@@ -489,42 +489,33 @@ def test_navigation_service_select_chart_from_table_none_cases():
     service = NavigationService()
     from dash import no_update
 
-    # active_cell=None
-    assert service.select_chart_from_table(None, [{"chart_id": "c1"}]) is no_update
-    # data=None
-    assert service.select_chart_from_table({"row": 0}, None) is no_update
+    # cell_clicked=None
+    assert service.select_chart_from_table(None) is no_update
+    # data key missing
+    assert service.select_chart_from_table({}) is no_update
+    # data not a dict
+    assert service.select_chart_from_table({"data": None}) is no_update
 
 
-def test_navigation_service_select_chart_from_table_row_idx_cases():
+def test_navigation_service_select_chart_from_table_chart_id_missing():
     service = NavigationService()
     from dash import no_update
 
-    data = [{"chart_id": "c1"}, {"chart_id": "c2"}]
-    # row_idx out of range
-    assert service.select_chart_from_table({"row": 2}, data) is no_update
-    # row_idx negative
-    assert service.select_chart_from_table({"row": -1}, data) is no_update
-    # row_idx not int
-    assert service.select_chart_from_table({"row": "0"}, data) is no_update
-
-
-def test_navigation_service_select_chart_from_table_chart_id_empty():
-    service = NavigationService()
-    from dash import no_update
-
-    data = [{"chart_id": ""}]
-    assert service.select_chart_from_table({"row": 0}, data) is no_update
+    # chart_id absent from row data
+    assert service.select_chart_from_table({"data": {}}) is no_update
+    # chart_id empty string
+    assert service.select_chart_from_table({"data": {"chart_id": ""}}) is no_update
 
 
 def test_navigation_service_select_chart_from_table_normal():
     service = NavigationService()
-    data = [{"chart_id": "c1"}, {"chart_id": "c2"}]
-    assert service.select_chart_from_table({"row": 1}, data) == "c2"
+    result = service.select_chart_from_table({"data": {"chart_id": "c2"}})
+    assert result == "c2"
 
 
 def test_navigation_service_sync_active_selected_base_url():
     service = NavigationService()
-    from src.portfolio_fdc.dashboard.base_url import DEFAULT_DB_API_BASE_URL
+    from portfolio_fdc.dashboard.base_url import DEFAULT_DB_API_BASE_URL
 
     # 空文字列→デフォルト
     assert service.sync_active_selected_base_url("") == DEFAULT_DB_API_BASE_URL

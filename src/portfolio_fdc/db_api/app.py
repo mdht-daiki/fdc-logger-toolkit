@@ -477,6 +477,7 @@ def _build_waveform_preview(process_id: str, limit: int) -> dict[str, object]:
         for allowed_dir in allowed_base_dirs
     )
     if not is_allowed:
+        src_name = src_resolved.name
         logger.warning(
             "Access attempt outside allowed directories: process_id=%s, path=%s, allowed_dirs=%s",
             process_id,
@@ -485,7 +486,10 @@ def _build_waveform_preview(process_id: str, limit: int) -> dict[str, object]:
         )
         raise HTTPException(
             status_code=403,
-            detail="Access to files outside the allowed base directories is forbidden",
+            detail=(
+                "Access to files outside the allowed base directories is forbidden: "
+                f"process_id={process_id}, file={src_name}"
+            ),
         )
 
     if not src_resolved.exists():

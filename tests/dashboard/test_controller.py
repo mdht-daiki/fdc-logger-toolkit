@@ -248,15 +248,16 @@ class TestRenderActiveDrilldown:
 
     def test_handles_none_click_data(self, controller: DashboardController) -> None:
         """render_active_drilldown should handle None click_data."""
+        expected: dict[str, list[Any]] = {"data": []}
         with patch.object(
             controller._drilldown,
             "render_active_drilldown",
-            return_value={"data": []},
+            return_value=expected,
         ) as mock_render:
             result = controller.render_active_drilldown(None, "http://localhost:8050")
 
             mock_render.assert_called_once_with(None, "http://localhost:8050")
-            assert isinstance(result, dict)
+            assert result == expected
 
 
 class TestControllerInitialization:

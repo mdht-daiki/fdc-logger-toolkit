@@ -635,6 +635,8 @@ def test_get_process_waveform_preview_allows_path_under_data_root(
     res = client.get(f"/processes/{process_id}/waveform-preview")
 
     assert res.status_code == 200
+    assert res.headers["content-type"].startswith("application/json")
+    assert "detail" not in res.json()
 
 
 def test_get_process_waveform_preview_forbids_path_outside_data_root(
@@ -655,6 +657,9 @@ def test_get_process_waveform_preview_forbids_path_outside_data_root(
     res = client.get(f"/processes/{process_id}/waveform-preview")
 
     assert res.status_code == 403
+    detail = res.json().get("detail")
+    assert detail is not None
+    assert process_id in detail or forbidden_path.name in detail
 
 
 def test_get_process_waveform_preview_applies_limit_to_tail(

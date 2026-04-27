@@ -36,18 +36,29 @@ class TestSyncFiltersFromUrl:
     def test_delegates_to_url_filter_service(self, controller: DashboardController) -> None:
         """sync_filters_from_url should delegate to UrlFilterService.sync_filters_from_url."""
         search = "recipe_id=R1&chart_id=C1"
-        result = controller.sync_filters_from_url(search)
+        expected = ("recipe", "chart", "result", "selected")
+        with patch.object(
+            controller._url_filter,
+            "sync_filters_from_url",
+            return_value=expected,
+        ) as mock_sync:
+            result = controller.sync_filters_from_url(search)
 
-        assert isinstance(result, tuple)
-        assert len(result) == 4
+        mock_sync.assert_called_once_with(search)
+        assert result == expected
 
     def test_returns_url_filter_result(self, controller: DashboardController) -> None:
         """sync_filters_from_url should return the result from UrlFilterService."""
         search = "recipe_id=R1&chart_id=C1"
-        result = controller.sync_filters_from_url(search)
+        expected = ("recipe_id", "chart_id", "result_id", "selected_chart_id")
+        with patch.object(
+            controller._url_filter,
+            "sync_filters_from_url",
+            return_value=expected,
+        ):
+            result = controller.sync_filters_from_url(search)
 
-        # UrlFilterService.sync_filters_from_url returns tuple[str, str, str, str]
-        assert all(isinstance(item, str) for item in result)
+        assert result == expected
 
 
 class TestLoadData:
@@ -265,9 +276,13 @@ class TestControllerInitialization:
         self, logger: logging.Logger, deps: MagicMock
     ) -> None:
         """DashboardController should pass deps to services that require them."""
-        controller = DashboardController(logger, deps)
+        with (
+            patch("portfolio_fdc.dashboard.controller.TabLoadService") as mock_tab_load,
+            patch("portfolio_fdc.dashboard.controller.ChartNameOptionService") as mock_chart_name,
+            patch("portfolio_fdc.dashboard.controller.ActiveDrilldownService") as mock_drilldown,
+        ):
+            DashboardController(logger, deps)
 
-        # TabLoadService, ChartNameOptionService, ActiveDrilldownService should have deps
-        assert controller._tab_loader._deps is deps
-        assert controller._chart_name._deps is deps
-        assert controller._drilldown._deps is deps
+        mock_tab_load.assert_called_once_with(logger, deps)
+        mock_chart_name.assert_called_once_with(logger, deps)
+        mock_drilldown.assert_called_once_with(logger, deps)

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pandas as pd
@@ -18,6 +19,10 @@ from portfolio_fdc.db_api.chart_repository import ChartRepository
 from portfolio_fdc.db_api.datetime_util import to_utc_millis
 from portfolio_fdc.db_api.db import MAIN_DB, _connect, _init_schema
 from tests.utils.test_utils import assert_validation_error_envelope
+
+
+def _set_data_root(monkeypatch: pytest.MonkeyPatch, data_root: Path) -> None:
+    monkeypatch.setenv(db_app.DATA_ROOT, data_root.as_posix())
 
 
 @dataclass(frozen=True)
@@ -578,7 +583,6 @@ def test_get_process_waveform_preview_returns_empty_points_when_raw_csv_path_nul
             pass
 
     connection = _DetailedConnection()
-    monkeypatch.setattr(db_app, "_connect", lambda _db_path: connection)
     monkeypatch.setattr(db_app, "_connect_readonly", lambda _db_path: connection)
 
     res = client.get("/processes/wave_null_path/waveform-preview")
@@ -596,9 +600,11 @@ def test_get_process_waveform_preview_returns_empty_points_when_raw_csv_path_nul
 def test_get_process_waveform_preview_returns_empty_points_when_file_missing(
     client: TestClient,
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     process_id = f"wave_missing_{uuid4().hex[:8]}"
     missing_path = tmp_path / "missing_wave.csv"
+    _set_data_root(monkeypatch, tmp_path)
 
     with _waveform_process_ctx(process_id, missing_path.as_posix()):
         res = client.get(f"/processes/{process_id}/waveform-preview")
@@ -611,12 +617,54 @@ def test_get_process_waveform_preview_returns_empty_points_when_file_missing(
         assert body["data"]["source_path"] == missing_path.as_posix()
 
 
+def test_get_process_waveform_preview_allows_path_under_data_root(
+    client: TestClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    process_id = f"wave_allowed_{uuid4().hex[:8]}"
+    allowed_path = tmp_path / "allowed.csv"
+    connection = MagicMock()
+    cursor = MagicMock()
+    cursor.fetchone.return_value = (allowed_path.as_posix(),)
+    connection.execute.return_value = cursor
+
+    _set_data_root(monkeypatch, tmp_path)
+    monkeypatch.setattr(db_app, "_connect_readonly", lambda _db_path: connection)
+
+    res = client.get(f"/processes/{process_id}/waveform-preview")
+
+    assert res.status_code == 200
+
+
+def test_get_process_waveform_preview_forbids_path_outside_data_root(
+    client: TestClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    process_id = f"wave_forbidden_{uuid4().hex[:8]}"
+    forbidden_path = tmp_path.parent / "outside-allowed.csv"
+    connection = MagicMock()
+    cursor = MagicMock()
+    cursor.fetchone.return_value = (forbidden_path.as_posix(),)
+    connection.execute.return_value = cursor
+
+    _set_data_root(monkeypatch, tmp_path)
+    monkeypatch.setattr(db_app, "_connect_readonly", lambda _db_path: connection)
+
+    res = client.get(f"/processes/{process_id}/waveform-preview")
+
+    assert res.status_code == 403
+
+
 def test_get_process_waveform_preview_applies_limit_to_tail(
     client: TestClient,
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     process_id = f"wave_limit_{uuid4().hex[:8]}"
     csv_path = tmp_path / "wave_limit.csv"
+    _set_data_root(monkeypatch, tmp_path)
     csv_path.write_text(
         "timestamp,signal\n"
         "t1,1.0\n"
@@ -685,9 +733,11 @@ def test_get_process_waveform_preview_rejects_invalid_process_id_pattern(
 def test_get_process_waveform_preview_returns_null_for_nan_y(
     client: TestClient,
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     process_id = f"wave_nan_{uuid4().hex[:8]}"
     csv_path = tmp_path / "wave_nan.csv"
+    _set_data_root(monkeypatch, tmp_path)
     csv_path.write_text("timestamp,signal\nt1,1.5\nt2,\n", encoding="utf-8")
 
     with _waveform_process_ctx(process_id, csv_path.as_posix()):
@@ -711,6 +761,7 @@ def test_get_process_waveform_preview_returns_empty_points_on_parser_error(
 ) -> None:
     process_id = f"wave_parser_{uuid4().hex[:8]}"
     csv_path = tmp_path / "wave_parser.csv"
+    _set_data_root(monkeypatch, tmp_path)
     csv_path.write_text("timestamp,signal\nt1,1.0\n", encoding="utf-8")
 
     def raise_parser_error(*args: object, **kwargs: object) -> pd.DataFrame:
@@ -733,9 +784,11 @@ def test_get_process_waveform_preview_returns_empty_points_on_parser_error(
 def test_get_process_waveform_preview_returns_empty_points_for_header_only_csv(
     client: TestClient,
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     process_id = f"wave_empty_{uuid4().hex[:8]}"
     csv_path = tmp_path / "wave_header_only.csv"
+    _set_data_root(monkeypatch, tmp_path)
     csv_path.write_text("timestamp,signal\n", encoding="utf-8")
 
     with _waveform_process_ctx(process_id, csv_path.as_posix()):
@@ -780,9 +833,11 @@ def test_get_process_waveform_preview_resolves_relative_source_path(
 def test_get_process_waveform_preview_uses_first_numeric_column(
     client: TestClient,
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     process_id = f"wave_multi_numeric_{uuid4().hex[:8]}"
     csv_path = tmp_path / "wave_multi_numeric.csv"
+    _set_data_root(monkeypatch, tmp_path)
     csv_path.write_text(
         "timestamp,primary_signal,secondary_signal\nt1,1.0,10.0\nt2,2.0,20.0\n",
         encoding="utf-8",
@@ -844,6 +899,7 @@ def test_get_process_waveform_preview_returns_503_on_transient_db_error(
 def test_get_process_waveform_preview_csv_parsing_variants(
     client: TestClient,
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
     process_id_prefix: str,
     csv_filename: str,
     csv_content: str,
@@ -851,6 +907,7 @@ def test_get_process_waveform_preview_csv_parsing_variants(
 ) -> None:
     process_id = f"{process_id_prefix}_{uuid4().hex[:8]}"
     csv_path = tmp_path / csv_filename
+    _set_data_root(monkeypatch, tmp_path)
     csv_path.write_text(csv_content, encoding="utf-8")
 
     with _waveform_process_ctx(process_id, csv_path.as_posix()):

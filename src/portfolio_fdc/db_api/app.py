@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import logging
+import os as _os
 import pathlib
 import sqlite3
 from collections.abc import AsyncGenerator
@@ -36,7 +37,7 @@ from .chart_repository import (
     ChartsHistoryQueryCriteria,
     ChartsQueryCriteria,
 )
-from .db import MAIN_DB, TEMP_DB, _connect, _init_schema
+from .db import MAIN_DB, TEMP_DB, _connect_readonly, _init_schema
 from .judge_repository import (
     JudgeDataCorruptionError,
     JudgeRepository,
@@ -54,6 +55,19 @@ from .task_runner import DBTaskRunner
 
 logger = logging.getLogger(__name__)
 _runner_lock = Lock()
+DATA_ROOT = "DATA_ROOT"
+
+
+# パストラバーサル対策: raw CSV ファイルの許可ベースディレクトリ
+# 環境変数 DATA_ROOT で指定可能（未設定時はカレントワーキングディレクトリ）
+def _get_allowed_base_dirs() -> list[pathlib.Path]:
+    """許可されたベースディレクトリリストを取得。"""
+    data_root = _os.environ.get(DATA_ROOT)
+    if data_root:
+        return [pathlib.Path(data_root).resolve()]
+    return [pathlib.Path.cwd().resolve()]
+
+
 LEGACY_DELETE_PROCESSES_SUNSET_AT = datetime(2026, 6, 30, 23, 59, 59, tzinfo=UTC)
 LEGACY_DELETE_PROCESSES_SUNSET = format_datetime(LEGACY_DELETE_PROCESSES_SUNSET_AT, usegmt=True)
 CHARTS_FILTER_PATTERN = r"^[A-Za-z0-9_./:-]+$"
@@ -427,8 +441,11 @@ def _not_found_error_response(*, message: str, details: dict[str, str]) -> JSONR
 
 
 def _build_waveform_preview(process_id: str, limit: int) -> dict[str, object]:
-    """ProcessInfo.raw_csv_path からドリルダウン表示用の波形プレビューを返す。"""
-    con = _connect(MAIN_DB)
+    """ProcessInfo.raw_csv_path からドリルダウン表示用の波形プレビューを返す。
+
+    READ-ONLY 接続を使用することで、書き込み作業中の lock 競合を回避する。
+    """
+    con = _connect_readonly(MAIN_DB)
     try:
         row = con.execute(
             "SELECT raw_csv_path FROM ProcessInfo WHERE process_id = ?",
@@ -452,17 +469,40 @@ def _build_waveform_preview(process_id: str, limit: int) -> dict[str, object]:
     if not src.is_absolute():
         src = pathlib.Path.cwd() / src
 
-    if not src.exists():
+    # パストラバーサル対策: ベースディレクトリ外のアクセスを拒否
+    src_resolved = src.resolve()
+    allowed_base_dirs = _get_allowed_base_dirs()
+    is_allowed = any(
+        src_resolved == allowed_dir or str(src_resolved).startswith(str(allowed_dir) + _os.sep)
+        for allowed_dir in allowed_base_dirs
+    )
+    if not is_allowed:
+        src_name = src_resolved.name
+        logger.warning(
+            "Access attempt outside allowed directories: process_id=%s, path=%s, allowed_dirs=%s",
+            process_id,
+            src_resolved.as_posix(),
+            ", ".join(d.as_posix() for d in allowed_base_dirs),
+        )
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Access to files outside the allowed base directories is forbidden: "
+                f"process_id={process_id}, file={src_name}"
+            ),
+        )
+
+    if not src_resolved.exists():
         return {
             "process_id": process_id,
-            "source_path": src.as_posix(),
+            "source_path": src_resolved.as_posix(),
             "points": [],
         }
 
     try:
         import pandas as pd  # Local import to avoid global import cost.
 
-        with src.open("r", encoding="utf-8", errors="ignore") as f:
+        with src_resolved.open("r", encoding="utf-8", errors="ignore") as f:
             start_row = 0
             for idx, line in enumerate(f):
                 if idx >= 200:
@@ -480,18 +520,18 @@ def _build_waveform_preview(process_id: str, limit: int) -> dict[str, object]:
                 logger.error(
                     "CSV parse error in waveform preview for process_id=%s source_path=%s: %s",
                     process_id,
-                    src.as_posix(),
+                    src_resolved.as_posix(),
                     str(e),
                 )
                 return {
                     "process_id": process_id,
-                    "source_path": src.as_posix(),
+                    "source_path": src_resolved.as_posix(),
                     "points": [],
                 }
         if frame.empty:
             return {
                 "process_id": process_id,
-                "source_path": src.as_posix(),
+                "source_path": src_resolved.as_posix(),
                 "points": [],
             }
 
@@ -504,7 +544,7 @@ def _build_waveform_preview(process_id: str, limit: int) -> dict[str, object]:
         if y_col is None:
             return {
                 "process_id": process_id,
-                "source_path": src.as_posix(),
+                "source_path": src_resolved.as_posix(),
                 "points": [],
             }
 
@@ -518,18 +558,18 @@ def _build_waveform_preview(process_id: str, limit: int) -> dict[str, object]:
         ]
         return {
             "process_id": process_id,
-            "source_path": src.as_posix(),
+            "source_path": src_resolved.as_posix(),
             "points": points,
         }
     except Exception:
         logger.exception(
             "Failed to build waveform preview for process_id=%s source_path=%s",
             process_id,
-            src.as_posix(),
+            src_resolved.as_posix(),
         )
         return {
             "process_id": process_id,
-            "source_path": src.as_posix(),
+            "source_path": src_resolved.as_posix(),
             "points": [],
         }
 

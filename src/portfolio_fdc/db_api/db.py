@@ -34,6 +34,19 @@ def _connect(db_path: Path) -> sqlite3.Connection:
     return con
 
 
+def _connect_readonly(db_path: Path) -> sqlite3.Connection:
+    """指定 DB への読み取り専用接続を開く。
+
+    読み取り専用モード（mode=ro）を使用することで、
+    WAL モード環境での並行性を向上させる。
+    書き込みが多いタイミングでの read リクエストロックを回避する。
+    """
+    uri = f"file:{db_path.as_posix()}?mode=ro"
+    con = sqlite3.connect(uri, uri=True, check_same_thread=False)
+    con.execute("PRAGMA query_only=ON;")
+    return con
+
+
 def _add_column_if_missing(
     con: sqlite3.Connection,
     table_name: str,

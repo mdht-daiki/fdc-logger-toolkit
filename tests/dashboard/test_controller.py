@@ -187,30 +187,29 @@ class TestMoveToActiveByChartName:
 class TestSelectChartFromTable:
     """Tests for select_chart_from_table delegation."""
 
-    def test_delegates_with_active_cell_and_data(self, controller: DashboardController) -> None:
-        """select_chart_from_table should delegate arguments to NavigationService."""
-        active_cell = {"row": 0, "column": 0}
-        data = [{"chart_id": "CHART_1"}]
+    def test_delegates_with_cell_clicked(self, controller: DashboardController) -> None:
+        """select_chart_from_table should delegate cell_clicked to NavigationService."""
+        cell_clicked = {"rowIndex": 0, "data": {"chart_id": "CHART_1"}}
 
         with patch.object(
             controller._navigation,
             "select_chart_from_table",
             return_value="CHART_1",
         ) as mock_select:
-            controller.select_chart_from_table(active_cell, data)
+            controller.select_chart_from_table(cell_clicked)
 
-            mock_select.assert_called_once_with(active_cell, data)
+            mock_select.assert_called_once_with(cell_clicked)
 
-    def test_handles_none_arguments(self, controller: DashboardController) -> None:
-        """select_chart_from_table should handle None arguments."""
+    def test_handles_none_cell_clicked(self, controller: DashboardController) -> None:
+        """select_chart_from_table should handle None cell_clicked."""
         with patch.object(
             controller._navigation,
             "select_chart_from_table",
             return_value=None,
         ) as mock_select:
-            result = controller.select_chart_from_table(None, None)
+            result = controller.select_chart_from_table(None)
 
-            mock_select.assert_called_once_with(None, None)
+            mock_select.assert_called_once_with(None)
             assert result is None
 
 

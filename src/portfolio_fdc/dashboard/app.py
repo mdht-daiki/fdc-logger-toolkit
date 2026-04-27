@@ -193,15 +193,13 @@ def move_to_active_by_chart_name(
 
 @app.callback(
     Output("chart-name", "value", allow_duplicate=True),
-    Input("charts-table", "active_cell"),
-    State("charts-table", "data"),
+    Input("charts-table", "cellClicked"),
     prevent_initial_call=True,
 )
 def select_chart_from_table(
-    active_cell: dict[str, Any] | None,
-    data: list[dict[str, Any]] | None,
+    cell_clicked: dict[str, Any] | None,
 ) -> str | Any:
-    return _build_controller().select_chart_from_table(active_cell, data)
+    return _build_controller().select_chart_from_table(cell_clicked)
 
 
 @app.callback(

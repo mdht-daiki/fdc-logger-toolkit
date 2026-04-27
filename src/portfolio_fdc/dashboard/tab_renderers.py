@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any
 from urllib.parse import urlencode
 
-from dash import dash_table, dcc, html
+import dash_ag_grid as dag
+from dash import dcc, html
 
 from .api_client import (
     get_active_charts,
@@ -23,8 +24,9 @@ from .view_models import (
     spc_band_with_points_figure,
 )
 
-typed_dash_table = cast(Any, dash_table)
-DataTable: Any = typed_dash_table.DataTable
+
+def _ag_grid_columns(keys: list[str]) -> list[dict[str, Any]]:
+    return [{"headerName": key, "field": key} for key in keys]
 
 
 def render_charts_tab(base_url: str, recipe_id: str) -> html.Div:
@@ -71,29 +73,34 @@ def render_charts_tab(base_url: str, recipe_id: str) -> html.Div:
     return html.Div(
         [
             html.H4(f"Charts: {len(table_rows)} rows"),
-            DataTable(
+            dag.AgGrid(
                 id="charts-table",
-                data=table_rows,
-                columns=(
+                rowData=table_rows,
+                columnDefs=(
                     [
-                        {"name": "chart_id", "id": "chart_id"},
-                        {"name": "is_active", "id": "is_active"},
-                        {"name": "chart_name", "id": "chart_name"},
-                        {"name": "recipe_id", "id": "recipe_id"},
-                        {"name": "parameter", "id": "parameter"},
-                        {"name": "step_no", "id": "step_no"},
-                        {"name": "feature_type", "id": "feature_type"},
-                        {"name": "warning", "id": "warning"},
-                        {"name": "critical", "id": "critical"},
-                        {"name": "updated_at", "id": "updated_at"},
-                        {"name": "open", "id": "open", "presentation": "markdown"},
+                        {"headerName": "chart_id", "field": "chart_id"},
+                        {"headerName": "is_active", "field": "is_active"},
+                        {"headerName": "chart_name", "field": "chart_name"},
+                        {"headerName": "recipe_id", "field": "recipe_id"},
+                        {"headerName": "parameter", "field": "parameter"},
+                        {"headerName": "step_no", "field": "step_no"},
+                        {"headerName": "feature_type", "field": "feature_type"},
+                        {"headerName": "warning", "field": "warning"},
+                        {"headerName": "critical", "field": "critical"},
+                        {"headerName": "updated_at", "field": "updated_at"},
+                        {
+                            "headerName": "open",
+                            "field": "open",
+                            "cellRenderer": "markdown",
+                            "cellRendererParams": {"linkTarget": "_self"},
+                        },
                     ]
                     if table_rows
                     else []
                 ),
-                page_size=12,
-                markdown_options={"link_target": "_self"},
-                style_table={"overflowX": "auto"},
+                defaultColDef={"resizable": True, "sortable": True, "filter": True},
+                dashGridOptions={"pagination": True, "paginationPageSize": 12},
+                style={"width": "100%", "overflowX": "auto"},
             ),
         ]
     )
@@ -157,11 +164,12 @@ def render_active_tab(base_url: str, recipe_id: str, chart_id: str) -> html.Div:
                     "Click a point in the top graph to show raw waveform"
                 ),
             ),
-            DataTable(
-                data=rows,
-                columns=[{"name": col, "id": col} for col in rows[0].keys()] if rows else [],
-                page_size=10,
-                style_table={"overflowX": "auto"},
+            dag.AgGrid(
+                rowData=rows,
+                columnDefs=_ag_grid_columns(list(rows[0].keys())) if rows else [],
+                defaultColDef={"resizable": True, "sortable": True, "filter": True},
+                dashGridOptions={"pagination": True, "paginationPageSize": 10},
+                style={"width": "100%", "overflowX": "auto"},
             ),
         ]
     )
@@ -190,13 +198,12 @@ def render_history_tab(base_url: str, chart_id: str) -> html.Div:
     return html.Div(
         [
             html.H4(f"History: {len(table_rows)} rows"),
-            DataTable(
-                data=table_rows,
-                columns=[{"name": col, "id": col} for col in table_rows[0].keys()]
-                if table_rows
-                else [],
-                page_size=12,
-                style_table={"overflowX": "auto"},
+            dag.AgGrid(
+                rowData=table_rows,
+                columnDefs=_ag_grid_columns(list(table_rows[0].keys())) if table_rows else [],
+                defaultColDef={"resizable": True, "sortable": True, "filter": True},
+                dashGridOptions={"pagination": True, "paginationPageSize": 12},
+                style={"width": "100%", "overflowX": "auto"},
             ),
         ]
     )
@@ -316,27 +323,28 @@ def render_judge_tab(base_url: str, recipe_id: str, chart_id: str, result_id: st
                     html.Ul(drilldown_links),
                 ]
             ),
-            DataTable(
-                data=table_rows,
-                columns=(
-                    [{"name": col, "id": col} for col in table_rows[0].keys()] if table_rows else []
-                ),
-                page_size=12,
-                style_data_conditional=[
-                    {
-                        "if": {"filter_query": '{level} = "NG"'},
-                        "backgroundColor": "rgba(176,0,32,0.08)",
-                    },
-                    {
-                        "if": {"filter_query": '{level} = "WARN"'},
-                        "backgroundColor": "rgba(245,124,0,0.08)",
-                    },
-                    {
-                        "if": {"filter_query": '{level} = "OK"'},
-                        "backgroundColor": "rgba(46,125,50,0.08)",
-                    },
-                ],
-                style_table={"overflowX": "auto"},
+            dag.AgGrid(
+                rowData=table_rows,
+                columnDefs=_ag_grid_columns(list(table_rows[0].keys())) if table_rows else [],
+                defaultColDef={"resizable": True, "sortable": True, "filter": True},
+                dashGridOptions={"pagination": True, "paginationPageSize": 12},
+                getRowStyle={
+                    "styleConditions": [
+                        {
+                            "condition": "params.data.level === 'NG'",
+                            "style": {"backgroundColor": "rgba(176,0,32,0.08)"},
+                        },
+                        {
+                            "condition": "params.data.level === 'WARN'",
+                            "style": {"backgroundColor": "rgba(245,124,0,0.08)"},
+                        },
+                        {
+                            "condition": "params.data.level === 'OK'",
+                            "style": {"backgroundColor": "rgba(46,125,50,0.08)"},
+                        },
+                    ]
+                },
+                style={"width": "100%", "overflowX": "auto"},
             ),
             html.H4("Judge Result Detail"),
             detail_block,

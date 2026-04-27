@@ -40,6 +40,8 @@ class NavigationService:
             return no_update
 
         row_idx = active_cell.get("row")
+        if not isinstance(row_idx, int):
+            row_idx = active_cell.get("rowIndex")
         if not isinstance(row_idx, int) or row_idx < 0 or row_idx >= len(data):
             return no_update
 

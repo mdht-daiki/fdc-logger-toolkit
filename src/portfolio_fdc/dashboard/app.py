@@ -193,8 +193,8 @@ def move_to_active_by_chart_name(
 
 @app.callback(
     Output("chart-name", "value", allow_duplicate=True),
-    Input("charts-table", "active_cell"),
-    State("charts-table", "data"),
+    Input("charts-table", "cellClicked"),
+    State("charts-table", "rowData"),
     prevent_initial_call=True,
 )
 def select_chart_from_table(

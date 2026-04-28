@@ -22,7 +22,15 @@ from portfolio_fdc.dashboard.app import (
 
 
 def _find_div_by_class_token(root: html.Div, class_token: str) -> html.Div:
-    for child in root.children:
+    children = root.children
+    if children is None:
+        normalized_children: list[Any] = []
+    elif isinstance(children, (list, tuple)):
+        normalized_children = list(children)
+    else:
+        normalized_children = [children]
+
+    for child in normalized_children:
         if not isinstance(child, html.Div):
             continue
         class_name = getattr(child, "className", "") or ""
@@ -38,7 +46,7 @@ def test_dashboard_filter_controls_are_wrapping_for_narrow_viewports() -> None:
     assert controls_row.style["display"] == "flex"
     assert controls_row.style["flexWrap"] == "wrap"
     assert controls_row.style["width"] == "100%"
-    assert controls_row.className == "dashboard-filter-controls"
+    assert "dashboard-filter-controls" in controls_row.className.split()
     control_groups = controls_row.children
     for group in control_groups:
         assert "dashboard-filter-group" in group.className
@@ -54,7 +62,7 @@ def test_dashboard_layout_exposes_responsive_css_hooks() -> None:
     assert isinstance(app.layout, html.Div)
     tabs_wrapper = _find_div_by_class_token(app.layout, "dashboard-tabs-wrap")
     assert isinstance(tabs_wrapper, html.Div)
-    assert tabs_wrapper.className == "dashboard-tabs-wrap"
+    assert "dashboard-tabs-wrap" in tabs_wrapper.className.split()
 
     controls_row = _find_div_by_class_token(app.layout, "dashboard-filter-controls")
     load_group = _find_div_by_class_token(controls_row, "dashboard-filter-load")

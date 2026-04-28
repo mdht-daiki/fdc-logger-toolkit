@@ -32,6 +32,25 @@ def _build_controller() -> DashboardController:
     return DashboardController(logger, deps)
 
 
+def _build_filter_group(
+    children: list[Any],
+    *,
+    flex: str,
+    class_name: str = "dashboard-filter-group",
+    style_overrides: dict[str, str] | None = None,
+) -> html.Div:
+    style = {
+        "display": "flex",
+        "flexDirection": "column",
+        "gap": "4px",
+        "flex": flex,
+        "minWidth": "0",
+    }
+    if style_overrides:
+        style.update(style_overrides)
+    return html.Div(children, style=style, className=class_name)
+
+
 app = Dash(
     __name__,
     suppress_callback_exceptions=False,
@@ -60,7 +79,7 @@ app.layout = html.Div(
         ),
         html.Div(
             [
-                html.Div(
+                _build_filter_group(
                     [
                         html.Label("db_api base URL"),
                         dcc.Input(
@@ -70,44 +89,24 @@ app.layout = html.Div(
                             style={"width": "100%"},
                         ),
                     ],
-                    style={
-                        "display": "flex",
-                        "flexDirection": "column",
-                        "gap": "4px",
-                        "flex": "2 1 320px",
-                        "minWidth": "0",
-                    },
-                    className="dashboard-filter-group dashboard-filter-base-url",
+                    flex="2 1 320px",
+                    class_name="dashboard-filter-group dashboard-filter-base-url",
                 ),
-                html.Div(
+                _build_filter_group(
                     [
                         html.Label("recipe_id"),
                         dcc.Input(id="recipe-id", type="text", value="", style={"width": "100%"}),
                     ],
-                    style={
-                        "display": "flex",
-                        "flexDirection": "column",
-                        "gap": "4px",
-                        "flex": "1 1 180px",
-                        "minWidth": "0",
-                    },
-                    className="dashboard-filter-group",
+                    flex="1 1 180px",
                 ),
-                html.Div(
+                _build_filter_group(
                     [
                         html.Label("chart_id"),
                         dcc.Input(id="chart-id", type="text", value="", style={"width": "100%"}),
                     ],
-                    style={
-                        "display": "flex",
-                        "flexDirection": "column",
-                        "gap": "4px",
-                        "flex": "1 1 160px",
-                        "minWidth": "0",
-                    },
-                    className="dashboard-filter-group",
+                    flex="1 1 160px",
                 ),
-                html.Div(
+                _build_filter_group(
                     [
                         html.Label("chart_name"),
                         dcc.Dropdown(
@@ -118,38 +117,21 @@ app.layout = html.Div(
                             style={"width": "100%"},
                         ),
                     ],
-                    style={
-                        "display": "flex",
-                        "flexDirection": "column",
-                        "gap": "4px",
-                        "flex": "3 1 360px",
-                        "minWidth": "0",
-                    },
-                    className="dashboard-filter-group dashboard-filter-chart-name",
+                    flex="3 1 360px",
+                    class_name="dashboard-filter-group dashboard-filter-chart-name",
                 ),
-                html.Div(
+                _build_filter_group(
                     [
                         html.Label("result_id"),
                         dcc.Input(id="result-id", type="text", value="", style={"width": "100%"}),
                     ],
-                    style={
-                        "display": "flex",
-                        "flexDirection": "column",
-                        "gap": "4px",
-                        "flex": "1 1 160px",
-                        "minWidth": "0",
-                    },
-                    className="dashboard-filter-group",
+                    flex="1 1 160px",
                 ),
-                html.Div(
+                _build_filter_group(
                     [html.Button("Load", id="load-btn", n_clicks=0, style={"width": "100%"})],
-                    style={
-                        "display": "flex",
-                        "alignItems": "flex-end",
-                        "flex": "1 1 120px",
-                        "minWidth": "96px",
-                    },
-                    className="dashboard-filter-group dashboard-filter-load",
+                    flex="1 1 120px",
+                    class_name="dashboard-filter-group dashboard-filter-load",
+                    style_overrides={"alignItems": "flex-end", "minWidth": "96px"},
                 ),
             ],
             style={

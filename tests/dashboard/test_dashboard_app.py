@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import socket
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -8,6 +9,7 @@ from dash import html
 
 from portfolio_fdc.dashboard.api_client import APIError
 from portfolio_fdc.dashboard.app import (
+    app,
     load_data,
     move_to_active_by_chart_name,
     refresh_chart_name_options,
@@ -17,6 +19,38 @@ from portfolio_fdc.dashboard.app import (
     sync_filters_from_url,
     validate_base_url,
 )
+
+
+def test_dashboard_filter_controls_are_wrapping_for_narrow_viewports() -> None:
+    controls_row = app.layout.children[4]
+    assert isinstance(controls_row, html.Div)
+    assert controls_row.style["display"] == "flex"
+    assert controls_row.style["flexWrap"] == "wrap"
+    assert controls_row.style["width"] == "100%"
+    assert controls_row.className == "dashboard-filter-controls"
+    control_groups = controls_row.children
+    for group in control_groups[:-1]:
+        assert group.style["minWidth"] == "0"
+        assert "dashboard-filter-group" in group.className
+
+
+def test_dashboard_layout_exposes_responsive_css_hooks() -> None:
+    tabs_wrapper = app.layout.children[6]
+    assert isinstance(tabs_wrapper, html.Div)
+    assert tabs_wrapper.className == "dashboard-tabs-wrap"
+
+    load_group = app.layout.children[4].children[-1]
+    assert "dashboard-filter-load" in load_group.className
+
+    css_path = (
+        Path(__file__).resolve().parents[2]
+        / "src"
+        / "portfolio_fdc"
+        / "dashboard"
+        / "assets"
+        / "dashboard.css"
+    )
+    assert css_path.exists()
 
 
 def test_refresh_chart_name_options_keeps_dropdown_unselected_without_chart_id(

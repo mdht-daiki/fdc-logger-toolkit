@@ -21,8 +21,19 @@ from portfolio_fdc.dashboard.app import (
 )
 
 
+def _find_div_by_class_token(root: html.Div, class_token: str) -> html.Div:
+    for child in root.children:
+        if not isinstance(child, html.Div):
+            continue
+        class_name = getattr(child, "className", "") or ""
+        if class_token in class_name.split():
+            return child
+    raise AssertionError(f"Could not find html.Div with class token: {class_token}")
+
+
 def test_dashboard_filter_controls_are_wrapping_for_narrow_viewports() -> None:
-    controls_row = app.layout.children[4]
+    assert isinstance(app.layout, html.Div)
+    controls_row = _find_div_by_class_token(app.layout, "dashboard-filter-controls")
     assert isinstance(controls_row, html.Div)
     assert controls_row.style["display"] == "flex"
     assert controls_row.style["flexWrap"] == "wrap"
@@ -35,12 +46,23 @@ def test_dashboard_filter_controls_are_wrapping_for_narrow_viewports() -> None:
 
 
 def test_dashboard_layout_exposes_responsive_css_hooks() -> None:
-    tabs_wrapper = app.layout.children[6]
+    assert isinstance(app.layout, html.Div)
+    tabs_wrapper = _find_div_by_class_token(app.layout, "dashboard-tabs-wrap")
     assert isinstance(tabs_wrapper, html.Div)
     assert tabs_wrapper.className == "dashboard-tabs-wrap"
 
-    load_group = app.layout.children[4].children[-1]
+    controls_row = _find_div_by_class_token(app.layout, "dashboard-filter-controls")
+    load_group = _find_div_by_class_token(controls_row, "dashboard-filter-load")
     assert "dashboard-filter-load" in load_group.className
+
+    assets_dir = (
+        getattr(app, "assets_folder", None)
+        or getattr(app, "assets_path", None)
+        or getattr(app.config, "assets_folder", None)
+    )
+    assert assets_dir
+    assets_css_path = Path(assets_dir) / "dashboard.css"
+    assert assets_css_path.exists()
 
     css_path = (
         Path(__file__).resolve().parents[2]

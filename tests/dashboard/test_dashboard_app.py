@@ -40,9 +40,14 @@ def test_dashboard_filter_controls_are_wrapping_for_narrow_viewports() -> None:
     assert controls_row.style["width"] == "100%"
     assert controls_row.className == "dashboard-filter-controls"
     control_groups = controls_row.children
-    for group in control_groups[:-1]:
-        assert group.style["minWidth"] == "0"
+    for group in control_groups:
         assert "dashboard-filter-group" in group.className
+        if "dashboard-filter-load" not in group.className:
+            assert group.style["minWidth"] == "0"
+
+    load_group = _find_div_by_class_token(controls_row, "dashboard-filter-load")
+    assert load_group.style["minWidth"] == "96px"
+    assert load_group.style["flex"] == "1 1 120px"
 
 
 def test_dashboard_layout_exposes_responsive_css_hooks() -> None:

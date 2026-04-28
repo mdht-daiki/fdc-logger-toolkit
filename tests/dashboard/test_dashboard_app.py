@@ -88,6 +88,31 @@ def test_dashboard_layout_exposes_responsive_css_hooks() -> None:
     assert css_path.exists()
 
 
+def test_dashboard_css_contains_required_media_queries() -> None:
+    css_path = (
+        Path(__file__).resolve().parents[2]
+        / "src"
+        / "portfolio_fdc"
+        / "dashboard"
+        / "assets"
+        / "dashboard.css"
+    )
+    css_text = css_path.read_text(encoding="utf-8")
+
+    assert "@media" in css_text
+    assert "720px" in css_text
+    assert "480px" in css_text
+
+    assert ".dashboard-tabs-wrap" in css_text
+    assert "overflow-x" in css_text
+
+    media_start = css_text.find("@media")
+    assert media_start != -1
+    media_text = css_text[media_start:]
+    assert ".dashboard-filter-group" in media_text
+    assert "width: 100%" in media_text
+
+
 def test_refresh_chart_name_options_keeps_dropdown_unselected_without_chart_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

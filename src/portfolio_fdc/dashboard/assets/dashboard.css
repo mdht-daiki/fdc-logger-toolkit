@@ -16,6 +16,7 @@
 @media (max-width: 480px) {
   .dashboard-filter-group {
     flex-basis: 100% !important;
+    width: 100%;
   }
 
   .dashboard-filter-controls {

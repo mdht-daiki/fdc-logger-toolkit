@@ -74,7 +74,7 @@ def test_dashboard_layout_exposes_responsive_css_hooks() -> None:
         or getattr(app.config, "assets_folder", None)
     )
     assert assets_dir
-    assets_css_path = Path(assets_dir) / "dashboard.css"
+    assets_css_path = Path(assets_dir).resolve() / "dashboard.css"
     assert assets_css_path.exists()
 
     css_path = (
@@ -86,6 +86,25 @@ def test_dashboard_layout_exposes_responsive_css_hooks() -> None:
         / "dashboard.css"
     )
     assert css_path.exists()
+
+
+def _extract_brace_block(text: str, after: str) -> str:
+    """Return the content of the first { ... } block following `after` in `text`."""
+    idx = text.find(after)
+    if idx == -1:
+        return ""
+    brace_open = text.find("{", idx)
+    if brace_open == -1:
+        return ""
+    depth = 0
+    for i in range(brace_open, len(text)):
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return text[brace_open + 1 : i]
+    return ""
 
 
 def test_dashboard_css_contains_required_media_queries() -> None:
@@ -103,14 +122,14 @@ def test_dashboard_css_contains_required_media_queries() -> None:
     assert "720px" in css_text
     assert "480px" in css_text
 
-    assert ".dashboard-tabs-wrap" in css_text
-    assert "overflow-x" in css_text
+    # overflow-x must appear inside the .dashboard-tabs-wrap selector block
+    tabs_wrap_block = _extract_brace_block(css_text, ".dashboard-tabs-wrap")
+    assert "overflow-x" in tabs_wrap_block
 
-    media_start = css_text.find("@media")
-    assert media_start != -1
-    media_text = css_text[media_start:]
-    assert ".dashboard-filter-group" in media_text
-    assert "width: 100%" in media_text
+    # .dashboard-filter-group must contain width: 100% inside the 480px media block
+    media_480_block = _extract_brace_block(css_text, "480px")
+    filter_group_block = _extract_brace_block(media_480_block, ".dashboard-filter-group")
+    assert "width: 100%" in filter_group_block
 
 
 def test_refresh_chart_name_options_keeps_dropdown_unselected_without_chart_id(

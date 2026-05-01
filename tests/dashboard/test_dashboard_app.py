@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import socket
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -8,6 +9,7 @@ from dash import html
 
 from portfolio_fdc.dashboard.api_client import APIError
 from portfolio_fdc.dashboard.app import (
+    app,
     load_data,
     move_to_active_by_chart_name,
     refresh_chart_name_options,
@@ -17,6 +19,117 @@ from portfolio_fdc.dashboard.app import (
     sync_filters_from_url,
     validate_base_url,
 )
+
+
+def _find_div_by_class_token(root: html.Div, class_token: str) -> html.Div:
+    children = root.children
+    if children is None:
+        normalized_children: list[Any] = []
+    elif isinstance(children, (list, tuple)):
+        normalized_children = list(children)
+    else:
+        normalized_children = [children]
+
+    for child in normalized_children:
+        if not isinstance(child, html.Div):
+            continue
+        class_name = getattr(child, "className", "") or ""
+        if class_token in class_name.split():
+            return child
+    raise AssertionError(f"Could not find html.Div with class token: {class_token}")
+
+
+def test_dashboard_filter_controls_are_wrapping_for_narrow_viewports() -> None:
+    assert isinstance(app.layout, html.Div)
+    controls_row = _find_div_by_class_token(app.layout, "dashboard-filter-controls")
+    assert isinstance(controls_row, html.Div)
+    assert controls_row.style["display"] == "flex"
+    assert controls_row.style["flexWrap"] == "wrap"
+    assert controls_row.style["width"] == "100%"
+    assert "dashboard-filter-controls" in controls_row.className.split()
+    control_groups = controls_row.children
+    for group in control_groups:
+        assert "dashboard-filter-group" in group.className
+        if "dashboard-filter-load" not in group.className:
+            assert group.style["minWidth"] == "0"
+
+    load_group = _find_div_by_class_token(controls_row, "dashboard-filter-load")
+    assert load_group.style["minWidth"] == "96px"
+    assert load_group.style["flex"] == "1 1 120px"
+
+
+def test_dashboard_layout_exposes_responsive_css_hooks() -> None:
+    assert isinstance(app.layout, html.Div)
+    tabs_wrapper = _find_div_by_class_token(app.layout, "dashboard-tabs-wrap")
+    assert isinstance(tabs_wrapper, html.Div)
+    assert "dashboard-tabs-wrap" in tabs_wrapper.className.split()
+
+    controls_row = _find_div_by_class_token(app.layout, "dashboard-filter-controls")
+    load_group = _find_div_by_class_token(controls_row, "dashboard-filter-load")
+    assert "dashboard-filter-load" in load_group.className
+
+    assets_dir = (
+        getattr(app, "assets_folder", None)
+        or getattr(app, "assets_path", None)
+        or getattr(app.config, "assets_folder", None)
+    )
+    assert assets_dir
+    assets_css_path = Path(assets_dir).resolve() / "dashboard.css"
+    assert assets_css_path.exists()
+
+    css_path = (
+        Path(__file__).resolve().parents[2]
+        / "src"
+        / "portfolio_fdc"
+        / "dashboard"
+        / "assets"
+        / "dashboard.css"
+    )
+    assert css_path.exists()
+
+
+def _extract_brace_block(text: str, after: str) -> str:
+    """Return the content of the first { ... } block following `after` in `text`."""
+    idx = text.find(after)
+    if idx == -1:
+        return ""
+    brace_open = text.find("{", idx)
+    if brace_open == -1:
+        return ""
+    depth = 0
+    for i in range(brace_open, len(text)):
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return text[brace_open + 1 : i]
+    return ""
+
+
+def test_dashboard_css_contains_required_media_queries() -> None:
+    css_path = (
+        Path(__file__).resolve().parents[2]
+        / "src"
+        / "portfolio_fdc"
+        / "dashboard"
+        / "assets"
+        / "dashboard.css"
+    )
+    css_text = css_path.read_text(encoding="utf-8")
+
+    assert "@media" in css_text
+    assert "720px" in css_text
+    assert "480px" in css_text
+
+    # overflow-x must appear inside the .dashboard-tabs-wrap selector block
+    tabs_wrap_block = _extract_brace_block(css_text, ".dashboard-tabs-wrap")
+    assert "overflow-x" in tabs_wrap_block
+
+    # .dashboard-filter-group must contain width: 100% inside the 480px media block
+    media_480_block = _extract_brace_block(css_text, "480px")
+    filter_group_block = _extract_brace_block(media_480_block, ".dashboard-filter-group")
+    assert "width: 100%" in filter_group_block
 
 
 def test_refresh_chart_name_options_keeps_dropdown_unselected_without_chart_id(

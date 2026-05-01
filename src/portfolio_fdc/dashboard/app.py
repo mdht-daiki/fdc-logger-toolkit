@@ -32,7 +32,32 @@ def _build_controller() -> DashboardController:
     return DashboardController(logger, deps)
 
 
-app = Dash(__name__, suppress_callback_exceptions=False, title="FDC Dashboard Baseline")
+def _build_filter_group(
+    children: list[Any],
+    *,
+    flex: str,
+    class_name: str = "dashboard-filter-group",
+    style_overrides: dict[str, str] | None = None,
+) -> html.Div:
+    style = {
+        "display": "flex",
+        "flexDirection": "column",
+        "gap": "4px",
+        "flex": flex,
+        "minWidth": "0",
+    }
+    if style_overrides:
+        style.update(style_overrides)
+    return html.Div(children, style=style, className=class_name)
+
+
+app = Dash(
+    __name__,
+    suppress_callback_exceptions=False,
+    title="FDC Dashboard Baseline",
+    meta_tags=[{"name": "viewport", "content": "width=device-width, initial-scale=1"}],
+    assets_folder=os.path.join(os.path.dirname(__file__), "assets"),
+)
 
 # Re-exported aliases for backward compatibility.
 # IMPORTANT: Tests should monkeypatch tab_renderers module directly, not these aliases,
@@ -54,50 +79,87 @@ app.layout = html.Div(
         ),
         html.Div(
             [
-                html.Label("db_api base URL"),
-                dcc.Input(
-                    id="base-url",
-                    type="text",
-                    value=DEFAULT_DB_API_BASE_URL,
-                    style={"width": "360px"},
+                _build_filter_group(
+                    [
+                        html.Label("db_api base URL"),
+                        dcc.Input(
+                            id="base-url",
+                            type="text",
+                            value=DEFAULT_DB_API_BASE_URL,
+                            style={"width": "100%"},
+                        ),
+                    ],
+                    flex="2 1 320px",
+                    class_name="dashboard-filter-group dashboard-filter-base-url",
                 ),
-                html.Label("recipe_id"),
-                dcc.Input(id="recipe-id", type="text", value="", style={"width": "220px"}),
-                html.Label("chart_id"),
-                dcc.Input(id="chart-id", type="text", value="", style={"width": "160px"}),
-                html.Label("chart_name"),
-                dcc.Dropdown(
-                    id="chart-name",
-                    options=[],
-                    value=None,
-                    placeholder="Select chart",
-                    style={"width": "500px"},
+                _build_filter_group(
+                    [
+                        html.Label("recipe_id"),
+                        dcc.Input(id="recipe-id", type="text", value="", style={"width": "100%"}),
+                    ],
+                    flex="1 1 180px",
                 ),
-                html.Label("result_id"),
-                dcc.Input(id="result-id", type="text", value="", style={"width": "160px"}),
-                html.Button("Load", id="load-btn", n_clicks=0),
+                _build_filter_group(
+                    [
+                        html.Label("chart_id"),
+                        dcc.Input(id="chart-id", type="text", value="", style={"width": "100%"}),
+                    ],
+                    flex="1 1 160px",
+                ),
+                _build_filter_group(
+                    [
+                        html.Label("chart_name"),
+                        dcc.Dropdown(
+                            id="chart-name",
+                            options=[],
+                            value=None,
+                            placeholder="Select chart",
+                            style={"width": "100%"},
+                        ),
+                    ],
+                    flex="3 1 360px",
+                    class_name="dashboard-filter-group dashboard-filter-chart-name",
+                ),
+                _build_filter_group(
+                    [
+                        html.Label("result_id"),
+                        dcc.Input(id="result-id", type="text", value="", style={"width": "100%"}),
+                    ],
+                    flex="1 1 160px",
+                ),
+                _build_filter_group(
+                    [html.Button("Load", id="load-btn", n_clicks=0, style={"width": "100%"})],
+                    flex="1 1 120px",
+                    class_name="dashboard-filter-group dashboard-filter-load",
+                    style_overrides={"alignItems": "flex-end", "minWidth": "96px"},
+                ),
             ],
             style={
-                "display": "grid",
-                "gridTemplateColumns": "auto auto auto auto auto auto auto auto auto auto auto",
+                "display": "flex",
+                "flexWrap": "wrap",
                 "gap": "8px",
-                "alignItems": "center",
+                "alignItems": "flex-end",
+                "width": "100%",
                 "margin": "12px 0",
             },
+            className="dashboard-filter-controls",
         ),
         html.Div(
             id="error-banner",
             style={"color": "#b00020", "fontWeight": "bold", "marginBottom": "8px"},
         ),
-        dcc.Tabs(
-            id="tabs",
-            value="charts",
-            children=[
-                dcc.Tab(label="Charts", value="charts"),
-                dcc.Tab(label="Active", value="active"),
-                dcc.Tab(label="History", value="history"),
-                dcc.Tab(label="Judge", value="judge"),
-            ],
+        html.Div(
+            dcc.Tabs(
+                id="tabs",
+                value="charts",
+                children=[
+                    dcc.Tab(label="Charts", value="charts"),
+                    dcc.Tab(label="Active", value="active"),
+                    dcc.Tab(label="History", value="history"),
+                    dcc.Tab(label="Judge", value="judge"),
+                ],
+            ),
+            className="dashboard-tabs-wrap",
         ),
         html.Div(id="tab-content"),
     ],

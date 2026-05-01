@@ -1,0 +1,25 @@
+.dashboard-tabs-wrap {
+  overflow-x: auto;
+}
+
+@media (max-width: 720px) {
+  .dashboard-filter-controls {
+    gap: 6px;
+  }
+
+  .dashboard-filter-load {
+    flex-basis: 100% !important;
+    width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .dashboard-filter-group {
+    flex-basis: 100% !important;
+    width: 100%;
+  }
+
+  .dashboard-filter-controls {
+    align-items: stretch !important;
+  }
+}

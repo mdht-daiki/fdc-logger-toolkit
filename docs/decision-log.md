@@ -6,7 +6,7 @@
 
 ### Context
 
-#140 でガバナンス用テーブル（change_requests, approvals, apply_results, emergency_changes, ratifications, audit_events, notification_outbox）
+`#140` でガバナンス用テーブル（change_requests, approvals, apply_results, emergency_changes, ratifications, audit_events, notification_outbox）
 の実装を開始するにあたり、以下の 3 つの設計判断が必要だった：
 
 1. ChartsV2.version を動的算出（ChartsHistory 件数から）するか、永続列として保存するか
@@ -197,18 +197,19 @@ CREATE TABLE IF NOT EXISTS GovernanceRatifications (
 | `ratified_by_role`     | TEXT NOT NULL                 | 追認者ロール（監査要件上必須）                                                            |
 | `ratified_at`          | TEXT NOT NULL                 | UTC ISO 8601 ミリ秒固定（to_utc_millis 利用）                                             |
 | `ratification_comment` | TEXT NULL                     | 追認理由・補足。NULL 可（role 記録があれば最低限の監査は成立）                            |
-| `related_pr`           | TEXT NULL                     | 追認完了を確定した PR URL（実績値）。emergency_changes.related_issue_or_pr と役割が異なる |
+| `related_pr`           | TEXT NULL                     | 計画段階で紐付ける予定 PR/Issue。確定実績は emergency_changes.related_issue_or_pr に記録 |
 
 ### Why
 
 - `ec_id UNIQUE` によって「1緊急変更 = 1追認」をスキーマで強制し、二重追認を防ぐ
 - GovernanceApprovals との構造的対称性を保つことで実装パターンが共通化できる
-- `related_pr` と `emergency_changes.related_issue_or_pr` の二重管理は意図的: 前者は計画段階の紐付け、後者は追認完了時点の確定 PR を記録する
+- `related_pr` と `emergency_changes.related_issue_or_pr` の二重管理は意図的: 前者は計画段階の紐付け、後者は追認完了時点の確定 PR/Issue を記録する
 
 ### Consequence
 
 - 重複追認は HTTP 409 を返す（GovernanceApprovals の重複承認と同じ扱い）
-- `related_pr` は追認時点で NULL でよく、PR マージ後に UPDATE で埋める運用を想定
+- `related_pr` は追認時点で NULL でよく、計画段階で紐付け済みならその値を保持する
+- 確定した PR/Issue は追認完了後に `GovernanceEmergencyChanges.related_issue_or_pr` を UPDATE で埋める運用を想定
 - 追認期限（24h 以内 or 翌営業日内）の強制はアプリケーション層の責務とし、スキーマでは強制しない
 
 ## 2026-05-04: #140 governance schema 基盤 - 論点6 GovernanceChangeRequests 状態遷移モデル
@@ -253,12 +254,14 @@ stateDiagram-v2
 
 #### HTTP ステータスコード方針
 
+`POST /apply` handler は、まず `expected_version` 一致を確認し、通過後に status を分岐する。status 分岐では `applied` / `apply_failed` を先に 409 とし、それ以外の `approved` 以外（`pending` / `rejected`）を 400 とする。
+
 | 操作          | 条件                                      | HTTP |
 | ------------- | ----------------------------------------- | ---- |
 | POST /approve | status が `pending` 以外                  | 409  |
-| POST /apply   | status が `approved` 以外                 | 400  |
 | POST /apply   | expected_version 不一致（楽観ロック失敗） | 409  |
 | POST /apply   | 既に `applied` / `apply_failed`           | 409  |
+| POST /apply   | status が `approved` 以外（`pending` / `rejected`） | 400  |
 | POST /ratify  | ec_id の ratification レコードが既存      | 409  |
 
 ### Why

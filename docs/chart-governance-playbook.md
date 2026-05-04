@@ -201,14 +201,15 @@ Disaster recovery フローは以下に従う：
 - cleanup と VACUUM は同時実行しない
 - 実行前に DB バックアップ（ファイルコピー）を取得する
 - 実行ログ（開始時刻/終了時刻/削除件数/エラー）を残す
+- 依存更新は手動メンテナンス（`.\tasks.ps1 install`）で行い、Scheduler ジョブは既存 `.venv` 前提で実行する
 - DB ロック競合が多発する場合は、実行時刻を ingest/judge のアイドル帯に再調整する
 
 ### Suggested schtasks Commands
 
 ```powershell
-schtasks /Create /TN "logger-retention-cleanup-daily" /SC DAILY /ST 03:00 /TR "powershell -NoProfile -ExecutionPolicy Bypass -File .\\tasks.ps1 cleanup-retention" /F
+schtasks /Create /TN "logger-retention-cleanup-daily" /SC DAILY /ST 03:00 /TR "powershell.exe -NoProfile -ExecutionPolicy Bypass -File E:\work\python\logger\tasks.ps1 cleanup-retention" /F
 
-schtasks /Create /TN "logger-db-vacuum-weekly" /SC WEEKLY /D SUN /ST 03:30 /TR "powershell -NoProfile -ExecutionPolicy Bypass -File .\\tasks.ps1 vacuum-db" /F
+schtasks /Create /TN "logger-db-vacuum-weekly" /SC WEEKLY /D SUN /ST 03:30 /TR "powershell.exe -NoProfile -ExecutionPolicy Bypass -File E:\work\python\logger\tasks.ps1 vacuum-db" /F
 ```
 
 `tasks.ps1` 側では、cleanup と vacuum を別コマンドとして実装し、終了コードで Task Scheduler の成功/失敗判定を行う。

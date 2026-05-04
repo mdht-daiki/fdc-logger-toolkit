@@ -38,30 +38,30 @@ CREATE INDEX IF NOT EXISTS idx_audit_events_target
 
 #### 論点2: event_type 一覧（Phase 1 確定）
 
-| event_type | 発生タイミング | before/after |
-|---|---|---|
-| `change_requested` | change_request 作成時 | after のみ（申請内容） |
-| `change_request_approved` | approve 完了時 | なし |
-| `change_request_rejected` | reject 時 | なし |
-| `change_request_applied` | apply 成功時 | 閾値の before/after（フル snapshot） |
-| `change_request_apply_failed` | apply 失敗時 | after に error_code/message |
-| `emergency_changed` | 緊急変更完了時 | 閾値の before/after（フル snapshot） |
-| `emergency_ratified` | 追認完了時 | なし |
-| `notification_queued` | outbox INSERT 時 | なし |
-| `notification_sent` | 送信成功時 | なし |
-| `notification_retry_succeeded` | retry 成功時 | なし |
-| `notification_retry_failed` | retry 上限到達時 | なし |
+| event_type                     | 発生タイミング        | before/after                         |
+| ------------------------------ | --------------------- | ------------------------------------ |
+| `change_requested`             | change_request 作成時 | after のみ（申請内容）               |
+| `change_request_approved`      | approve 完了時        | なし                                 |
+| `change_request_rejected`      | reject 時             | なし                                 |
+| `change_request_applied`       | apply 成功時          | 閾値の before/after（フル snapshot） |
+| `change_request_apply_failed`  | apply 失敗時          | after に error_code/message          |
+| `emergency_changed`            | 緊急変更完了時        | 閾値の before/after（フル snapshot） |
+| `emergency_ratified`           | 追認完了時            | なし                                 |
+| `notification_queued`          | outbox INSERT 時      | なし                                 |
+| `notification_sent`            | 送信成功時            | なし                                 |
+| `notification_retry_succeeded` | retry 成功時          | なし                                 |
+| `notification_retry_failed`    | retry 上限到達時      | なし                                 |
 
 Phase 2 以降候補: `notification_dead_lettered`
 
 #### 論点3: before/after の差分形式
 
-| event_type | before_json | after_json |
-|---|---|---|
+| event_type               | before_json                 | after_json                  |
+| ------------------------ | --------------------------- | --------------------------- |
 | `change_request_applied` | 変更前全フィールド snapshot | 変更後全フィールド snapshot |
-| `emergency_changed` | 変更前全フィールド snapshot | 変更後全フィールド snapshot |
-| `change_requested` | null | 申請内容（delta のみで可） |
-| それ以外 | null | null |
+| `emergency_changed`      | 変更前全フィールド snapshot | 変更後全フィールド snapshot |
+| `change_requested`       | null                        | 申請内容（delta のみで可）  |
+| それ以外                 | null                        | null                        |
 
 - changed fields のみでは before が何だったか復元できないため、apply と緊急変更は必ず全フィールド snapshot
 - no-op 更新（値に差分なし）の場合: audit event も ChartsHistory も残さない（`#109` 決定済み）
@@ -79,7 +79,7 @@ Phase 2 以降候補: `notification_dead_lettered`
 CREATE TABLE IF NOT EXISTS GovernanceNotificationOutbox (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     event_id        INTEGER NOT NULL,    -- GovernanceAuditEvents.id（emergency_changed イベントが起点）
-    status          TEXT    NOT NULL DEFAULT 'pending',
+  status          TEXT    NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','sent','failed')),
     retry_count     INTEGER NOT NULL DEFAULT 0,
     next_retry_at   TEXT,               -- NULL = 即時試行可
     last_attempt_at TEXT,
@@ -92,6 +92,7 @@ CREATE INDEX IF NOT EXISTS idx_notification_outbox_status
 ```
 
 FK の方向:
+
 - `outbox.event_id → GovernanceAuditEvents.id`（起点 audit event への参照）
 - retry 系 audit event（`notification_queued` / `notification_retry_failed` 等）は `target_type='notification', target_id=outbox.id` で論理参照。循環 FK を避ける
 
@@ -99,7 +100,7 @@ FK の方向:
 
 `sending` を省略した真の3状態を採用する。
 
-```
+```text
 pending → sent（ターミナル）
         ↘ failed
 failed → sent（retry 成功、ターミナル）
@@ -112,14 +113,14 @@ failed → sent（retry 成功、ターミナル）
 
 #### 論点7: retry の契約
 
-| 項目 | 方針 |
-|---|---|
-| retry 対象 | `status = 'failed'` のみ |
-| retry_count 上限 | 3 回（`#102` write 系 attempts 上限に統一） |
-| next_retry_at 算出 | 指数バックオフ（1分, 5分, 30分）。`datetime_util.to_utc_millis()` で記録 |
-| 上限到達後 | `status = 'failed'` のまま `next_retry_at = NULL` で取得対象から外れる |
-| 最終失敗の監査連携 | 上限到達時に `notification_retry_failed` audit event を INSERT |
-| retry API に `sent` / `pending` を指定した場合 | 400（retry 対象外） |
+| 項目                                           | 方針                                                                     |
+| ---------------------------------------------- | ------------------------------------------------------------------------ |
+| retry 対象                                     | `status = 'failed'` のみ                                                 |
+| retry_count 上限                               | 3 回（`#102` write 系 attempts 上限に統一）                              |
+| next_retry_at 算出                             | 指数バックオフ（1分, 5分, 30分）。`datetime_util.to_utc_millis()` で記録 |
+| 上限到達後                                     | `status = 'failed'` のまま `next_retry_at = NULL` で取得対象から外れる   |
+| 最終失敗の監査連携                             | 上限到達時に `notification_retry_failed` audit event を INSERT           |
+| retry API に `sent` / `pending` を指定した場合 | 400（retry 対象外）                                                      |
 
 retry は `POST /governance/notifications/{event_id}/retry` の明示呼び出し方式（バックグラウンドポーリングは今回対象外）。
 
@@ -333,12 +334,12 @@ CREATE TABLE IF NOT EXISTS GovernanceRatifications (
 );
 ```
 
-| 列                     | 型                            | 理由                                                                                      |
-| ---------------------- | ----------------------------- | ----------------------------------------------------------------------------------------- |
-| `ec_id` UNIQUE         | FK→GovernanceEmergencyChanges | 1緊急変更 = 1追認。重複追認は UNIQUE 制約でブロック → HTTP 409                            |
-| `ratified_by_role`     | TEXT NOT NULL                 | 追認者ロール（監査要件上必須）                                                            |
-| `ratified_at`          | TEXT NOT NULL                 | UTC ISO 8601 ミリ秒固定（to_utc_millis 利用）                                             |
-| `ratification_comment` | TEXT NULL                     | 追認理由・補足。NULL 可（role 記録があれば最低限の監査は成立）                            |
+| 列                     | 型                            | 理由                                                                                     |
+| ---------------------- | ----------------------------- | ---------------------------------------------------------------------------------------- |
+| `ec_id` UNIQUE         | FK→GovernanceEmergencyChanges | 1緊急変更 = 1追認。重複追認は UNIQUE 制約でブロック → HTTP 409                           |
+| `ratified_by_role`     | TEXT NOT NULL                 | 追認者ロール（監査要件上必須）                                                           |
+| `ratified_at`          | TEXT NOT NULL                 | UTC ISO 8601 ミリ秒固定（to_utc_millis 利用）                                            |
+| `ratification_comment` | TEXT NULL                     | 追認理由・補足。NULL 可（role 記録があれば最低限の監査は成立）                           |
 | `related_pr`           | TEXT NULL                     | 計画段階で紐付ける予定 PR/Issue。確定実績は emergency_changes.related_issue_or_pr に記録 |
 
 ### Why
@@ -398,13 +399,13 @@ stateDiagram-v2
 
 `POST /apply` handler は、まず `expected_version` 一致を確認し、通過後に status を分岐する。status 分岐では `applied` / `apply_failed` を先に 409 とし、それ以外の `approved` 以外（`pending` / `rejected`）を 400 とする。
 
-| 操作          | 条件                                      | HTTP |
-| ------------- | ----------------------------------------- | ---- |
-| POST /approve | status が `pending` 以外                  | 409  |
-| POST /apply   | expected_version 不一致（楽観ロック失敗） | 409  |
-| POST /apply   | 既に `applied` / `apply_failed`           | 409  |
+| 操作          | 条件                                                | HTTP |
+| ------------- | --------------------------------------------------- | ---- |
+| POST /approve | status が `pending` 以外                            | 409  |
+| POST /apply   | expected_version 不一致（楽観ロック失敗）           | 409  |
+| POST /apply   | 既に `applied` / `apply_failed`                     | 409  |
 | POST /apply   | status が `approved` 以外（`pending` / `rejected`） | 400  |
-| POST /ratify  | ec_id の ratification レコードが既存      | 409  |
+| POST /ratify  | ec_id の ratification レコードが既存                | 409  |
 
 ### Why
 

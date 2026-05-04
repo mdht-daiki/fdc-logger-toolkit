@@ -22,6 +22,10 @@ function Ensure-Venv {
   )
 
   if (-not (Test-Path $Py)) {
+    if ($SkipPipUpgrade) {
+      Write-Error "Venv not found at '$Py' (VenvDir: '$VenvDir'). Run '.\tasks.ps1 install' first before executing scheduled tasks."
+      exit 1
+    }
     Write-Host "Creating venv in $VenvDir ..."
     python -m venv $VenvDir
   }
@@ -147,6 +151,12 @@ switch ($Task) {
     try {
       # Scheduled jobs should rely on a pre-provisioned venv; dependency updates stay manual via the install task.
       Ensure-Venv -SkipPipUpgrade
+      # Guard: fail early if the module is not yet implemented
+      & $Py -c "import portfolio_fdc.tools.retention_cleanup" 2>$null
+      if ($LASTEXITCODE -ne 0) {
+        Write-Host "NOT IMPLEMENTED: portfolio_fdc.tools.retention_cleanup is not available. Deploy the module before enabling this task." -ForegroundColor Yellow
+        exit 1
+      }
       # TODO: Implement cleanup SQL via db_api or direct SQLite query
       # Expected: Delete rows from child tables first (StepWindows, Parameters, ChartsHistory,
       # governance tables) and then parent ProcessInfo based on retention policy (実データ 1年, 監査系 3年)
@@ -185,6 +195,12 @@ switch ($Task) {
     try {
       # Scheduled jobs should rely on a pre-provisioned venv; dependency updates stay manual via the install task.
       Ensure-Venv -SkipPipUpgrade
+      # Guard: fail early if the module is not yet implemented
+      & $Py -c "import portfolio_fdc.tools.vacuum_database" 2>$null
+      if ($LASTEXITCODE -ne 0) {
+        Write-Host "NOT IMPLEMENTED: portfolio_fdc.tools.vacuum_database is not available. Deploy the module before enabling this task." -ForegroundColor Yellow
+        exit 1
+      }
       # TODO: Implement VACUUM via sqlite3 CLI or direct API call
       # Expected: Execute PRAGMA optimize; followed by VACUUM to reclaim disk space
       & $Py -m portfolio_fdc.tools.vacuum_database --db-path $DbPath --log-file $LogPath | Out-Host

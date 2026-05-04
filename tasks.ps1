@@ -136,7 +136,7 @@ switch ($Task) {
     Write-Host "Starting retention cleanup ..."
     $StartTime = Get-Date
     $LogPath = Join-Path $RepoRoot ("data\logs\cleanup_{0}.log" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
-    $DbPath = Join-Path $RepoRoot "data\db\logger.db"
+    $DbPath = Join-Path $RepoRoot "data\db\main.db"
 
     # Create log directory if not exists
     $LogDir = Split-Path $LogPath
@@ -170,7 +170,7 @@ switch ($Task) {
     Write-Host "Starting database VACUUM ..."
     $StartTime = Get-Date
     $LogPath = Join-Path $RepoRoot ("data\logs\vacuum_{0}.log" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
-    $DbPath = Join-Path $RepoRoot "data\db\logger.db"
+    $DbPath = Join-Path $RepoRoot "data\db\main.db"
 
     # Create log directory if not exists
     $LogDir = Split-Path $LogPath

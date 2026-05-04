@@ -1,5 +1,439 @@
 # Decision Log
 
+## 2026-05-03: #140 governance schema 基盤 - version 正本、chart_name追加、API配置方針の確定
+
+日付基準: JST
+
+### Context
+
+#140 でガバナンス用テーブル（change_requests, approvals, apply_results, emergency_changes, ratifications, audit_events, notification_outbox）
+の実装を開始するにあたり、以下の 3 つの設計判断が必要だった：
+
+1. ChartsV2.version を動的算出（ChartsHistory 件数から）するか、永続列として保存するか
+2. chart_name を ChartsV2 に追加するかどうか
+3. governance endpoint を db_api 内に同居させるか、独立サービスで分離するか
+
+既存実装では version が ChartsHistory の COUNT + 1 で動的算出されていたが、#109 で確定した
+expected_version 楽観ロック（`UPDATE WHERE version=?`）を効率的に実装するには、
+version 正本の方針を先に固定する必要があった。
+
+### Decision
+
+以下の 3 つの方針を採用する。
+
+#### 1. Version 正本は ChartsV2 永続列（方式 B）
+
+- ChartsV2 に `version INTEGER NOT NULL DEFAULT 1` を migration で追加
+- 既存行は全て DEFAULT 1 にセット
+- `UPDATE ChartsV2 SET ..., version = version + 1 WHERE id = ? AND version = ?` で原子的競合制御
+- `GET /charts` の version 取得を履歴算出から列参照に切替
+- ChartsHistory は監査履歴の正本であり、version 計算には使わない
+
+#### 2. chart_name 列を ChartsV2 に追加
+
+- `chart_name TEXT` として追加（NULL 可）
+- dashboard は既に `build_chart_name()` で composite フォールバック実装済みのため、既存表示は壊れない
+- change_payload の対象に chart_name を含める（閾値フィールドと同等に扱う）
+- charts_seed.yaml への chart_name キー追加は別 PR（通常変更フロー対象）
+
+#### 3. Governance API は当面 db_api 内に同居
+
+- 同一トランザクション保証（chart 更新、履歴記録、監査イベント、outbox 登録を 1 transaction）が実装上必須
+- SQLite の排他制御と既存設計方針に整合
+- 分離は「同一トランザクション保証が困難になった」または「認可・スケール要件が明確に求められた」時点で再評価
+
+### Why
+
+#### version 正本を永続列にした理由
+
+- expected_version 楽観ロック（`UPDATE WHERE version=?`）に最短で自然接続できる
+- 競合判定ロジックが単純で、テストが明確に書ける
+- 更新件数を直接判定できるため、apply/retry 制御が堅牢になる
+- 既存の動的算出方式は、履歴件数が増えるほど read/write パフォーマンスに影響
+
+#### chart_name 追加の理由
+
+- dashboard 実装では既に column が期待されている
+- 既存フォールバック機構で互換性が保たれるため、段階的導入が可能
+- governance change_payload の対象として自然
+
+#### governance API を同居させた理由
+
+- SQL transaction で申請・承認・適用・監査が 1 atomic unit になる
+- 分散トランザクション問題を避けられる
+- SQLite の wal_mode 環境下での並行性を最大化できる
+
+### Consequence
+
+- #140 migration スクリプトは `ChartsV2.version` と `ChartsV2.chart_name` の `_add_column_if_missing` パターン追加
+- `chart_repository.find_charts()` の SQL は ChartsHistory から version を計算しない（列参照のみ）
+- governance apply 実装は `UPDATE ChartsV2 SET version=version+1 WHERE id=? AND version=?` をコア構文に
+- `docs/architecture.md` に governance API 分離の将来可能性を明記（既実施）
+- `docs/db-api-endpoints.md` の governance endpoint は db_api 配下に配置として追跡継続
+
+## 2026-05-03: #140 governance schema 基盤 - 論点3 GovernanceApplyResults 最小列定義
+
+日付基準: JST
+
+### Context
+
+GovernanceChangeRequests（申請）→ GovernanceApprovals（承認）の次のステップとして、
+実際に chart への変更を適用した結果を記録するテーブルの定義が必要だった。
+Phase 1 では申請 1 件に対して適用試行も 1 回とし、失敗時の再試行は別申請として扱う方針を前提とした。
+
+### Decision
+
+```sql
+CREATE TABLE IF NOT EXISTS GovernanceApplyResults (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    request_id        INTEGER NOT NULL UNIQUE,
+    applied_at        TEXT    NOT NULL,
+    success           INTEGER NOT NULL CHECK (success IN (0, 1)),
+    resulting_version INTEGER,
+    error_code        TEXT,
+    error_message     TEXT,
+    FOREIGN KEY (request_id) REFERENCES GovernanceChangeRequests (id)
+);
+```
+
+| 列                  | 型                          | 理由                                                                     |
+| ------------------- | --------------------------- | ------------------------------------------------------------------------ |
+| `request_id` UNIQUE | FK→GovernanceChangeRequests | 1申請 = 1適用結果（Phase 1）。再試行は別申請                             |
+| `applied_at`        | TEXT NOT NULL               | UTC ISO 8601 ミリ秒固定（to_utc_millis 利用）                            |
+| `success`           | INTEGER 0/1                 | 成功/失敗の二値。SQLite に BOOLEAN 型は存在しないため整数                |
+| `resulting_version` | INTEGER NULL                | 成功時のみ記録（= expected_version + 1）。失敗時は NULL                  |
+| `error_code`        | TEXT NULL                   | 失敗時の分類コード（例: `STALE_VERSION`, `FK_VIOLATION`）。成功時は NULL |
+| `error_message`     | TEXT NULL                   | 失敗時の詳細（例外メッセージ）。成功時は NULL                            |
+
+### Why
+
+- `request_id UNIQUE` によって「1申請 = 1適用」の不変条件をスキーマで強制する
+- `resulting_version` は apply TX 内で `SELECT version` して INSERT 直前に取得し、楽観ロック成功後の版数を確定値として残す
+- `success=0` のレコードを残すことで失敗履歴を監査可能にする（delete/update 不可）
+- `error_code` を構造化することで監視アラートや分類集計に使える
+
+### Consequence
+
+- apply 失敗時は GovernanceChangeRequests.status を `apply_failed` に更新し、申請者が新規申請を起票する（再試行不可）
+- apply TX スコープ（論点 8 で確定予定）: ChartsV2 UPDATE + ChartsHistory INSERT + GovernanceApplyResults INSERT + GovernanceChangeRequests status UPDATE + GovernanceAuditEvents INSERT = 1 transaction
+- `resulting_version` の整合チェック（= ChartsV2.version after apply）は integration テストの受け入れ条件に含める
+
+## 2026-05-03: #140 governance schema 基盤 - 論点4 GovernanceEmergencyChanges 最小列定義
+
+日付基準: JST
+
+### Context
+
+通常フロー（申請→承認→適用）ではなく、障害対応など緊急時に即時 chart 変更を行うケースへの対応テーブルが必要だった。
+GovernanceChangeRequests との差分として、事前承認がない分、記録の厳密性（reason 必須、フルスナップショット）と事後追認（GovernanceRatifications）を要件とした。
+
+### Decision
+
+```sql
+CREATE TABLE IF NOT EXISTS GovernanceEmergencyChanges (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    chart_id            INTEGER NOT NULL,
+    changed_by          TEXT    NOT NULL,
+    changed_by_role     TEXT    NOT NULL,
+    changed_at          TEXT    NOT NULL,
+    reason              TEXT    NOT NULL,
+    before_json         TEXT    NOT NULL,
+    after_json          TEXT    NOT NULL,
+    resulting_version   INTEGER NOT NULL,
+    related_issue_or_pr TEXT,
+    FOREIGN KEY (chart_id) REFERENCES ChartsV2 (id)
+);
+```
+
+| 列                    | 型                | 理由                                                            |
+| --------------------- | ----------------- | --------------------------------------------------------------- |
+| `changed_by`          | TEXT NOT NULL     | 緊急変更実行者の識別子                                          |
+| `changed_by_role`     | TEXT NOT NULL     | ロール記録（ratification 要件判定に使用）                       |
+| `reason`              | TEXT **NOT NULL** | 緊急変更には理由必須。監査に耐えるための強制                    |
+| `before_json`         | TEXT NOT NULL     | フルスナップショット（差分ではなく全フィールド）                |
+| `after_json`          | TEXT NOT NULL     | 同上                                                            |
+| `resulting_version`   | INTEGER NOT NULL  | 変更後の ChartsV2.version。失敗は TX ロールバックのため記録なし |
+| `related_issue_or_pr` | TEXT NULL         | 事後 ratification の紐付け先（後から埋めても可）                |
+
+### Why
+
+- `reason NOT NULL` は GovernanceChangeRequests との最大の差分。緊急変更は事前審査がない分、「なぜ緊急変更が必要だったか」の記録を強制する
+- `before_json` / `after_json` はフルスナップショットにする。差分（delta）では緊急変更前後の状態を単独で再現できない
+- 失敗ケースはレコードを残さない（TX ロールバック）。GovernanceApplyResults との違いはここにある
+- `expected_version` は不要（緊急時に事前バージョン確認を強制しない）。ただし apply TX で version+1 は行う
+
+### Consequence
+
+- 緊急変更 TX スコープ（論点 8 で確定予定）: ChartsV2 UPDATE + ChartsHistory INSERT + GovernanceEmergencyChanges INSERT + GovernanceAuditEvents INSERT + GovernanceNotificationOutbox INSERT = 1 transaction
+- 事後追認は GovernanceRatifications（論点 5）で管理
+- `related_issue_or_pr` は apply 直後は NULL でよく、ratification 完了後に UPDATE で埋める運用を想定
+
+## 2026-05-04: #140 governance schema 基盤 - 論点5 GovernanceRatifications 最小列定義
+
+日付基準: JST
+
+### Context
+
+GovernanceEmergencyChanges（緊急変更）は事前承認なしで即時適用されるため、事後追認フローが必要だった。
+GovernanceApprovals（事前承認）との対称性を保ちつつ、1緊急変更 = 1追認の不変条件をスキーマで強制する。
+
+### Decision
+
+```sql
+CREATE TABLE IF NOT EXISTS GovernanceRatifications (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    ec_id                INTEGER NOT NULL UNIQUE,
+    ratified_by_role     TEXT    NOT NULL,
+    ratified_at          TEXT    NOT NULL,
+    ratification_comment TEXT,
+    related_pr           TEXT,
+    FOREIGN KEY (ec_id) REFERENCES GovernanceEmergencyChanges (id)
+);
+```
+
+| 列                     | 型                            | 理由                                                                                      |
+| ---------------------- | ----------------------------- | ----------------------------------------------------------------------------------------- |
+| `ec_id` UNIQUE         | FK→GovernanceEmergencyChanges | 1緊急変更 = 1追認。重複追認は UNIQUE 制約でブロック → HTTP 409                            |
+| `ratified_by_role`     | TEXT NOT NULL                 | 追認者ロール（監査要件上必須）                                                            |
+| `ratified_at`          | TEXT NOT NULL                 | UTC ISO 8601 ミリ秒固定（to_utc_millis 利用）                                             |
+| `ratification_comment` | TEXT NULL                     | 追認理由・補足。NULL 可（role 記録があれば最低限の監査は成立）                            |
+| `related_pr`           | TEXT NULL                     | 追認完了を確定した PR URL（実績値）。emergency_changes.related_issue_or_pr と役割が異なる |
+
+### Why
+
+- `ec_id UNIQUE` によって「1緊急変更 = 1追認」をスキーマで強制し、二重追認を防ぐ
+- GovernanceApprovals との構造的対称性を保つことで実装パターンが共通化できる
+- `related_pr` と `emergency_changes.related_issue_or_pr` の二重管理は意図的: 前者は計画段階の紐付け、後者は追認完了時点の確定 PR を記録する
+
+### Consequence
+
+- 重複追認は HTTP 409 を返す（GovernanceApprovals の重複承認と同じ扱い）
+- `related_pr` は追認時点で NULL でよく、PR マージ後に UPDATE で埋める運用を想定
+- 追認期限（24h 以内 or 翌営業日内）の強制はアプリケーション層の責務とし、スキーマでは強制しない
+
+## 2026-05-04: #140 governance schema 基盤 - 論点6 GovernanceChangeRequests 状態遷移モデル
+
+日付基準: JST
+
+### Context
+
+GovernanceChangeRequests の `status` 列に格納する値と遷移ルールを明確にする必要があった。
+ターミナル状態の不変条件と、各操作の HTTP ステータスコード方針もあわせて確定する。
+
+### Decision
+
+#### status 値と遷移
+
+```mermaid
+stateDiagram-v2
+    [*] --> pending : POST /change-requests（申請）
+
+    pending --> approved : POST /approve（承認）
+    pending --> rejected : POST /reject（却下）
+
+    approved --> applied : POST /apply（適用成功）
+    approved --> apply_failed : POST /apply（適用失敗）
+
+    rejected --> [*]
+    applied --> [*]
+    apply_failed --> [*]
+
+    note right of rejected : ターミナル
+    note right of applied : ターミナル
+    note right of apply_failed : ターミナル・再試行は別申請
+```
+
+| status         | 意味                   | 遷移先                             |
+| -------------- | ---------------------- | ---------------------------------- |
+| `pending`      | 申請受付済み、承認待ち | `approved` / `rejected`            |
+| `approved`     | 承認済み、apply 待ち   | `applied` / `apply_failed`         |
+| `applied`      | 適用完了               | なし（ターミナル）                 |
+| `apply_failed` | 適用失敗               | なし（ターミナル）。再試行は別申請 |
+| `rejected`     | 却下済み               | なし（ターミナル）                 |
+
+#### HTTP ステータスコード方針
+
+| 操作          | 条件                                      | HTTP |
+| ------------- | ----------------------------------------- | ---- |
+| POST /approve | status が `pending` 以外                  | 409  |
+| POST /apply   | status が `approved` 以外                 | 400  |
+| POST /apply   | expected_version 不一致（楽観ロック失敗） | 409  |
+| POST /apply   | 既に `applied` / `apply_failed`           | 409  |
+| POST /ratify  | ec_id の ratification レコードが既存      | 409  |
+
+### Why
+
+- ターミナル状態（`applied` / `rejected` / `apply_failed`）を明示することで、「なぜ再試行できないか」をスキーマ設計レベルで表明できる
+- `apply_failed` を `rejected` と分けることで、「申請は正当だったが apply 時にエラーが発生した」と「審査で却下された」を区別し、障害追跡に活用できる
+- HTTP 409 を状態不整合（競合）、400 を前提条件違反（apply を approved でない申請に行う等）で使い分ける
+
+### Consequence
+
+- ターミナル状態に遷移したレコードへの status UPDATE はアプリケーション層で防止（DB 制約では強制しない）
+- `GovernanceChangeRequests` テーブルに `CHECK (status IN ('pending','approved','applied','apply_failed','rejected'))` を追加することで、スキーマレベルの保護も可能（Phase 2 以降の検討事項）
+- 状態遷移テストは「無効な遷移が 409 を返すこと」を受け入れ条件に含める
+
+## 2026-05-04: #140 governance schema 基盤 - 論点7 キーと制約の方針
+
+日付基準: JST
+
+### Context
+
+全 governance テーブルの PK 型、FK ON DELETE 挙動、UNIQUE 制約、論理削除方針を統一する必要があった。
+また、Chart の「削除」ユースケースについて、FK RESTRICT 方針との整合性を確認した。
+
+### Decision
+
+#### PK・FK・論理削除
+
+| 項目         | 方針                                                                                        |
+| ------------ | ------------------------------------------------------------------------------------------- |
+| PK 型        | 全テーブル `INTEGER PRIMARY KEY AUTOINCREMENT`（既存テーブルと統一）                        |
+| FK ON DELETE | `RESTRICT`（デフォルト）。監査レコードは削除不可、親削除試みは FK エラーで防止              |
+| 論理削除     | 不使用。ターミナル status（`rejected` / `apply_failed`）で代替。DELETE 自体をアプリ層で禁止 |
+
+#### UNIQUE 制約一覧
+
+| テーブル                 | 列                                | 意図                                 |
+| ------------------------ | --------------------------------- | ------------------------------------ |
+| GovernanceApprovals      | `request_id`                      | 1申請 = 1承認                        |
+| GovernanceApplyResults   | `request_id`                      | 1申請 = 1適用結果                    |
+| GovernanceRatifications  | `ec_id`                           | 1緊急変更 = 1追認                    |
+| GovernanceChangeRequests | `idempotency_key`（インデックス） | クライアント再送時の重複 INSERT 防止 |
+
+#### Chart の「削除」ユースケース
+
+- **非活性化（推奨）**: `ActiveChartSet` からレコードを削除し ChartsV2 は保持。監査履歴が保全される
+  - change_payload に `"deactivate": true` を含む change_request を通常フローで起票
+- **物理削除（例外）**: 誤登録チャートの完全消去など。governance レコードが存在する限り FK エラーになるため DB 直接操作が必要
+  - 監査証跡が失われるため非推奨。必要な場合は runbook（`docs/chart-governance-playbook.md`）に手順を記載
+- **保管期間による削除**: 容量管理目的の一括削除は論点 9（削除・アーカイブ・保管期間）で別途確定する
+
+### Why
+
+- `ON DELETE RESTRICT` で監査証跡の孤立/消失を防ぐ
+- スキーマ UNIQUE 制約によって「1申請 = 1処理結果」の不変条件を DB レベルで強制する
+- 削除を「非活性化」として扱うことで、FK 制約と監査要件を両立させる
+
+### Consequence
+
+- Phase 1 の DELETE 操作はアプリ層で原則禁止（governance テーブル全体）
+- 保管期間による削除方針は論点 9 で決定後、ON DELETE 挙動の例外設定（CASCADE vs RESTRICT 個別判断）を再評価する
+
+## 2026-05-04: #140 governance schema 基盤 - 論点8 トランザクション境界の確定
+
+日付基準: JST
+
+### Context
+
+Apply フロー・Emergency フローそれぞれで「何を 1 atomic unit とするか」を確定する必要があった。
+通知送信を TX に含めるかどうかは、適用失敗と通知失敗を分離できるかの設計上のキーポイントだった。
+
+### Decision
+
+#### Apply フロー（通常変更適用）の TX スコープ
+
+```sql
+BEGIN
+  UPDATE ChartsV2
+     SET ucl=?, lcl=?, ..., version=version+1
+   WHERE id=? AND version=?        -- 楽観ロック。0件 → STALE_VERSION でロールバック
+
+  INSERT INTO ChartsHistory (chart_id, changed_at, changed_by, ...)
+
+  INSERT INTO GovernanceApplyResults
+         (request_id, applied_at, success, resulting_version)
+  VALUES (?, ?, 1, ?)
+
+  UPDATE GovernanceChangeRequests SET status='applied' WHERE id=?
+
+  INSERT INTO GovernanceAuditEvents
+         (event_type, actor, target_type, target_id, occurred_at, before_json, after_json)
+  VALUES ('change_request_applied', ?, 'chart', ?, ?, ?, ?)
+COMMIT
+```
+
+#### Emergency フロー（緊急変更適用）の TX スコープ
+
+```sql
+BEGIN
+  UPDATE ChartsV2 SET ..., version=version+1 WHERE id=?
+
+  INSERT INTO ChartsHistory (...)
+
+  INSERT INTO GovernanceEmergencyChanges
+         (chart_id, changed_by, changed_by_role, changed_at, reason,
+          before_json, after_json, resulting_version)
+
+  INSERT INTO GovernanceAuditEvents (event_type='emergency_changed', ...)
+
+  INSERT INTO GovernanceNotificationOutbox (event_id, status='pending', ...)
+COMMIT
+```
+
+#### 操作別 TX スコープまとめ
+
+| 操作      | TX に含める                                                                                                       | TX に含めない                       |
+| --------- | ----------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
+| Apply     | ChartsV2 UPDATE + ChartsHistory INSERT + ApplyResults INSERT + ChangeRequests status UPDATE + AuditEvents INSERT  | 通知送信（outbox パターンで非同期） |
+| Emergency | ChartsV2 UPDATE + ChartsHistory INSERT + EmergencyChanges INSERT + AuditEvents INSERT + NotificationOutbox INSERT | 実際の通知送信                      |
+
+### Why
+
+- Apply TX に `ChartsHistory INSERT` を含めることで、既存監査ログとの整合性を保つ
+- 通知送信を TX 外にする（outbox パターン）: 送信失敗で apply 全体がロールバックされることを防ぐ。`GovernanceNotificationOutbox` への INSERT を TX 内に含めることで「通知送信の意図」は原子的に記録される
+- Emergency TX に `NotificationOutbox INSERT` を含めることで、緊急変更が発生したことを通知 poller が確実に検知できる
+
+### Consequence
+
+- 実際の通知送信は別プロセス（poller）が `GovernanceNotificationOutbox` を監視して担当
+- Apply 失敗時（STALE_VERSION 等）は TX ロールバック。`GovernanceApplyResults` に `success=0` を記録する別 TX を実行して apply_failed 状態を記録する
+- トランザクション境界の実装は SQLite WAL モード前提とし、ロック競合は既存の排他制御 API パターンに準拠する
+
+## 2026-05-04: #140 governance schema 基盤 - 論点9 削除・アーカイブ・保管期間管理
+
+日付基準: JST
+
+### Context
+
+本ポートフォリオ版は README に記載の通りローカル SQLite パイプラインを前提としており、
+ノートPC 等の限界環境での容量制約を考慮した保管期間・削除・容量回収の方針が必要だった。
+一方で、governance レコードは実データ（ProcessInfo/Parameters 等）よりサイズが小さいため、
+同一の保持期間を適用する必要はない。
+
+### Decision
+
+#### 保管期間（年数ベース）
+
+| 区分            | 対象                                                                                                                                                                                                | 保管期間 |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| 実データ        | `ProcessInfo` / `Parameters` / `StepWindows` / ドリルダウン参照用データ                                                                                                                             | 1 年     |
+| しきい値監査    | `ChartsHistory`                                                                                                                                                                                     | 3 年     |
+| governance 監査 | `GovernanceChangeRequests` / `GovernanceApprovals` / `GovernanceApplyResults` / `GovernanceEmergencyChanges` / `GovernanceRatifications` / `GovernanceAuditEvents` / `GovernanceNotificationOutbox` | 3 年     |
+
+#### 自動実行方式（Windows 前提）
+
+- cron は前提にせず、Windows Task Scheduler を標準手段とする
+- 実行ジョブは「削除ジョブ」と「VACUUM ジョブ」を分離する
+
+#### 実行スケジュール
+
+- 削除ジョブ: 毎日 1 回（例: 03:00 JST）
+- VACUUM ジョブ: 週 1 回（例: 日曜 03:30 JST）
+- 30 分周期の ingest/judge と同じ周期では実行しない（VACUUM の排他ロック影響を避けるため）
+
+### Why
+
+- 実データは容量寄与が大きく、1 年保持でディスク増加を抑制できる
+- governance 系は容量寄与が小さく、3 年保持でも現実的。監査/説明責任の観点で有利
+- VACUUM は DB 全体に対する重い処理で、30 分周期に含めると定常処理の遅延リスクが高い
+
+### Consequence
+
+- 削除はアプリケーション管理ジョブで child->parent 順に実施し、FK 整合性を維持する
+- 削除後に `VACUUM` を定期実行して物理ファイルサイズを回収する
+- Windows Task Scheduler 用 runbook を `docs/chart-governance-playbook.md` に追記する（ジョブ定義、実行時刻、失敗時再実行方針）
+
 ## 2026-04-13: 論点10 リリース/ロールバック方針の固定
 
 日付基準: JST

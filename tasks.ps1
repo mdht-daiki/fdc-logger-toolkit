@@ -1,6 +1,6 @@
 param(
   [Parameter(Position=0)]
-  [ValidateSet("help","venv","install","precommit","fmt","lint","type","test","test-fast","test-slow","test-db-api-aggregate","check","aggregate-dry-run","clean")]
+  [ValidateSet("help","venv","install","precommit","fmt","lint","type","test","test-fast","test-slow","test-db-api-aggregate","check","aggregate-dry-run","clean","cleanup-retention","vacuum-db")]
   [string]$Task = "help"
   ,
   [string]$AggInput = "data/scrape/scrape_TOOL_A.csv"
@@ -44,8 +44,8 @@ switch ($Task) {
     Write-Host "  .\tasks.ps1 test-db-api-aggregate - pytest for db_api + aggregate connection"
     Write-Host "  .\tasks.ps1 check      - lint + type + test"
     Write-Host "  .\tasks.ps1 aggregate-dry-run - run aggregate without DB POST"
-    Write-Host "  .\tasks.ps1 clean      - remove caches/build artifacts"
-  }
+    Write-Host "  .\tasks.ps1 clean      - remove caches/build artifacts"    Write-Host "  .\\.\\tasks.ps1 cleanup-retention - delete retention-expired data (daily task)"
+    Write-Host "  .\\.\\tasks.ps1 vacuum-db - VACUUM SQLite database (weekly task)"  }
 
   "venv" {
     Ensure-Venv
@@ -117,5 +117,68 @@ switch ($Task) {
     Remove-Item -Recurse -Force -ErrorAction SilentlyContinue "dist"
     Get-ChildItem -Filter "*.egg-info" -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item -Force -ErrorAction SilentlyContinue ".coverage"
+  }
+
+  "cleanup-retention" {
+    # Daily retention cleanup task for Windows Task Scheduler
+    # Deletes records older than retention period (see docs/decision-log.md論点9)
+    # Execution order: child -> parent to maintain FK integrity
+    Write-Host "Starting retention cleanup ..."
+    $StartTime = Get-Date
+    $LogPath = "data/logs/cleanup_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
+
+    # Create log directory if not exists
+    $LogDir = Split-Path $LogPath
+    if (-not (Test-Path $LogDir)) {
+      New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
+    }
+
+    try {
+      Ensure-DevInstall
+      # TODO: Implement cleanup SQL via db_api or direct SQLite query
+      # Expected: Delete rows from ProcessInfo, Parameters, ChartsHistory, governance tables
+      # based on retention policy (実データ 1年, 監査系 3年)
+      & $Py -m portfolio_fdc.tools.retention_cleanup --db-path data/db/logger.db --log-file $LogPath | Out-Host
+
+      $EndTime = Get-Date
+      $Duration = ($EndTime - $StartTime).TotalSeconds
+      Write-Host "Retention cleanup completed in $Duration seconds"
+      exit 0
+    }
+    catch {
+      Write-Host "ERROR: Retention cleanup failed: $_" -ForegroundColor Red
+      exit 1
+    }
+  }
+
+  "vacuum-db" {
+    # Weekly VACUUM task for Windows Task Scheduler
+    # Reclaims physical disk space after retention cleanup
+    # MUST run AFTER cleanup task to avoid lock contention
+    Write-Host "Starting database VACUUM ..."
+    $StartTime = Get-Date
+    $LogPath = "data/logs/vacuum_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
+
+    # Create log directory if not exists
+    $LogDir = Split-Path $LogPath
+    if (-not (Test-Path $LogDir)) {
+      New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
+    }
+
+    try {
+      Ensure-DevInstall
+      # TODO: Implement VACUUM via sqlite3 CLI or direct API call
+      # Expected: Execute PRAGMA optimize; followed by VACUUM to reclaim disk space
+      & $Py -m portfolio_fdc.tools.vacuum_database --db-path data/db/logger.db --log-file $LogPath | Out-Host
+
+      $EndTime = Get-Date
+      $Duration = ($EndTime - $StartTime).TotalSeconds
+      Write-Host "Database VACUUM completed in $Duration seconds"
+      exit 0
+    }
+    catch {
+      Write-Host "ERROR: Database VACUUM failed: $_" -ForegroundColor Red
+      exit 1
+    }
   }
 }

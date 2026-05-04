@@ -151,6 +151,10 @@ switch ($Task) {
       # Expected: Delete rows from child tables first (StepWindows, Parameters, ChartsHistory,
       # governance tables) and then parent ProcessInfo based on retention policy (実データ 1年, 監査系 3年)
       & $Py -m portfolio_fdc.tools.retention_cleanup --db-path $DbPath --log-file $LogPath | Out-Host
+      if ($LASTEXITCODE -ne 0) {
+        Write-Host "ERROR: retention_cleanup exited with code $LASTEXITCODE" -ForegroundColor Red
+        exit 1
+      }
 
       $EndTime = Get-Date
       $Duration = ($EndTime - $StartTime).TotalSeconds
@@ -184,6 +188,10 @@ switch ($Task) {
       # TODO: Implement VACUUM via sqlite3 CLI or direct API call
       # Expected: Execute PRAGMA optimize; followed by VACUUM to reclaim disk space
       & $Py -m portfolio_fdc.tools.vacuum_database --db-path $DbPath --log-file $LogPath | Out-Host
+      if ($LASTEXITCODE -ne 0) {
+        Write-Host "ERROR: vacuum_database exited with code $LASTEXITCODE" -ForegroundColor Red
+        exit 1
+      }
 
       $EndTime = Get-Date
       $Duration = ($EndTime - $StartTime).TotalSeconds

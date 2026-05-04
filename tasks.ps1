@@ -15,6 +15,9 @@ $VenvDir = Join-Path $RepoRoot ".venv"
 $Py = Join-Path $VenvDir "Scripts\python.exe"
 $Pip = Join-Path $VenvDir "Scripts\pip.exe"
 $PreCommit = Join-Path $VenvDir "Scripts\pre-commit.exe"
+# Mirror db.py: use PORTFOLIO_DB_DIR env var when set, otherwise fall back to <repo>/data/db
+$DbDir = if ($env:PORTFOLIO_DB_DIR) { $env:PORTFOLIO_DB_DIR } else { Join-Path $RepoRoot "data\db" }
+$DbPath = Join-Path $DbDir "main.db"
 
 function Ensure-Venv {
   param(
@@ -140,7 +143,6 @@ switch ($Task) {
     Write-Host "Starting retention cleanup ..."
     $StartTime = Get-Date
     $LogPath = Join-Path $RepoRoot ("data\logs\cleanup_{0}.log" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
-    $DbPath = Join-Path $RepoRoot "data\db\main.db"
 
     # Create log directory if not exists
     $LogDir = Split-Path $LogPath
@@ -184,7 +186,6 @@ switch ($Task) {
     Write-Host "Starting database VACUUM ..."
     $StartTime = Get-Date
     $LogPath = Join-Path $RepoRoot ("data\logs\vacuum_{0}.log" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
-    $DbPath = Join-Path $RepoRoot "data\db\main.db"
 
     # Create log directory if not exists
     $LogDir = Split-Path $LogPath

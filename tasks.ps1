@@ -10,17 +10,25 @@ param(
   [string]$AggDetailOut = "data/detail"
 )
 
-$VenvDir = ".venv"
+$RepoRoot = $PSScriptRoot
+$VenvDir = Join-Path $RepoRoot ".venv"
 $Py = Join-Path $VenvDir "Scripts\python.exe"
 $Pip = Join-Path $VenvDir "Scripts\pip.exe"
 $PreCommit = Join-Path $VenvDir "Scripts\pre-commit.exe"
 
 function Ensure-Venv {
+  param(
+    [switch]$SkipPipUpgrade
+  )
+
   if (-not (Test-Path $Py)) {
     Write-Host "Creating venv in $VenvDir ..."
     python -m venv $VenvDir
   }
-  & $Pip install -U pip | Out-Host
+
+  if (-not $SkipPipUpgrade) {
+    & $Pip install -U pip | Out-Host
+  }
 }
 
 function Ensure-DevInstall {
@@ -44,8 +52,10 @@ switch ($Task) {
     Write-Host "  .\tasks.ps1 test-db-api-aggregate - pytest for db_api + aggregate connection"
     Write-Host "  .\tasks.ps1 check      - lint + type + test"
     Write-Host "  .\tasks.ps1 aggregate-dry-run - run aggregate without DB POST"
-    Write-Host "  .\tasks.ps1 clean      - remove caches/build artifacts"    Write-Host "  .\\.\\tasks.ps1 cleanup-retention - delete retention-expired data (daily task)"
-    Write-Host "  .\\.\\tasks.ps1 vacuum-db - VACUUM SQLite database (weekly task)"  }
+    Write-Host "  .\tasks.ps1 clean      - remove caches/build artifacts"
+    Write-Host "  .\tasks.ps1 cleanup-retention - delete retention-expired data (daily task)"
+    Write-Host "  .\tasks.ps1 vacuum-db - VACUUM SQLite database (weekly task)"
+  }
 
   "venv" {
     Ensure-Venv
@@ -125,7 +135,8 @@ switch ($Task) {
     # Execution order: child -> parent to maintain FK integrity
     Write-Host "Starting retention cleanup ..."
     $StartTime = Get-Date
-    $LogPath = "data/logs/cleanup_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
+    $LogPath = Join-Path $RepoRoot ("data\logs\cleanup_{0}.log" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
+    $DbPath = Join-Path $RepoRoot "data\db\logger.db"
 
     # Create log directory if not exists
     $LogDir = Split-Path $LogPath
@@ -134,11 +145,12 @@ switch ($Task) {
     }
 
     try {
-      Ensure-DevInstall
+      # Scheduled jobs should rely on a pre-provisioned venv; dependency updates stay manual via the install task.
+      Ensure-Venv -SkipPipUpgrade
       # TODO: Implement cleanup SQL via db_api or direct SQLite query
-      # Expected: Delete rows from ProcessInfo, Parameters, ChartsHistory, governance tables
-      # based on retention policy (実データ 1年, 監査系 3年)
-      & $Py -m portfolio_fdc.tools.retention_cleanup --db-path data/db/logger.db --log-file $LogPath | Out-Host
+      # Expected: Delete rows from child tables first (StepWindows, Parameters, ChartsHistory,
+      # governance tables) and then parent ProcessInfo based on retention policy (実データ 1年, 監査系 3年)
+      & $Py -m portfolio_fdc.tools.retention_cleanup --db-path $DbPath --log-file $LogPath | Out-Host
 
       $EndTime = Get-Date
       $Duration = ($EndTime - $StartTime).TotalSeconds
@@ -157,7 +169,8 @@ switch ($Task) {
     # MUST run AFTER cleanup task to avoid lock contention
     Write-Host "Starting database VACUUM ..."
     $StartTime = Get-Date
-    $LogPath = "data/logs/vacuum_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
+    $LogPath = Join-Path $RepoRoot ("data\logs\vacuum_{0}.log" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
+    $DbPath = Join-Path $RepoRoot "data\db\logger.db"
 
     # Create log directory if not exists
     $LogDir = Split-Path $LogPath
@@ -166,10 +179,11 @@ switch ($Task) {
     }
 
     try {
-      Ensure-DevInstall
+      # Scheduled jobs should rely on a pre-provisioned venv; dependency updates stay manual via the install task.
+      Ensure-Venv -SkipPipUpgrade
       # TODO: Implement VACUUM via sqlite3 CLI or direct API call
       # Expected: Execute PRAGMA optimize; followed by VACUUM to reclaim disk space
-      & $Py -m portfolio_fdc.tools.vacuum_database --db-path data/db/logger.db --log-file $LogPath | Out-Host
+      & $Py -m portfolio_fdc.tools.vacuum_database --db-path $DbPath --log-file $LogPath | Out-Host
 
       $EndTime = Get-Date
       $Duration = ($EndTime - $StartTime).TotalSeconds

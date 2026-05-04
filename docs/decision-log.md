@@ -78,7 +78,7 @@ Phase 2 以降候補: `notification_dead_lettered`
 ```sql
 CREATE TABLE IF NOT EXISTS GovernanceNotificationOutbox (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    event_id        INTEGER NOT NULL,    -- GovernanceAuditEvents.id（emergency_changed イベントが起点）
+    event_id        INTEGER NOT NULL UNIQUE,    -- GovernanceAuditEvents.id（emergency_changed イベントが起点）
   status          TEXT    NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','sent','failed')),
     retry_count     INTEGER NOT NULL DEFAULT 0,
     next_retry_at   TEXT,               -- NULL = 即時試行可
@@ -94,6 +94,7 @@ CREATE INDEX IF NOT EXISTS idx_notification_outbox_status
 FK の方向:
 
 - `outbox.event_id → GovernanceAuditEvents.id`（起点 audit event への参照）
+- `event_id UNIQUE` により 1 起点イベント = 1 outbox レコードを強制し、`POST /governance/notifications/{event_id}/retry` の対象を一意にする
 - retry 系 audit event（`notification_queued` / `notification_retry_failed` 等）は `target_type='notification', target_id=outbox.id` で論理参照。循環 FK を避ける
 
 #### 論点6: notification status モデル

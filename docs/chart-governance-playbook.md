@@ -148,6 +148,72 @@ Disaster recovery フローは以下に従う：
 
 いずれの役割も個人名ではなく role で定義し、複数人が兼任可能な状態を保つ。
 
+## Retention Cleanup and Vacuum Operations (Windows)
+
+### Purpose
+
+ローカル SQLite 運用での容量制約に対応するため、保管期間に基づく削除と物理容量回収を定常運用化する。
+
+### Retention Policy
+
+| 区分                                                                                                                   | 保管期間 |
+| ---------------------------------------------------------------------------------------------------------------------- | -------- |
+| 実データ（ProcessInfo / Parameters / StepWindows / ドリルダウン参照用データ）                                          | 1 年     |
+| しきい値監査（ChartsHistory）                                                                                          | 3 年     |
+| governance 監査（ChangeRequests/Approvals/ApplyResults/EmergencyChanges/Ratifications/AuditEvents/NotificationOutbox） | 3 年     |
+
+### Scheduler Policy
+
+- 実行基盤は Windows Task Scheduler を標準とする（cron 前提にしない）
+- 削除ジョブと VACUUM ジョブは分離する
+- ingest/judge の 30 分周期に重ねない
+
+標準時刻（JST）:
+
+- 削除ジョブ: 毎日 03:00
+- VACUUM ジョブ: 毎週日曜 03:30
+
+### Task Definitions
+
+1. `logger-retention-cleanup-daily`
+
+- Trigger: daily 03:00
+- Action: 保管期限超過データの削除 SQL を実行
+- Rule: child -> parent の順で削除し FK 整合性を維持
+
+2. `logger-db-vacuum-weekly`
+
+- Trigger: weekly SUN 03:30
+- Action: SQLite `VACUUM` を実行して物理サイズ回収
+- Rule: cleanup ジョブ完了後にのみ実行
+
+### Failure and Retry Policy
+
+- cleanup 失敗時:
+  - 同日中に 1 回だけ再実行（例: 04:00）
+  - 再失敗時は当日 VACUUM をスキップし、運用通知を送る
+- VACUUM 失敗時:
+  - 当日は再試行しない（ロック競合回避のため）
+  - 次回週次スロットで再実行
+
+### Safety Rules
+
+- cleanup と VACUUM は同時実行しない
+- 実行前に DB バックアップ（ファイルコピー）を取得する
+- 実行ログ（開始時刻/終了時刻/削除件数/エラー）を残す
+- 依存更新は手動メンテナンス（`.\tasks.ps1 install`）で行い、Scheduler ジョブは既存 `.venv` 前提で実行する
+- DB ロック競合が多発する場合は、実行時刻を ingest/judge のアイドル帯に再調整する
+
+### Suggested schtasks Commands
+
+```powershell
+schtasks /Create /TN "logger-retention-cleanup-daily" /SC DAILY /ST 03:00 /TR "powershell.exe -NoProfile -ExecutionPolicy Bypass -File E:\work\python\logger\tasks.ps1 cleanup-retention" /F
+
+schtasks /Create /TN "logger-db-vacuum-weekly" /SC WEEKLY /D SUN /ST 03:30 /TR "powershell.exe -NoProfile -ExecutionPolicy Bypass -File E:\work\python\logger\tasks.ps1 vacuum-db" /F
+```
+
+`tasks.ps1` 側では、cleanup と vacuum を別コマンドとして実装し、終了コードで Task Scheduler の成功/失敗判定を行う。
+
 ## Backlog
 
 | Issue | 内容                                                                   |

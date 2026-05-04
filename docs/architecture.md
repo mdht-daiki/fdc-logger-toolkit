@@ -91,6 +91,12 @@ Logger Toolkit は装置データを処理し、監視・可視化・アラー�
 - 失敗トランザクションは rollback を前提に整合性を守る
 - 障害時は失敗分類ごとの runbook（再実行/手動介入条件）に従って回復する
 
+将来の分離方針:
+
+- governance endpoint は当面 db_api 内に同居する
+- 同一トランザクション保証が困難になった場合、または認可・スケール要件が明確に求められた場合に、governance API として独立サービスへの分離を再評価する
+- 分離する場合は同一 PR で `README.md`、`docs/architecture.md`、`docs/db-api-endpoints.md`、`docs/chart-governance-playbook.md`、`docs/dashboard-architecture-playbook.md` を同時更新する
+
 ## 依存方向の規約
 
 許可:

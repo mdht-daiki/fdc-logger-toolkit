@@ -1,6 +1,148 @@
 # Decision Log
 
-## 2026-05-03: #140 governance schema 基盤 - version 正本、chart_name追加、API配置方針の確定
+## 2026-05-04: `#140` governance schema 基盤 - 論点1〜8 GovernanceAuditEvents / GovernanceNotificationOutbox 確定
+
+日付基準: JST
+
+### Context
+
+Discussion #183 で audit events と notification outbox の最小契約を確定する必要があった。
+前 PR（chore/governance-schema-documentation）で論点1〜9（GovernanceChangeRequests 〜 保管期間）は確定済みであり、
+本エントリはその後続として audit / outbox 層を固定する。
+
+### Decision
+
+#### 論点1: GovernanceAuditEvents 最小列定義
+
+```sql
+CREATE TABLE IF NOT EXISTS GovernanceAuditEvents (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_type     TEXT    NOT NULL,
+    actor          TEXT    NOT NULL,
+    actor_role     TEXT    NOT NULL,
+    target_type    TEXT    NOT NULL,   -- 'change_request' | 'emergency_change' | 'notification'
+    target_id      INTEGER NOT NULL,   -- 対応テーブルの id
+    occurred_at    TEXT    NOT NULL,
+    before_json    TEXT,               -- 変更前 snapshot（変更系のみ）
+    after_json     TEXT,               -- 変更後 snapshot（変更系のみ）
+    correlation_id TEXT               -- 同一フロー内イベントを束ねる任意ID（NULL可）
+);
+CREATE INDEX IF NOT EXISTS idx_audit_events_type_time
+    ON GovernanceAuditEvents(event_type, occurred_at);
+CREATE INDEX IF NOT EXISTS idx_audit_events_target
+    ON GovernanceAuditEvents(target_type, target_id);
+```
+
+- `source` 列は `event_type` から自明なため不要
+- `correlation_id` は NULL 許可。将来のトレース用に列として確保
+
+#### 論点2: event_type 一覧（Phase 1 確定）
+
+| event_type | 発生タイミング | before/after |
+|---|---|---|
+| `change_requested` | change_request 作成時 | after のみ（申請内容） |
+| `change_request_approved` | approve 完了時 | なし |
+| `change_request_rejected` | reject 時 | なし |
+| `change_request_applied` | apply 成功時 | 閾値の before/after（フル snapshot） |
+| `change_request_apply_failed` | apply 失敗時 | after に error_code/message |
+| `emergency_changed` | 緊急変更完了時 | 閾値の before/after（フル snapshot） |
+| `emergency_ratified` | 追認完了時 | なし |
+| `notification_queued` | outbox INSERT 時 | なし |
+| `notification_sent` | 送信成功時 | なし |
+| `notification_retry_succeeded` | retry 成功時 | なし |
+| `notification_retry_failed` | retry 上限到達時 | なし |
+
+Phase 2 以降候補: `notification_dead_lettered`
+
+#### 論点3: before/after の差分形式
+
+| event_type | before_json | after_json |
+|---|---|---|
+| `change_request_applied` | 変更前全フィールド snapshot | 変更後全フィールド snapshot |
+| `emergency_changed` | 変更前全フィールド snapshot | 変更後全フィールド snapshot |
+| `change_requested` | null | 申請内容（delta のみで可） |
+| それ以外 | null | null |
+
+- changed fields のみでは before が何だったか復元できないため、apply と緊急変更は必ず全フィールド snapshot
+- no-op 更新（値に差分なし）の場合: audit event も ChartsHistory も残さない（`#109` 決定済み）
+
+#### 論点4: audit writer の責務境界
+
+- **service 層からの明示呼び出し**に統一
+- repository 内部に audit writer を埋め込まない（repository は単一テーブルの CRUD 責務に限定）
+- `AuditEventWriter.write(con, event_type, actor, actor_role, target_type, target_id, occurred_at, before_json=None, after_json=None, correlation_id=None)` の 1 メソッドのみ
+- `occurred_at` の正規化（`datetime_util.to_utc_millis()`）は呼び出し側（service 層）の責務。writer 内では正規化しない
+
+#### 論点5: GovernanceNotificationOutbox 最小列定義
+
+```sql
+CREATE TABLE IF NOT EXISTS GovernanceNotificationOutbox (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id        INTEGER NOT NULL,    -- GovernanceAuditEvents.id（emergency_changed イベントが起点）
+    status          TEXT    NOT NULL DEFAULT 'pending',
+    retry_count     INTEGER NOT NULL DEFAULT 0,
+    next_retry_at   TEXT,               -- NULL = 即時試行可
+    last_attempt_at TEXT,
+    last_error      TEXT,
+    delivered_at    TEXT,               -- 成功時のみ設定
+    FOREIGN KEY (event_id) REFERENCES GovernanceAuditEvents (id)
+);
+CREATE INDEX IF NOT EXISTS idx_notification_outbox_status
+    ON GovernanceNotificationOutbox(status, next_retry_at);
+```
+
+FK の方向:
+- `outbox.event_id → GovernanceAuditEvents.id`（起点 audit event への参照）
+- retry 系 audit event（`notification_queued` / `notification_retry_failed` 等）は `target_type='notification', target_id=outbox.id` で論理参照。循環 FK を避ける
+
+#### 論点6: notification status モデル
+
+`sending` を省略した真の3状態を採用する。
+
+```
+pending → sent（ターミナル）
+        ↘ failed
+failed → sent（retry 成功、ターミナル）
+       → failed（retry 上限到達、ターミナル）
+```
+
+- SQLite ローカル・単一 FastAPI プロセス・明示 retry 呼び出し方式のため並行送信シナリオがない
+- `sending` を持つと「クラッシュで永続 sending」スタック問題が生じ回収ロジックが必要になる
+- 二重送信防止は `UPDATE SET status='sent' WHERE status IN ('pending','failed') AND retry_count < 3` をトランザクション内で実行することで担保
+
+#### 論点7: retry の契約
+
+| 項目 | 方針 |
+|---|---|
+| retry 対象 | `status = 'failed'` のみ |
+| retry_count 上限 | 3 回（`#102` write 系 attempts 上限に統一） |
+| next_retry_at 算出 | 指数バックオフ（1分, 5分, 30分）。`datetime_util.to_utc_millis()` で記録 |
+| 上限到達後 | `status = 'failed'` のまま `next_retry_at = NULL` で取得対象から外れる |
+| 最終失敗の監査連携 | 上限到達時に `notification_retry_failed` audit event を INSERT |
+| retry API に `sent` / `pending` を指定した場合 | 400（retry 対象外） |
+
+retry は `POST /governance/notifications/{event_id}/retry` の明示呼び出し方式（バックグラウンドポーリングは今回対象外）。
+
+#### 論点8: apply 時にも outbox を使うか
+
+Phase 1 は**緊急変更通知のみ** outbox 対象とする。
+通常 apply（承認フロー経由）は UI または ops が確認しているため追加通知は不要。
+将来的に通常 apply 通知が必要になった場合は `target_type` を使って自然に拡張できる設計になっている。
+
+### Why
+
+- `source` 列省略: `event_type` から一意に判断できるため過剰
+- `sending` 状態省略: ローカル SQLite 単一プロセスでは並行送信が起きないため、スタック状態を作るリスクの方が大きい
+- FK 方向（outbox → audit）: audit event を起点とする参照方向が自然。循環参照を避け、retry 系イベントは論理参照で対応
+- audit writer を service 層に置く: repository が別テーブルを書く責務を持つと境界が曖昧になる。service 層の 1 TX ブロック内で writer を呼ぶことで同一 transaction を保証できる
+
+### Consequence
+
+- `GovernanceAuditEvents` と `GovernanceNotificationOutbox` の CREATE TABLE を `db_api/db.py` の初期化処理に追加
+- `AuditEventWriter` クラスを `db_api/` 配下に新規作成（実装 PR 別途）
+- `#144`（GET audit-events / POST notifications retry）の endpoint 契約はこのスキーマを前提に定義
+
+## 2026-05-03: `#140` governance schema 基盤 - version 正本、chart_name追加、API配置方針の確定
 
 日付基準: JST
 

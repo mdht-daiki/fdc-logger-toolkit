@@ -343,6 +343,144 @@ def _init_schema(db_path: Path) -> None:
             """
         )
 
+        # --- ChartsV2 migration: version and chart_name columns ---------------
+        _add_column_if_missing(con, "ChartsV2", "version INTEGER NOT NULL DEFAULT 1")
+        _add_column_if_missing(con, "ChartsV2", "chart_name TEXT")
+
+        # --- Governance tables ------------------------------------------------
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS GovernanceChangeRequests (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                chart_id         INTEGER NOT NULL,
+                status           TEXT    NOT NULL DEFAULT 'pending'
+                                         CHECK (status IN (
+                                             'pending','approved','applied',
+                                             'apply_failed','rejected'
+                                         )),
+                proposed_by      TEXT    NOT NULL,
+                proposed_at      TEXT    NOT NULL,
+                change_payload   TEXT    NOT NULL,
+                expected_version INTEGER NOT NULL,
+                idempotency_key  TEXT    NOT NULL,
+                FOREIGN KEY (chart_id) REFERENCES ChartsV2 (id)
+            );
+            """
+        )
+        con.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_change_requests_idempotency
+            ON GovernanceChangeRequests (idempotency_key);
+            """
+        )
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS GovernanceApprovals (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                request_id       INTEGER NOT NULL UNIQUE,
+                approved_by      TEXT    NOT NULL,
+                approved_by_role TEXT    NOT NULL,
+                approved_at      TEXT    NOT NULL,
+                comment          TEXT,
+                FOREIGN KEY (request_id) REFERENCES GovernanceChangeRequests (id)
+            );
+            """
+        )
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS GovernanceApplyResults (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                request_id        INTEGER NOT NULL UNIQUE,
+                applied_at        TEXT    NOT NULL,
+                success           INTEGER NOT NULL CHECK (success IN (0, 1)),
+                resulting_version INTEGER,
+                error_code        TEXT,
+                error_message     TEXT,
+                FOREIGN KEY (request_id) REFERENCES GovernanceChangeRequests (id)
+            );
+            """
+        )
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS GovernanceEmergencyChanges (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                chart_id            INTEGER NOT NULL,
+                changed_by          TEXT    NOT NULL,
+                changed_by_role     TEXT    NOT NULL,
+                changed_at          TEXT    NOT NULL,
+                reason              TEXT    NOT NULL,
+                before_json         TEXT    NOT NULL,
+                after_json          TEXT    NOT NULL,
+                resulting_version   INTEGER NOT NULL,
+                related_issue_or_pr TEXT,
+                FOREIGN KEY (chart_id) REFERENCES ChartsV2 (id)
+            );
+            """
+        )
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS GovernanceRatifications (
+                id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+                ec_id                INTEGER NOT NULL UNIQUE,
+                ratified_by_role     TEXT    NOT NULL,
+                ratified_at          TEXT    NOT NULL,
+                ratification_comment TEXT,
+                related_pr           TEXT,
+                FOREIGN KEY (ec_id) REFERENCES GovernanceEmergencyChanges (id)
+            );
+            """
+        )
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS GovernanceAuditEvents (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_type     TEXT    NOT NULL,
+                actor          TEXT    NOT NULL,
+                actor_role     TEXT    NOT NULL,
+                target_type    TEXT    NOT NULL,
+                target_id      INTEGER NOT NULL,
+                occurred_at    TEXT    NOT NULL,
+                before_json    TEXT,
+                after_json     TEXT,
+                correlation_id TEXT
+            );
+            """
+        )
+        con.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_audit_events_type_time
+            ON GovernanceAuditEvents (event_type, occurred_at);
+            """
+        )
+        con.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_audit_events_target
+            ON GovernanceAuditEvents (target_type, target_id);
+            """
+        )
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS GovernanceNotificationOutbox (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id        INTEGER NOT NULL UNIQUE,
+                status          TEXT    NOT NULL DEFAULT 'pending'
+                                        CHECK (status IN ('pending','sent','failed')),
+                retry_count     INTEGER NOT NULL DEFAULT 0,
+                next_retry_at   TEXT,
+                last_attempt_at TEXT,
+                last_error      TEXT,
+                delivered_at    TEXT,
+                FOREIGN KEY (event_id) REFERENCES GovernanceAuditEvents (id)
+            );
+            """
+        )
+        con.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_notification_outbox_status
+            ON GovernanceNotificationOutbox (status, next_retry_at);
+            """
+        )
+
         row = con.execute(
             "SELECT chart_set_id FROM ChartSet ORDER BY chart_set_id ASC LIMIT 1"
         ).fetchone()

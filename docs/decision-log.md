@@ -1,5 +1,146 @@
 # Decision Log
 
+## 2026-05-05: `#140` governance schema 基盤 - 論点12 既存 DB への適用順・既存テーブル影響なし宣言
+
+日付基準: JST
+
+### Context
+
+#140 migration の実装前に、既存テーブル（ChartsV2, ChartsHistory, ActiveChartSet など）への影響が
+完全にゼロであることを明文化する必要があった。
+前セッションでは version/chart_name の追加は確定していたが、「既存列は一切変更しない」という
+制約を明示的に記載していなかった。
+
+### Decision
+
+#### 既存テーブルへの影響なし宣言
+
+**追加する新列（\_add_column_if_missing パターン）:**
+
+1. `ChartsV2.version INTEGER NOT NULL DEFAULT 1`
+2. `ChartsV2.chart_name TEXT`
+
+**変更・削除する既存列:**
+なし。既存列を一切変更・削除しない。
+
+**新規テーブル（governance テーブル 7 個）:**
+
+1. `GovernanceChangeRequests`
+2. `GovernanceApprovals`
+3. `GovernanceApplyResults`
+4. `GovernanceEmergencyChanges`
+5. `GovernanceRatifications`
+6. `GovernanceAuditEvents`
+7. `GovernanceNotificationOutbox`
+
+**migration の適用順:**
+
+1. `CREATE TABLE IF NOT EXISTS GovernanceChangeRequests` ... （以下同様）
+2. `_add_column_if_missing('ChartsV2', 'version', 'INTEGER NOT NULL DEFAULT 1')`
+3. `_add_column_if_missing('ChartsV2', 'chart_name', 'TEXT')`
+
+既存行は version デフォルト 1、chart_name は NULL のまま。
+
+### Why
+
+- 既存機能（ingest/dashboard/judge の read path）を壊さないため
+- rollback リスク（schema downgrade が必要なケース）を避けるため
+- forward-only 前提に一貫させるため
+
+### Consequence
+
+- 既存 DB バージョン管理表や migration 履歴に「#140: governance table 追加 + version/chart_name 新列」として記録
+- rollback が必要になった場合は DROP TABLE で governance テーブル削除 + version/chart_name 列削除（手動）
+- 将来 chart_name を非 NULL にする場合は別 migration で段階的に実施
+
+## 2026-05-05: `#140` governance schema 基盤 - 論点10〜11 CRUD 操作スコープと idempotency_key の最終確定
+
+日付基準: JST
+
+### Context
+
+Discussion で CRUD 操作スコープと idempotency_key の扱い、および「緊急変更後の Issue/PR 紐付けを API 公開するか否か」を
+確定する必要があった。特に idempotency_key の不変原則を保ちながら、status 以外は update 不可とすることで、
+重複排除と監査一貫性を両立させる方針の確定が急務だった。
+
+### Decision
+
+#### 論点10: GovernanceEmergencyChanges.related_issue_or_pr の後追い更新は API 公開しない
+
+**方針:**
+`related_issue_or_pr` の更新は当面 API 公開せず、ops 手順（運用ガイドライン）として手作業 SQL または運用ツール直接実行を前提とする。
+
+**理由:**
+
+1. 更新頻度が低い（1緊急変更 = 最大1回）
+2. 認可設計・入力検証を簡潔に保つため
+3. Phase 1 は最小実装を優先する
+
+**Phase 2 以降の再評価条件:**
+
+- 追認時の自動リンク機能が必要になった
+- 運用担当者が増え、手作業の再現性が問題になった
+- UI 管理画面整備のため API 化が自然になった
+
+#### 論点11: GovernanceChangeRequests の UPDATE 対象は `status` のみに絞る。idempotency_key は不変
+
+**方針:**
+
+1. `GovernanceChangeRequests` への `UPDATE` は `status` 列のみを対象とする
+   - `approve` 操作: `status='pending' → 'approved'`
+   - `reject` 操作: `status='pending' → 'rejected'`
+   - `apply` 操作: `status='approved' → 'applied'` または `'apply_failed'`
+2. `idempotency_key` は create 時のみ受け付け、update では受け付けない（存在しない操作）
+3. 同一意図の再送は同一 idempotency_key で、意図変更は新規 create で新キーを生成
+
+**理由:**
+
+1. idempotency_key が作成後に変わると、重複排除の意味が失われる
+2. status のみ update に絞ることで、申請の同一性が create 時点で確定し続ける
+3. 再送と再編集を厳密に区別できる
+
+**運用ルール:**
+| 操作 | idempotency_key | status 遷移 |
+|---|---|---|
+| POST /change-requests（新規作成） | クライアント生成 | `pending` |
+| POST /change-requests（再送） | 同一キーで再送 | 409（既存レコード存在） |
+| POST /approve | 不変 | `pending → approved` |
+| POST /reject | 不変 | `pending → rejected` |
+| POST /apply | 不変 | `approved → applied / apply_failed` |
+| PUT /change-requests/{id} | 受け付けない（400） | status のみ更新可能（内部的） |
+
+### Why
+
+#### related_issue_or_pr を API 公開しない理由
+
+- 当面の更新頻度が低く、ops 手順で回せば十分
+- API 化による認可・検証コストが、利便性の改善と見合わない
+- ただし更新ルール自体は先に明文化し、将来 API 化への移行を最小にする
+
+#### idempotency_key を不変にする理由
+
+- 重複排除が idempotency_key の本質であり、これが変わると二重作成防止が機能しなくなる
+- status のみに update を絞ることで、「申請の同一性」の定義を変更時点で固定できる
+- クライアント側は単純なロジック: 再送は同一キー、新要求は新キー
+
+### Consequence
+
+1. `db_api` の governance endpoint は以下のシグネチャで確定：
+   - `POST /change-requests` - create のみ（idempotency_key はリクエスト body に含める）
+   - `POST /change-requests/{id}/approve` - status update（内部的に approve_at, approved_by を記録）
+   - `POST /change-requests/{id}/reject` - status update
+   - `POST /change-requests/{id}/apply` - status update
+   - `PUT` / `PATCH` は使わない（status 遷移を明示的な個別 endpoint にする）
+
+2. `GovernanceChangeRequestRepository.update()` の実装は status パラメータのみを受け付ける
+
+3. `related_issue_or_pr` の更新は運用手順書に記載し、サーバーサイドの PATCH endpoint は実装しない
+
+4. テスト受け入れ条件：
+   - 同一 idempotency_key での再送で 409 を返すこと
+   - status 遷移ごとに正しいイベント（approve/reject/apply）が audit イベントに記録されること
+   - idempotency_key の更新を試みた場合 400 を返すこと（実装上は制約検証エラー or 明示的チェック）
+
 ## 2026-05-04: `#140` governance schema 基盤 - 論点1〜8 GovernanceAuditEvents / GovernanceNotificationOutbox 確定
 
 日付基準: JST

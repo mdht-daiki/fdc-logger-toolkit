@@ -119,15 +119,17 @@ def _update_change_request_status(request_id: int, status: str) -> None:
         con.close()
 
 
-def _cleanup_seeded(chart_set_id: int, request_ids: tuple[int, int, int]) -> None:
+def _cleanup_seeded(chart_set_id: int | None, request_ids: list[int]) -> None:
     con = _connect(MAIN_DB)
     try:
-        con.execute(
-            "DELETE FROM GovernanceChangeRequests WHERE id IN (?, ?, ?)",
-            request_ids,
-        )
-        con.execute("DELETE FROM ChartsV2 WHERE chart_set_id = ?", (chart_set_id,))
-        con.execute("DELETE FROM ChartSet WHERE chart_set_id = ?", (chart_set_id,))
+        if request_ids:
+            con.executemany(
+                "DELETE FROM GovernanceChangeRequests WHERE id = ?",
+                [(request_id,) for request_id in request_ids],
+            )
+        if chart_set_id is not None:
+            con.execute("DELETE FROM ChartsV2 WHERE chart_set_id = ?", (chart_set_id,))
+            con.execute("DELETE FROM ChartSet WHERE chart_set_id = ?", (chart_set_id,))
         con.commit()
     finally:
         con.close()
@@ -195,34 +197,42 @@ def _find_latest_audit_event_by_correlation_id(correlation_id: str) -> tuple[str
 
 @pytest.fixture
 def seeded_change_requests_context() -> Iterator[SeededChangeRequestsContext]:
-    _init_schema(MAIN_DB)
-    suffix = uuid4().hex[:10]
-    now = datetime.now(UTC).isoformat()
-    chart_set_id = _insert_chart_set(now, suffix)
-    chart_1 = _insert_chart(chart_set_id, suffix, "param_a")
-    chart_2 = _insert_chart(chart_set_id, suffix, "param_b")
-
-    req_pending_chart_1 = _insert_change_request(
-        chart_id=chart_1,
-        proposed_by="alice",
-        proposed_at="2026-05-01T00:00:00.000Z",
-        idempotency_key=f"{suffix}-k1",
-    )
-    req_approved_chart_1 = _insert_change_request(
-        chart_id=chart_1,
-        proposed_by="bob",
-        proposed_at="2026-05-02T00:00:00.000Z",
-        idempotency_key=f"{suffix}-k2",
-    )
-    req_pending_chart_2 = _insert_change_request(
-        chart_id=chart_2,
-        proposed_by="carol",
-        proposed_at="2026-05-03T00:00:00.000Z",
-        idempotency_key=f"{suffix}-k3",
-    )
-    _update_change_request_status(req_approved_chart_1, "approved")
+    chart_set_id: int | None = None
+    chart_1: int | None = None
+    chart_2: int | None = None
+    created_request_ids: list[int] = []
 
     try:
+        _init_schema(MAIN_DB)
+        suffix = uuid4().hex[:10]
+        now = datetime.now(UTC).isoformat()
+        chart_set_id = _insert_chart_set(now, suffix)
+        chart_1 = _insert_chart(chart_set_id, suffix, "param_a")
+        chart_2 = _insert_chart(chart_set_id, suffix, "param_b")
+
+        req_pending_chart_1 = _insert_change_request(
+            chart_id=chart_1,
+            proposed_by="alice",
+            proposed_at="2026-05-01T00:00:00.000Z",
+            idempotency_key=f"{suffix}-k1",
+        )
+        created_request_ids.append(req_pending_chart_1)
+        req_approved_chart_1 = _insert_change_request(
+            chart_id=chart_1,
+            proposed_by="bob",
+            proposed_at="2026-05-02T00:00:00.000Z",
+            idempotency_key=f"{suffix}-k2",
+        )
+        created_request_ids.append(req_approved_chart_1)
+        req_pending_chart_2 = _insert_change_request(
+            chart_id=chart_2,
+            proposed_by="carol",
+            proposed_at="2026-05-03T00:00:00.000Z",
+            idempotency_key=f"{suffix}-k3",
+        )
+        created_request_ids.append(req_pending_chart_2)
+        _update_change_request_status(req_approved_chart_1, "approved")
+
         yield SeededChangeRequestsContext(
             chart_1_id=chart_1,
             chart_2_id=chart_2,
@@ -231,10 +241,7 @@ def seeded_change_requests_context() -> Iterator[SeededChangeRequestsContext]:
             request_pending_chart_2=req_pending_chart_2,
         )
     finally:
-        _cleanup_seeded(
-            chart_set_id,
-            (req_pending_chart_1, req_approved_chart_1, req_pending_chart_2),
-        )
+        _cleanup_seeded(chart_set_id, created_request_ids)
 
 
 def test_get_change_requests_returns_empty_list_when_no_match(client: TestClient) -> None:
@@ -319,6 +326,22 @@ def test_get_change_requests_filters_by_from_to(
         seeded.request_pending_chart_2,
         seeded.request_approved_chart_1,
     ]
+
+
+def test_get_change_requests_invalid_datetime_returns_422(client: TestClient) -> None:
+    res = client.get(
+        "/governance/change-requests",
+        params={
+            "from_ts": "invalid-date",
+            "to_ts": "2026-13-01T00:00:00Z",
+        },
+    )
+
+    assert res.status_code == 422
+    assert_validation_error_envelope(
+        res.json(),
+        expected_loc_fragment="from_ts",
+    )
 
 
 def test_get_change_requests_applies_limit(

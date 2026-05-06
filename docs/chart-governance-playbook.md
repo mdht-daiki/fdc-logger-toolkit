@@ -34,6 +34,15 @@ Chart 閾値変更を「レビュー必須」で安全に運用する。
 
 ## Branch Strategy
 
+- 方針整理: `chore/chart-governance-*`
+- 閾値変更: `chart/threshold-<ticket>-<short-desc>`
+- API/実装変更: `feature/chart-<short-desc>`
+
+例:
+
+- `chart/threshold-42-recipe-a-step2`
+- `feature/chartset-import-export`
+
 ## Normal Change Request Flow (Phase 1)
 
 通常変更フロー（change-request）は以下の API 契約で運用する。
@@ -56,15 +65,6 @@ Chart 閾値変更を「レビュー必須」で安全に運用する。
 
 - POST は write のため `DBTaskRunner` 経由で実行する
 - GET は read-only のため direct read-only 接続（`_connect_readonly`）で実行する
-
-- 方針整理: `chore/chart-governance-*`
-- 閾値変更: `chart/threshold-<ticket>-<short-desc>`
-- API/実装変更: `feature/chart-<short-desc>`
-
-例:
-
-- `chart/threshold-42-recipe-a-step2`
-- `feature/chartset-import-export`
 
 ## GitHub Discussions Usage
 

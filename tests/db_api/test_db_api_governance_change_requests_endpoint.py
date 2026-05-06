@@ -376,6 +376,44 @@ def test_get_change_requests_applies_offset(
     assert [row["id"] for row in rows] == [seeded.request_pending_chart_1]
 
 
+def test_get_change_requests_limit_exceeds_max(
+    client: TestClient,
+    seeded_change_requests_context: SeededChangeRequestsContext,
+) -> None:
+    seeded = seeded_change_requests_context
+
+    res = client.get(
+        "/governance/change-requests",
+        params={"chart_id": seeded.chart_1_id, "limit": 501},
+    )
+
+    assert res.status_code == 422
+    assert_validation_error_envelope(
+        res.json(),
+        expected_loc_fragment="limit",
+        expected_message_fragment="less than or equal to 500",
+    )
+
+
+def test_get_change_requests_negative_offset(
+    client: TestClient,
+    seeded_change_requests_context: SeededChangeRequestsContext,
+) -> None:
+    seeded = seeded_change_requests_context
+
+    res = client.get(
+        "/governance/change-requests",
+        params={"chart_id": seeded.chart_1_id, "offset": -1},
+    )
+
+    assert res.status_code == 422
+    assert_validation_error_envelope(
+        res.json(),
+        expected_loc_fragment="offset",
+        expected_message_fragment="greater than or equal to 0",
+    )
+
+
 def test_post_change_requests_success_returns_request_id_and_pending_status(
     client: TestClient,
     seeded_change_requests_context: SeededChangeRequestsContext,

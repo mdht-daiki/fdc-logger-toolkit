@@ -27,12 +27,12 @@
 | `GET`    | `/charts/history`                                   | dashboard read | implemented | dashboard/ops   | source: `db_api/app.py` | chart 変更履歴                               |
 | `GET`    | `/judge/results`                                    | dashboard read | implemented | dashboard       | Issue #132              | 判定結果一覧                                 |
 | `GET`    | `/judge/results/{result_id}`                        | dashboard read | implemented | dashboard       | Issue #133              | 判定詳細（トレース情報含む）                 |
-| `POST`   | `/governance/change-requests`                       | governance     | planned     | dashboard/ops   | Issue #102              | 通常変更の申請作成                           |
+| `POST`   | `/governance/change-requests`                       | governance     | implemented | dashboard/ops   | source: `db_api/app.py` | 通常変更の申請作成                           |
 | `POST`   | `/governance/change-requests/{request_id}/approve`  | governance     | planned     | ops             | Issue #102              | 変更申請の承認                               |
 | `POST`   | `/governance/change-requests/{request_id}/apply`    | governance     | planned     | ops             | Issue #102              | 承認済み申請の反映                           |
 | `POST`   | `/governance/emergency-changes`                     | governance     | planned     | dashboard/ops   | Issue #102              | 緊急変更の即時反映                           |
 | `POST`   | `/governance/emergency-changes/{request_id}/ratify` | governance     | planned     | ops             | Issue #102              | 緊急変更の事後追認                           |
-| `GET`    | `/governance/change-requests`                       | governance     | planned     | ops/audit       | Issue #102              | 変更申請の検索                               |
+| `GET`    | `/governance/change-requests`                       | governance     | implemented | ops/audit       | source: `db_api/app.py` | 変更申請の検索                               |
 | `GET`    | `/governance/audit-events`                          | governance     | planned     | ops/audit       | Issue #102              | 監査イベントの検索                           |
 | `POST`   | `/governance/notifications/{event_id}/retry`        | governance     | planned     | ops             | Issue #102              | 通知失敗時の再送                             |
 
@@ -49,7 +49,7 @@
 
 ## Read-only Endpoint Access Pattern
 
-- `GET /charts*` 系は read-only のため `_connect(MAIN_DB)` で直接接続し、`DBTaskRunner` 経由は不要
+- `GET /charts*` と `GET /governance/change-requests` は read-only のため `_connect_readonly(MAIN_DB)` で直接接続し、`DBTaskRunner` 経由は不要
 - `DBTaskRunner` は write タスク直列化・排他制御専用で、read では並行接続をサポート
 
 ## Consumer Permission Scope

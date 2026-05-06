@@ -34,6 +34,29 @@ Chart 閾値変更を「レビュー必須」で安全に運用する。
 
 ## Branch Strategy
 
+## Normal Change Request Flow (Phase 1)
+
+通常変更フロー（change-request）は以下の API 契約で運用する。
+
+1. 申請作成: `POST /governance/change-requests`
+
+- 必須フィールド: `chart_id`, `proposed_by`, `change_payload`, `expected_version`, `idempotency_key`
+- `change_payload` は JSON パース可能性のみを検証する
+- 正常レスポンス: `{ok: true, data: {request_id, status}}`（初期 `status` は `pending`）
+- 同一 `idempotency_key` は 409（`DUPLICATE_IDEMPOTENCY_KEY`）を返す
+- 申請作成時に `GovernanceAuditEvents` へ `event_type=change_requested` を 1 件記録する
+
+2. 申請検索: `GET /governance/change-requests`
+
+- フィルタ: `status`, `chart_id`, `from_ts`, `to_ts`（期間対象は `proposed_at`）
+- ページネーション: `limit`（default 100, max 500）, `offset`（default 0）
+- 0 件時レスポンス: `{ok: true, data: []}`
+
+3. 接続責務の分離
+
+- POST は write のため `DBTaskRunner` 経由で実行する
+- GET は read-only のため direct read-only 接続（`_connect_readonly`）で実行する
+
 - 方針整理: `chore/chart-governance-*`
 - 閾値変更: `chart/threshold-<ticket>-<short-desc>`
 - API/実装変更: `feature/chart-<short-desc>`

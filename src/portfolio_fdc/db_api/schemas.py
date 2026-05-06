@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from math import isfinite
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -98,4 +100,44 @@ class AggregateWriteIn(BaseModel):
             raise ValueError("step_windows process_id must match process.process_id")
         if any(item.process_id != pid for item in self.parameters):
             raise ValueError("parameters process_id must match process.process_id")
+        return self
+
+
+class ChangeRequestIn(BaseModel):
+    """`/governance/change-requests` POST 用の入力モデル。"""
+
+    chart_id: int = Field(ge=1)
+    proposed_by: str = Field(min_length=1, max_length=128)
+    change_payload: str = Field(min_length=1)
+    expected_version: int = Field(ge=1)
+    idempotency_key: str = Field(min_length=1, max_length=128)
+
+    @field_validator("change_payload")
+    @classmethod
+    def validate_change_payload_is_json(cls, value: str) -> str:
+        try:
+            json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise ValueError("change_payload must be valid JSON") from exc
+        return value
+
+
+class ChangeRequestsQuery(BaseModel):
+    """`/governance/change-requests` GET 用のクエリ入力モデル。"""
+
+    status: Literal["pending", "approved", "applied", "apply_failed", "rejected"] | None = None
+    chart_id: int | None = Field(default=None, ge=1)
+    from_ts: datetime | None = None
+    to_ts: datetime | None = None
+    limit: int = Field(default=100, ge=1, le=500)
+    offset: int = Field(default=0, ge=0)
+
+    @model_validator(mode="after")
+    def validate_query_time_range(self) -> ChangeRequestsQuery:
+        if self.from_ts is not None and self.from_ts.tzinfo is None:
+            raise ValueError("from_ts must be timezone-aware")
+        if self.to_ts is not None and self.to_ts.tzinfo is None:
+            raise ValueError("to_ts must be timezone-aware")
+        if self.from_ts is not None and self.to_ts is not None:
+            validate_timestamp_range(self.from_ts, self.to_ts)
         return self

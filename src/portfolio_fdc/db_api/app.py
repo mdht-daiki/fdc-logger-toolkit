@@ -82,6 +82,10 @@ JUDGE_LEVEL_PATTERN = r"^(OK|WARN|NG)$"
 RESULT_ID_PATTERN = r"^JR_[0-9]+$"
 
 
+class ReferencedChartNotFoundError(LookupError):
+    """変更申請で参照した chart_id が存在しない場合に送出する。"""
+
+
 def _legacy_delete_headers(process_id: str | None) -> dict[str, str]:
     """旧 DELETE `/processes` の移行ヘッダを生成する。"""
     if process_id is None:
@@ -803,6 +807,13 @@ def create_governance_change_request(payload: ChangeRequestIn, runner: RunnerDep
         con = _connect(MAIN_DB)
         try:
             con.execute("BEGIN")
+            chart_exists = con.execute(
+                "SELECT 1 FROM ChartsV2 WHERE id = ? LIMIT 1",
+                (payload.chart_id,),
+            ).fetchone()
+            if chart_exists is None:
+                raise ReferencedChartNotFoundError(payload.chart_id)
+
             request_id = _governance_change_request_repository.create(
                 con,
                 chart_id=payload.chart_id,
@@ -836,6 +847,11 @@ def create_governance_change_request(payload: ChangeRequestIn, runner: RunnerDep
     try:
         data = runner.submit("write", _write)
         return {"ok": True, "data": data}
+    except ReferencedChartNotFoundError:
+        return _not_found_error_response(
+            message="chart not found",
+            details={"chart_id": str(payload.chart_id)},
+        )
     except sqlite3.IntegrityError as e:
         if _is_duplicate_change_request_idempotency_error(e):
             return _duplicate_idempotency_error_response(

@@ -271,6 +271,13 @@ def test_get_change_requests_returns_envelope_contract(
     body = res.json()
     assert body["ok"] is True
     assert isinstance(body["data"], list)
+    assert body["data"]
+    proposed_at_values = [row["proposed_at"] for row in body["data"]]
+    assert "2026-05-02T00:00:00.000Z" in proposed_at_values
+    for proposed_at in proposed_at_values:
+        assert isinstance(proposed_at, str)
+        parsed = datetime.fromisoformat(proposed_at.replace("Z", "+00:00"))
+        assert parsed.tzinfo is not None
 
 
 def test_get_change_requests_filters_by_status(
@@ -544,6 +551,29 @@ def test_post_change_requests_returns_409_for_duplicate_idempotency_key(
         assert body["ok"] is False
         assert body["error"]["code"] == "DUPLICATE_IDEMPOTENCY_KEY"
         assert body["error"]["details"]["idempotency_key"] == idempotency_key
+    finally:
+        _delete_change_request_by_idempotency(idempotency_key)
+
+
+def test_post_change_requests_returns_404_for_missing_chart_id(client: TestClient) -> None:
+    idempotency_key = f"post-missing-chart-{uuid4().hex[:12]}"
+    try:
+        res = client.post(
+            "/governance/change-requests",
+            json={
+                "chart_id": 9223372036854775807,
+                "proposed_by": "tester",
+                "change_payload": "{}",
+                "expected_version": 1,
+                "idempotency_key": idempotency_key,
+            },
+        )
+
+        assert res.status_code == 404
+        body = res.json()
+        assert body["ok"] is False
+        assert body["error"]["code"] == "NOT_FOUND"
+        assert body["error"]["details"]["chart_id"] == "9223372036854775807"
     finally:
         _delete_change_request_by_idempotency(idempotency_key)
 

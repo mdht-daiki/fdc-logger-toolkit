@@ -1,5 +1,268 @@
 # Decision Log
 
+## 2026-05-07: `#141` POST /governance/change-requests - リクエストボディ項目を確定
+
+日付基準: JST
+
+### Context
+
+`#141` の POST 実装で、`ChangeRequestIn` の入力契約を固定しないと
+API 実装・422 テスト・クライアント実装の整合が崩れる懸念があった。
+
+### Decision
+
+1. POST の受け付け項目を以下で固定する
+   - `chart_id`（int, 必須）
+   - `proposed_by`（string, 必須）
+   - `change_payload`（string, 必須）
+   - `expected_version`（int, 必須）
+   - `idempotency_key`（string, 必須）
+2. `change_payload` は JSON パース可能性のみを検証する
+3. `chart_id` の存在確認は POST 時に行わず、apply フェーズ責務とする
+
+### Why
+
+1. Child 2 の責務を「申請受理」に限定し、契約を最小化するため
+2. 詳細妥当性検証を apply フェーズへ分離し、段階実装の境界を明確化するため
+3. 必須項目を固定することで 422 契約を機械的に検証しやすくするため
+
+### Consequence
+
+1. `ChangeRequestIn` は上記 5 項目の必須入力として実装する
+2. 不足項目・型不正は 422（validation error envelope）で返す
+3. `change_payload` 非 JSON は 422 で返し、内容妥当性は apply フェーズで扱う
+
+## 2026-05-07: `#141` GovernanceChangeRequestRepository.list() - SQL 契約を確定
+
+日付基準: JST
+
+### Context
+
+`#141` の GET 実装前提として、repository 層の `list()` における
+フィルタ対象・並び順・ページネーション・0 件時挙動を固定する必要があった。
+この契約を固定しないと、`app.py` 実装と GET テスト期待値の整合が崩れる懸念があった。
+
+### Decision
+
+1. `list()` の受け付け条件は `status`, `chart_id`, `from_ts`, `to_ts`, `limit`, `offset` とする
+2. `from_ts` / `to_ts` は `proposed_at` カラムに適用する
+3. 並び順は `proposed_at DESC, id DESC` で固定する
+4. 0 件時は例外ではなく空リストを返す
+
+### Why
+
+1. GET 契約（Discussion #192 と 2026-05-07 の GET 方針決定）に一致させるため
+2. 同一 `proposed_at` の場合に `id` で決定的順序を確保するため
+3. API 層で `{ok: true, data: []}` を安定して返せるようにするため
+
+### Consequence
+
+1. `GovernanceChangeRequestRepository.list()` は動的 WHERE + 固定 ORDER BY + LIMIT/OFFSET を実装する
+2. repository テストは 0 件、フィルタ、`limit`/`offset` 境界を必須で検証する
+3. GET endpoint 実装時はこの `list()` 契約をそのまま利用する
+
+## 2026-05-07: `#141` GET /governance/change-requests - 接続方式・依存注入・テスト観点を確定
+
+日付基準: JST
+
+### Context
+
+`#141` の GET 実装に向けて、以下 3 点を実装前に固定する必要があった。
+
+1. DB 接続方式（read-only 直結 or `DBTaskRunner` 経由）
+2. app 実装での依存注入パターン
+3. 最小必須の GET テスト観点
+
+既存の read endpoint（`/charts*`, `/judge/results*`）は read path と write path を分離しており、
+write の直列化責務は `DBTaskRunner`、read は直接 read-only 接続という運用で統一されている。
+
+### Decision
+
+1. `GET /governance/change-requests` は read-only 直接接続を採用し、`DBTaskRunner` は経由しない
+2. 依存注入パターンは以下で固定する
+   - POST: `RunnerDep`（`DBTaskRunner` 経由で write 実行）
+   - GET: `RunnerDep` を使わず read-only 直接接続
+3. GET テストの最小必須観点を以下で固定する
+   - 0 件時レスポンス（`{ok: true, data: []}`）
+   - フィルタ（`status`, `chart_id`, `from_ts`/`to_ts`）
+   - ページネーション境界（`limit`, `offset`）
+
+### Why
+
+1. write 直列化と read 応答性の責務を分離し、既存 db_api パターンと整合を保つため
+2. GET を runner 非依存にすることで read path の実装を簡潔に保てるため
+3. テスト観点を先に固定することで repository / endpoint の受け入れ条件を揃えられるため
+
+### Consequence
+
+1. `app.py` では POST のみ `RunnerDep` を受け取り、GET は read-only 接続で `list()` を呼び出す
+2. `GovernanceChangeRequestRepository.list()` は 0 件時に空配列を返す実装を前提とする
+3. `tests/db_api/` に GET の 0 件・フィルタ・`limit`/`offset` 境界テストを追加する
+
+## 2026-05-07: `#141` POST /governance/change-requests - 正常レスポンス契約を ok/data 形式で確定
+
+日付基準: JST
+
+### Context
+
+`#141` の POST 実装で、正常系レスポンスの envelope と最小フィールドが未確定だった。
+API テストと画面側の受け取り仕様が揺れないよう、実装前に固定が必要だった。
+
+### Decision
+
+1. 正常系レスポンスは ok/data 形式とする
+   ```json
+   {
+     "ok": true,
+     "data": {
+       "request_id": <int>,
+       "status": "pending"
+     }
+   }
+   ```
+2. data の最小必須フィールドは request_id と status に絞る
+3. 初期 status 値は "pending" で固定する
+
+### Why
+
+1. 既存 endpoint の成功レスポンス慣習と整合しやすい
+2. クライアント契約が単純で拡張時に後方互換を保ちやすい
+3. 最小フィールドに絞ることで実装複雑性を抑える
+
+### Consequence
+
+1. ChangeRequestIn スキーマの POST 返却型を ok/data 形式で実装する
+2. 初期 status は DB デフォルト pending を使用
+3. POST テストは `response["ok"] == true` と `response["data"]["request_id"]` の検証を最小必須とする
+
+## 2026-05-07: `#141` POST /governance/change-requests - 監査イベント名を `change_requested` で確定
+
+日付基準: JST
+
+### Context
+
+`#141` の POST 実装で、申請作成時に記録する監査イベントの命名が
+`change_requested` と `change_request_created` で揺れていた。
+命名を固定しないと、テスト・実装・運用検索クエリの不整合が発生するため、Discussion 1 で確定が必要だった。
+
+### Decision
+
+1. POST 申請作成時の `event_type` は `change_requested` を正式名とする
+2. `change_request_created` は採用しない
+
+### Why
+
+1. 既存 decision-log のイベント語彙と整合し、移行コストが低い
+2. 「申請された」という業務イベントを簡潔に表現できる
+3. approve/apply 系イベント名との対応関係が分かりやすい
+
+### Consequence
+
+1. `POST /governance/change-requests` の監査イベント検証は `event_type == change_requested` を期待値とする
+2. checklist とテスト観点の event_type 表記を `change_requested` に統一する
+3. 実装時に `change_request_created` を新規導入しない
+
+## 2026-05-06: `#141` GET /governance/change-requests - Discussion #192 フィルタ仕様とページネーション確定
+
+日付基準: JST
+
+### Context
+
+`#141` の GET 実装で、検索フィルタ範囲とページネーション既定値を先に固定しないと、
+repository 実装・Pydantic スキーマ・契約テストの前提が揃わない状態だった。
+
+### Decision
+
+1. Phase 1 のフィルタ対象は `status`, `chart_id`, `from_ts`, `to_ts` の 4 種とする
+2. `from_ts` / `to_ts` の対象カラムは `proposed_at` 固定とする
+3. `proposed_by` フィルタは Phase 1 では採用しない（必要時に Phase 2 以降で追加検討）
+4. ページネーションは以下で固定する
+
+- `limit`: default 100, max 500
+- `offset`: default 0, 上限なし
+
+### Why
+
+1. Child 2 の責務を「申請一覧の最小検索」に絞り、実装複雑性を抑えるため
+2. `proposed_at` 固定にすることで、動的カラム指定を避けて SQL の安全性と可読性を保つため
+3. `proposed_by` は後方互換を壊さず追加できるため、先に最小契約を確定するため
+
+### Consequence
+
+1. `ChangeRequestsQuery` は上記 4 フィルタ + `limit` / `offset` を受け付ける
+2. `GovernanceChangeRequestRepository.list()` は `proposed_at` に対して期間条件を適用する
+3. GET 契約テストは、4 フィルタと `limit=1` / `offset` 境界を最小必須ケースとする
+
+## 2026-05-06: `#141` POST /governance/change-requests - idempotency_key 重複時レスポンスを B で確定
+
+日付基準: JST
+
+### Context
+
+`#141` の POST 実装において、同一 `idempotency_key` の再送時に 409 を返す方針は既に合意済みだったが、
+409 時のレスポンス形式（A/B/C）が未確定だった。
+
+### Decision
+
+**方針:** B を採用する。
+
+- 重複時は HTTP 409 を返す
+- レスポンス形式は error envelope とする
+- `error.code` は `DUPLICATE_IDEMPOTENCY_KEY` を使用する
+- `details` に `idempotency_key` を含める
+- `request_id` は返さない
+
+### Why
+
+1. 404 で採用済みの error envelope 方針と整合を取りやすい
+2. クライアントが `error.code` による機械判定をしやすい
+3. Child 2 の最小実装として、追加クエリなしで確定できる
+
+### Consequence
+
+1. `POST /governance/change-requests` の duplicate キーは 409 + envelope で統一する
+2. API テストに `error.code == DUPLICATE_IDEMPOTENCY_KEY` と `details.idempotency_key` の検証を追加する
+3. `request_id` 返却要件は採用しない（必要なら Phase 2 で再検討）
+
+## 2026-05-06: `#141` POST /governance/change-requests - Discussion #190 論点1-2 確定
+
+日付基準: JST
+
+### Context
+
+`#141`（POST/GET change-requests 実装）で、POST 実装前提となる以下 2 論点の合意が必要だった。
+
+1. `change_payload` のバリデーション範囲
+2. `chart_id` の存在確認タイミング
+
+### Decision
+
+#### 論点1: change_payload のバリデーション範囲
+
+**方針:** A を採用する。
+
+- POST では `change_payload` の JSON パース可能性のみを検証する。
+- payload 内容（しきい値項目の妥当性、適用可能性）の詳細検証は apply フェーズで行う。
+
+#### 論点2: chart_id の存在確認タイミング
+
+**方針:** B を採用する。
+
+- POST 時には `chart_id` の存在確認を行わない。
+- 申請登録は `GovernanceChangeRequests` への INSERT を優先し、存在確認は apply フェーズで扱う。
+
+### Why
+
+1. Child 2 の責務を「申請受理」に絞り、実装と運用を簡潔に保つため
+2. payload 詳細検証や chart 実在性検証は apply の責務とした方が責務分離が明確なため
+3. 段階実装（#141 -> #142）で仕様を分離した方がテストとロールバックの境界が明確になるため
+
+### Consequence
+
+1. `POST /governance/change-requests` は JSON 形式不正のみ 422 対象とする
+2. `POST /governance/change-requests` は `chart_id` 非存在を POST 時点で 404 判定しない
+3. apply 時の検証エラー系（chart 不在、payload 内容不正）を `#142` の受け入れ条件で明文化する
+
 ## 2026-05-05: `#140` governance schema 基盤 - 論点12 既存 DB への適用順・既存テーブル影響なし宣言
 
 日付基準: JST

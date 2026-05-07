@@ -83,6 +83,48 @@ class GovernanceChangeRequestRepository:
         if cur.rowcount == 0:
             raise GovernanceNotFoundError(f"GovernanceChangeRequests id={record_id} not found")
 
+    def list(
+        self,
+        con: sqlite3.Connection,
+        *,
+        status: str | None = None,
+        chart_id: int | None = None,
+        from_ts: str | None = None,
+        to_ts: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[ChangeRequestRow]:
+        """条件に一致する申請一覧を返す。0 件時は空リストを返す。"""
+        sql = """
+            SELECT id, chart_id, status, proposed_by, proposed_at,
+                   change_payload, expected_version, idempotency_key
+            FROM GovernanceChangeRequests
+        """
+        where_clauses: list[str] = []
+        params: list[object] = []
+
+        if status is not None:
+            where_clauses.append("status = ?")
+            params.append(status)
+        if chart_id is not None:
+            where_clauses.append("chart_id = ?")
+            params.append(chart_id)
+        if from_ts is not None:
+            where_clauses.append("datetime(proposed_at) >= datetime(?)")
+            params.append(from_ts)
+        if to_ts is not None:
+            where_clauses.append("datetime(proposed_at) <= datetime(?)")
+            params.append(to_ts)
+
+        if where_clauses:
+            sql += " WHERE " + " AND ".join(where_clauses)
+
+        sql += " ORDER BY datetime(proposed_at) DESC, id DESC LIMIT ? OFFSET ?"
+        params.extend((limit, offset))
+
+        rows = con.execute(sql, params).fetchall()
+        return [ChangeRequestRow(*row) for row in rows]
+
 
 # ---------------------------------------------------------------------------
 # GovernanceApprovals

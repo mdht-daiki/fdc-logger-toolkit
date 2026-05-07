@@ -31,13 +31,16 @@ from .aggregate_repository import (
     write_process,
     write_step_windows_bulk,
 )
+from .audit_event_writer import AuditEventWriter
 from .chart_repository import (
     ActiveChartsQueryCriteria,
     ChartRepository,
     ChartsHistoryQueryCriteria,
     ChartsQueryCriteria,
 )
-from .db import MAIN_DB, TEMP_DB, _connect_readonly, _init_schema
+from .datetime_util import to_utc_millis
+from .db import MAIN_DB, TEMP_DB, _connect, _connect_readonly, _init_schema
+from .governance_repository import GovernanceChangeRequestRepository
 from .judge_repository import (
     JudgeDataCorruptionError,
     JudgeRepository,
@@ -45,6 +48,8 @@ from .judge_repository import (
 )
 from .schemas import (
     AggregateWriteIn,
+    ChangeRequestIn,
+    ChangeRequestsQuery,
     ParameterIn,
     ProcessDeleteIn,
     ProcessInfoIn,
@@ -75,6 +80,10 @@ CHARTS_FILTER_MAX_LENGTH = 128
 CHART_ID_PATTERN = r"^CHART_[0-9]+$"
 JUDGE_LEVEL_PATTERN = r"^(OK|WARN|NG)$"
 RESULT_ID_PATTERN = r"^JR_[0-9]+$"
+
+
+class ReferencedChartNotFoundError(LookupError):
+    """変更申請で参照した chart_id が存在しない場合に送出する。"""
 
 
 def _legacy_delete_headers(process_id: str | None) -> dict[str, str]:
@@ -252,6 +261,8 @@ def _raise_api_error(
 RunnerDep = Annotated[DBTaskRunner, Depends(get_runner)]
 _chart_repository = ChartRepository()
 _judge_repository = JudgeRepository()
+_governance_change_request_repository = GovernanceChangeRequestRepository()
+_audit_event_writer = AuditEventWriter()
 
 
 @app.get("/charts")
@@ -349,7 +360,7 @@ def _normalize_query_datetime(raw: datetime | None) -> str | None:
             status_code=400,
             detail="from_ts and to_ts must be timezone-aware datetimes",
         )
-    return raw.astimezone(UTC).isoformat()
+    return to_utc_millis(raw.isoformat())
 
 
 def _validate_query_datetime_range(
@@ -437,6 +448,30 @@ def _not_found_error_response(*, message: str, details: dict[str, str]) -> JSONR
                 "details": details,
             },
         },
+    )
+
+
+def _duplicate_idempotency_error_response(*, idempotency_key: str) -> JSONResponse:
+    """重複 idempotency_key への 409 error envelope を返す。"""
+    return JSONResponse(
+        status_code=409,
+        content={
+            "ok": False,
+            "error": {
+                "code": "DUPLICATE_IDEMPOTENCY_KEY",
+                "message": "idempotency_key already exists",
+                "details": {"idempotency_key": idempotency_key},
+            },
+        },
+    )
+
+
+def _is_duplicate_change_request_idempotency_error(error: sqlite3.IntegrityError) -> bool:
+    """GovernanceChangeRequests.idempotency_key の UNIQUE 違反かを判定する。"""
+    message = str(error)
+    return (
+        "GovernanceChangeRequests.idempotency_key" in message
+        or "idx_change_requests_idempotency" in message
     )
 
 
@@ -737,6 +772,94 @@ def get_judge_result_by_id(
         raise HTTPException(status_code=500, detail="Internal server error") from e
     except Exception as e:
         _raise_api_error(operation="GET /judge/results/{result_id}", error=e)
+
+
+@app.get("/governance/change-requests")
+def get_governance_change_requests(
+    query: Annotated[ChangeRequestsQuery, Depends()],
+):
+    """ガバナンス変更申請一覧を返す。"""
+    con = _connect_readonly(MAIN_DB)
+    try:
+        rows = _governance_change_request_repository.list(
+            con,
+            status=query.status,
+            chart_id=query.chart_id,
+            from_ts=_normalize_query_datetime(query.from_ts),
+            to_ts=_normalize_query_datetime(query.to_ts),
+            limit=query.limit,
+            offset=query.offset,
+        )
+        return {"ok": True, "data": [asdict(row) for row in rows]}
+    except Exception as e:
+        _raise_api_error(operation="GET /governance/change-requests", error=e)
+    finally:
+        con.close()
+
+
+@app.post("/governance/change-requests")
+def create_governance_change_request(payload: ChangeRequestIn, runner: RunnerDep):
+    """ガバナンス変更申請を作成する。"""
+
+    proposed_at = to_utc_millis(datetime.now(UTC).isoformat())
+
+    def _write() -> dict[str, int | str]:
+        con = _connect(MAIN_DB)
+        try:
+            con.execute("BEGIN")
+            chart_exists = con.execute(
+                "SELECT 1 FROM ChartsV2 WHERE id = ? LIMIT 1",
+                (payload.chart_id,),
+            ).fetchone()
+            if chart_exists is None:
+                raise ReferencedChartNotFoundError(payload.chart_id)
+
+            request_id = _governance_change_request_repository.create(
+                con,
+                chart_id=payload.chart_id,
+                proposed_by=payload.proposed_by,
+                proposed_at=proposed_at,
+                change_payload=payload.change_payload,
+                expected_version=payload.expected_version,
+                idempotency_key=payload.idempotency_key,
+            )
+
+            _audit_event_writer.write(
+                con,
+                event_type="change_requested",
+                actor=payload.proposed_by,
+                actor_role="requester",
+                target_type="change_request",
+                target_id=request_id,
+                occurred_at=proposed_at,
+                correlation_id=payload.idempotency_key,
+            )
+
+            row = _governance_change_request_repository.find_by_id(con, request_id)
+            con.commit()
+            return {"request_id": request_id, "status": row.status}
+        except Exception:
+            con.rollback()
+            raise
+        finally:
+            con.close()
+
+    try:
+        data = runner.submit("write", _write)
+        return {"ok": True, "data": data}
+    except ReferencedChartNotFoundError:
+        return _not_found_error_response(
+            message="chart not found",
+            details={"chart_id": str(payload.chart_id)},
+        )
+    except sqlite3.IntegrityError as e:
+        if _is_duplicate_change_request_idempotency_error(e):
+            return _duplicate_idempotency_error_response(
+                idempotency_key=payload.idempotency_key,
+            )
+        _raise_api_error(operation="POST /governance/change-requests", error=e)
+    except Exception as e:
+        _raise_api_error(operation="POST /governance/change-requests", error=e)
 
 
 @app.post("/processes")

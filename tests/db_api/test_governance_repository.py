@@ -96,6 +96,27 @@ def test_init_schema_does_not_alter_existing_columns(db_path: Path) -> None:
 class TestGovernanceChangeRequestRepository:
     repo = GovernanceChangeRequestRepository()
 
+    def _create_request(
+        self,
+        con: sqlite3.Connection,
+        *,
+        chart_id: int,
+        proposed_by: str,
+        proposed_at: str,
+        idempotency_key: str,
+    ) -> int:
+        rid = self.repo.create(
+            con,
+            chart_id=chart_id,
+            proposed_by=proposed_by,
+            proposed_at=proposed_at,
+            change_payload="{}",
+            expected_version=1,
+            idempotency_key=idempotency_key,
+        )
+        con.commit()
+        return rid
+
     def test_create_and_find_by_id(self, con: sqlite3.Connection) -> None:
         cid = _chart_id(con)
         new_id = self.repo.create(
@@ -166,6 +187,118 @@ class TestGovernanceChangeRequestRepository:
                 expected_version=1,
                 idempotency_key="dup-key",
             )
+
+    def test_list_returns_empty_when_no_records(self, con: sqlite3.Connection) -> None:
+        rows = self.repo.list(con)
+        assert rows == []
+
+    def test_list_filters_by_status_and_chart_id(self, con: sqlite3.Connection) -> None:
+        chart_1 = _chart_id(con)
+        chart_2_row_id = con.execute(
+            """
+            INSERT INTO ChartsV2
+                (chart_set_id, tool_id, chamber_id, recipe_id, parameter,
+                 step_no, feature_type, updated_at)
+            VALUES (1, 'T01', 'C01', 'R01', 'param2', 2, 'mean', '2026-01-01T00:00:00.000Z')
+            """
+        ).lastrowid
+        if chart_2_row_id is None:
+            raise RuntimeError("Failed to insert chart row for test")
+        chart_2 = int(chart_2_row_id)
+        con.commit()
+
+        req_1 = self._create_request(
+            con,
+            chart_id=chart_1,
+            proposed_by="alice",
+            proposed_at="2026-05-01T00:00:00.000Z",
+            idempotency_key="list-key-1",
+        )
+        req_2 = self._create_request(
+            con,
+            chart_id=chart_1,
+            proposed_by="bob",
+            proposed_at="2026-05-01T01:00:00.000Z",
+            idempotency_key="list-key-2",
+        )
+        req_3 = self._create_request(
+            con,
+            chart_id=chart_2,
+            proposed_by="carol",
+            proposed_at="2026-05-01T02:00:00.000Z",
+            idempotency_key="list-key-3",
+        )
+        self.repo.update_status(con, req_2, "approved")
+        con.commit()
+
+        rows = self.repo.list(con, status="pending", chart_id=chart_1)
+
+        assert [r.id for r in rows] == [req_1]
+        assert all(r.status == "pending" for r in rows)
+        assert all(r.chart_id == chart_1 for r in rows)
+        assert req_3 not in [r.id for r in rows]
+
+    def test_list_filters_by_from_to(self, con: sqlite3.Connection) -> None:
+        chart_id = _chart_id(con)
+        req_1 = self._create_request(
+            con,
+            chart_id=chart_id,
+            proposed_by="alice",
+            proposed_at="2026-05-01T00:00:00.000Z",
+            idempotency_key="range-key-1",
+        )
+        req_2 = self._create_request(
+            con,
+            chart_id=chart_id,
+            proposed_by="bob",
+            proposed_at="2026-05-02T00:00:00.000Z",
+            idempotency_key="range-key-2",
+        )
+        req_3 = self._create_request(
+            con,
+            chart_id=chart_id,
+            proposed_by="carol",
+            proposed_at="2026-05-03T00:00:00.000Z",
+            idempotency_key="range-key-3",
+        )
+
+        rows = self.repo.list(
+            con,
+            from_ts="2026-05-02T00:00:00.000Z",
+            to_ts="2026-05-03T00:00:00.000Z",
+        )
+
+        assert [r.id for r in rows] == [req_3, req_2]
+        assert req_1 not in [r.id for r in rows]
+
+    def test_list_applies_limit_and_offset(self, con: sqlite3.Connection) -> None:
+        chart_id = _chart_id(con)
+        self._create_request(
+            con,
+            chart_id=chart_id,
+            proposed_by="alice",
+            proposed_at="2026-05-01T00:00:00.000Z",
+            idempotency_key="page-key-1",
+        )
+        req_2 = self._create_request(
+            con,
+            chart_id=chart_id,
+            proposed_by="bob",
+            proposed_at="2026-05-02T00:00:00.000Z",
+            idempotency_key="page-key-2",
+        )
+        self._create_request(
+            con,
+            chart_id=chart_id,
+            proposed_by="carol",
+            proposed_at="2026-05-03T00:00:00.000Z",
+            idempotency_key="page-key-3",
+        )
+
+        rows = self.repo.list(con, limit=1, offset=1)
+
+        assert len(rows) == 1
+        assert rows[0].id == req_2
 
 
 # ---------------------------------------------------------------------------

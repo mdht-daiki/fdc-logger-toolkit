@@ -1,67 +1,69 @@
-## 確定チェックリスト（#140 実装前）
+# #141 Definition of Done
 
-### 📋 テーブル設計・スキーマ
+## POST/GET /governance/change-requests 実装
 
-- [x] **change_requests** 列定義（request_id, chart_id, status, proposed_by, proposed_at, ...）
-- [x] **approvals** 列定義（approval_id, request_id, approved_by, approved_at, comment）
-- [x] **apply_results** 列定義（apply_id, request_id, applied_at, success, error_message）
-- [x] **emergency_changes** 列定義（ec_id, chart_id, changed_by, changed_at, reason, is_ratified）
-- [x] **ratifications** 列定義（ratification_id, ec_id, ratified_by, ratified_at, comment）
-- [x] **audit_events** 列定義（event_id, event_type, target_id, changed_by, changed_at, before_json, after_json）
-- [x] **notification_outbox** 列定義（outbox_id, event_id, status, retry_count, next_retry_at, last_error）
-- [x] 各テーブルの主キー型を確定（UUID / ULID / INTEGER autoincrement）
-- [x] 外部キー制約の有無と `ON DELETE` 挙動を確定
+### 🔧 設計確定（実装前に合意）
 
-### 🔄 状態遷移
+- [x] POST リクエストボディの必須/任意フィールドを確定（`chart_id`, `proposed_by`, `change_payload`, `expected_version`, `idempotency_key`）
+- [x] `change_payload` のバリデーション範囲を確定（A: JSON パース可能性のみ）
+- [x] `idempotency_key` 重複時の HTTP ステータスを確定（409 + B: error envelope）
+- [x] POST 時に `chart_id` の存在確認を行うかどうかを確定（B: POST 時は確認しない）
+- [x] POST レスポンス形式を確定（A: ok/data 形式で固定、data は request_id と status を含む）
+- [x] 初期 `status` 値を確定（`"pending"`）
+- [x] GET フィルタ仕様を確定（`status`, `chart_id`, `from_ts` / `to_ts`、期間対象は `proposed_at` 固定、`proposed_by` は Phase 1 で除外）
+- [x] GET の `limit` / `offset` デフォルト値と上限を確定（`limit`: default 100, max 500 / `offset`: default 0, 上限なし）
+- [x] GET の DB 接続方式を確定（read-only 直接接続、`DBTaskRunner` 経由なし）
+- [x] app 実装での依存注入パターンを確定（POST は `RunnerDep` / GET は read-only 直接接続）
+- [x] GET テスト観点を確定（0件時、`status`/`chart_id`/`from_ts`/`to_ts` フィルタ、`limit`/`offset` 境界）
+- [x] POST 時の監査イベント `event_type` 値を確定（`"change_requested"`）
 
-- [x] change_request の status 一覧（例: `draft` → `approved` → `applied` / `rejected`）
-- [x] 二重 approve の扱い（409 か冪等成功か）
-- [x] 未承認 apply の扱い（400 か 409 か）
-- [x] ratify の重複追認の扱い（409 か冪等成功か）
+### 🗂️ Repository 層
 
-### 🔍 監査イベント契約
+- [x] `GovernanceChangeRequestRepository.list()` メソッドを追加（status / chart_id / from_ts / to_ts / limit / offset でフィルタ）
+- [x] `list()` で 0件時に空リストを返す（例外なし）
 
-- [x] `event_type` 一覧を固定（`change_requested`, `approved`, `applied`, `emergency_changed`, `ratified`, `notified`, `retry_succeeded`, `retry_failed` など）
-- [x] `before_json` / `after_json` の差分形式（changed fields のみ or フル snapshot）
-- [x] audit writer の配置責務（共通 service か repository 内か）
+### 📐 Pydantic スキーマ（`schemas.py`）
 
-### ⏱️ Timestamp 正規化
+- [x] `ChangeRequestIn` — POST リクエストボディモデル追加
+- [x] `ChangeRequestsQuery` — GET クエリパラメータモデル追加（フィルタ + limit/offset）
+- [x] timestamp フィールドは `datetime` 型で受け取り、UTC ISO 8601 ミリ秒に正規化
 
-- [x] 正規化処理の責務先を確定（repository 共通 util か service 層か）
-- [x] マイクロ秒以下の切り捨てを共通関数で一元化することを明文化
+### 🌐 エンドポイント実装（`app.py`）
 
-### 🔧 Migration / 初期化
+- [x] `POST /governance/change-requests` 実装
+  - [x] 正常時: `request_id` と初期 `status` を `{ok: true, data: {...}}` で返す
+  - [x] `idempotency_key` 重複時: 409 を返す
+  - [x] バリデーション不正時: 422 を返す（Pydantic / FastAPI 既存ハンドラで処理）
+  - [x] 申請作成直後に `AuditEventWriter` で監査イベントを記録する
+  - [x] write は `DBTaskRunner` 経由で実行する
+- [x] `GET /governance/change-requests` 実装
+  - [x] status / chart_id / from_ts / to_ts / limit / offset フィルタを受け付ける
+  - [x] 0件時は `{ok: true, data: []}` を返す
+  - [x] read-only のため `DBTaskRunner` 経由なしで直接接続する
 
-- [x] 冪等初期化（`CREATE TABLE IF NOT EXISTS` or migration ツール）の方針確定
-- [x] 既存 DB への適用順（既存テーブルへの影響なし宣言）
-- [x] forward-only 前提の明文化
+### ✅ テスト（`tests/db_api/` に追加）
 
-### 📬 Notification Outbox Retry モデル
+#### POST テスト
 
-- [x] 初期 `status` 値（例: `pending` / `failed` / `sent`）
-- [x] `retry_count` 上限値
-- [x] `next_retry_at` の算出方式（固定間隔 or 指数バックオフ）
-- [x] 最終失敗時の監査イベント連携（`retry_failed` として audit_events に残すか）
+- [x] POST 正常系: 200, レスポンスに `request_id`（int）と `status: "pending"` が含まれる
+- [x] POST envelope 契約: `ok: true`, `data` キーが存在する
+- [x] POST 422: 必須フィールド欠落でバリデーションエラー
+- [x] POST 422: `chart_id` が整数でない場合
+- [x] POST 409: 同一 `idempotency_key` で2回 POST すると 409 が返る
+- [x] POST 監査イベント: POST 成功後に `GovernanceAuditEvents` に 1件追加される
+- [x] POST 監査イベント: `event_type` が `"change_requested"` である
 
-### 🗂️ Repository インターフェース
+#### GET テスト
 
-- [x] 各テーブルの最小 CRUD スコープ（create/read のみか update/delete も含むか）
-- [x] トランザクション境界（apply = ChartsHistory書き込み + audit_event が 1 atomic か）
-
-### ✅ テスト受け入れ条件の具体化
-
-- [ ] schema 初期化の冪等性テスト（2回実行してもエラーなし）
-- [ ] repository 正常 CRUD テスト（最小1件ずつ）
-- [ ] repository 異常系テスト（存在しない ID、制約違反）
-- [ ] audit event の自動必須項目テスト（changed_by / changed_at / before / after が全て記録されること）
-- [x] timestamp 正規化テスト（ミリ秒固定、マイクロ秒切り捨て）
+- [x] GET 正常系: 0件のとき `{ok: true, data: []}` を返す
+- [x] GET envelope 契約: `ok: true`, `data` がリスト型である
+- [x] GET フィルタ `status`: 該当するレコードのみ返る
+- [x] GET フィルタ `chart_id`: 該当するレコードのみ返る
+- [x] GET フィルタ `from_ts` / `to_ts`: 期間外レコードが除外される
+- [x] GET `limit` 境界: `limit=1` のとき最大1件のみ返る
+- [x] GET `offset` 境界: `offset` で先頭 n 件をスキップできる
 
 ### 📄 ドキュメント更新（同一 PR で必須）
 
-- [x] db-api-endpoints.md の governance endpoint tracking 更新
-- [x] decision-log.md にスキーマ/状態遷移確定を記録
-- [x] 必要なら architecture.md の db_api 責務記述を補完
-
----
-
-使い方: チェックが全部入った状態を Issue #140 の DoD に追加し、未確定の行は実装 PR を開く前に Discussion か Issue コメントで方針を決める、という流れが最もシンプルです。
+- [x] `docs/db-api-endpoints.md`: `POST /governance/change-requests` と `GET /governance/change-requests` のステータスを `planned` → `implemented` に変更
+- [x] `docs/chart-governance-playbook.md`: 通常変更フロー（POST/GET の動作仕様）を追記

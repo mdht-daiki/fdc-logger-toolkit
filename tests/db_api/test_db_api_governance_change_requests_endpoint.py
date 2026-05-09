@@ -555,7 +555,9 @@ def test_post_change_requests_returns_409_for_duplicate_idempotency_key(
         _delete_change_request_by_idempotency(idempotency_key)
 
 
-def test_post_change_requests_returns_404_for_missing_chart_id(client: TestClient) -> None:
+def test_post_change_requests_accepts_missing_chart_id_for_apply_phase_validation(
+    client: TestClient,
+) -> None:
     idempotency_key = f"post-missing-chart-{uuid4().hex[:12]}"
     try:
         res = client.post(
@@ -569,11 +571,12 @@ def test_post_change_requests_returns_404_for_missing_chart_id(client: TestClien
             },
         )
 
-        assert res.status_code == 404
-        body = res.json()
-        assert body["ok"] is False
-        assert body["error"]["code"] == "NOT_FOUND"
-        assert body["error"]["details"]["chart_id"] == "9223372036854775807"
+        assert res.status_code == 422
+        assert_validation_error_envelope(
+            res.json(),
+            expected_loc_fragment="chart_id",
+            expected_message_fragment="existing chart",
+        )
     finally:
         _delete_change_request_by_idempotency(idempotency_key)
 

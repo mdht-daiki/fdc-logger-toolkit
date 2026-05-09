@@ -82,10 +82,6 @@ JUDGE_LEVEL_PATTERN = r"^(OK|WARN|NG)$"
 RESULT_ID_PATTERN = r"^JR_[0-9]+$"
 
 
-class ReferencedChartNotFoundError(LookupError):
-    """変更申請で参照した chart_id が存在しない場合に送出する。"""
-
-
 def _legacy_delete_headers(process_id: str | None) -> dict[str, str]:
     """旧 DELETE `/processes` の移行ヘッダを生成する。"""
     if process_id is None:
@@ -466,6 +462,21 @@ def _duplicate_idempotency_error_response(*, idempotency_key: str) -> JSONRespon
     )
 
 
+def _validation_error_response(*, issues: list[dict[str, object]]) -> JSONResponse:
+    """契約準拠の 422 validation error envelope を返す。"""
+    return JSONResponse(
+        status_code=422,
+        content={
+            "ok": False,
+            "error": {
+                "code": "VALIDATION_ERROR",
+                "message": "Validation error",
+                "details": {"issues": issues},
+            },
+        },
+    )
+
+
 def _is_duplicate_change_request_idempotency_error(error: sqlite3.IntegrityError) -> bool:
     """GovernanceChangeRequests.idempotency_key の UNIQUE 違反かを判定する。"""
     message = str(error)
@@ -473,6 +484,11 @@ def _is_duplicate_change_request_idempotency_error(error: sqlite3.IntegrityError
         "GovernanceChangeRequests.idempotency_key" in message
         or "idx_change_requests_idempotency" in message
     )
+
+
+def _is_governance_change_request_chart_fk_error(error: sqlite3.IntegrityError) -> bool:
+    """GovernanceChangeRequests.chart_id の外部キー制約違反かを判定する。"""
+    return "foreign key constraint failed" in str(error).lower()
 
 
 def _build_waveform_preview(process_id: str, limit: int) -> dict[str, object]:
@@ -807,13 +823,6 @@ def create_governance_change_request(payload: ChangeRequestIn, runner: RunnerDep
         con = _connect(MAIN_DB)
         try:
             con.execute("BEGIN")
-            chart_exists = con.execute(
-                "SELECT 1 FROM ChartsV2 WHERE id = ? LIMIT 1",
-                (payload.chart_id,),
-            ).fetchone()
-            if chart_exists is None:
-                raise ReferencedChartNotFoundError(payload.chart_id)
-
             request_id = _governance_change_request_repository.create(
                 con,
                 chart_id=payload.chart_id,
@@ -847,15 +856,20 @@ def create_governance_change_request(payload: ChangeRequestIn, runner: RunnerDep
     try:
         data = runner.submit("write", _write)
         return {"ok": True, "data": data}
-    except ReferencedChartNotFoundError:
-        return _not_found_error_response(
-            message="chart not found",
-            details={"chart_id": str(payload.chart_id)},
-        )
     except sqlite3.IntegrityError as e:
         if _is_duplicate_change_request_idempotency_error(e):
             return _duplicate_idempotency_error_response(
                 idempotency_key=payload.idempotency_key,
+            )
+        if _is_governance_change_request_chart_fk_error(e):
+            return _validation_error_response(
+                issues=[
+                    {
+                        "loc": ["body", "chart_id"],
+                        "msg": "chart_id must reference an existing chart",
+                        "type": "value_error",
+                    }
+                ]
             )
         _raise_api_error(operation="POST /governance/change-requests", error=e)
     except Exception as e:

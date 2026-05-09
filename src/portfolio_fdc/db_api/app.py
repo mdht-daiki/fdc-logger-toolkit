@@ -58,6 +58,7 @@ from .schemas import (
     ChangeRequestApproveIn,
     ChangeRequestIn,
     ChangeRequestsQuery,
+    GovernanceAuditEventsQuery,
     ParameterIn,
     ProcessDeleteIn,
     ProcessInfoIn,
@@ -953,6 +954,71 @@ def get_governance_change_requests(
         return {"ok": True, "data": [asdict(row) for row in rows]}
     except Exception as e:
         _raise_api_error(operation="GET /governance/change-requests", error=e)
+    finally:
+        con.close()
+
+
+@app.get("/governance/audit-events")
+def get_governance_audit_events(
+    query: Annotated[GovernanceAuditEventsQuery, Depends()],
+):
+    """ガバナンス監査イベント一覧を返す。"""
+    con = _connect_readonly(MAIN_DB)
+    try:
+        _validate_query_datetime_range(query.from_ts, query.to_ts, require_pair=False)
+
+        sql = """
+            SELECT
+                id, event_type, actor, actor_role, target_type, target_id,
+                occurred_at, before_json, after_json, correlation_id
+            FROM GovernanceAuditEvents
+        """
+        where_clauses: list[str] = []
+        params: list[object] = []
+
+        if query.event_type is not None:
+            where_clauses.append("event_type = ?")
+            params.append(query.event_type)
+        if query.target_type is not None:
+            where_clauses.append("target_type = ?")
+            params.append(query.target_type)
+        if query.target_id is not None:
+            where_clauses.append("target_id = ?")
+            params.append(query.target_id)
+        if query.from_ts is not None:
+            where_clauses.append("datetime(occurred_at) >= datetime(?)")
+            params.append(_normalize_query_datetime(query.from_ts))
+        if query.to_ts is not None:
+            where_clauses.append("datetime(occurred_at) <= datetime(?)")
+            params.append(_normalize_query_datetime(query.to_ts))
+
+        if where_clauses:
+            sql += " WHERE " + " AND ".join(where_clauses)
+
+        sql += " ORDER BY datetime(occurred_at) DESC, id DESC LIMIT ? OFFSET ?"
+        params.extend((query.limit, query.offset))
+
+        rows = con.execute(sql, params).fetchall()
+        data = [
+            {
+                "id": int(row[0]),
+                "event_type": str(row[1]),
+                "actor": str(row[2]),
+                "actor_role": str(row[3]),
+                "target_type": str(row[4]),
+                "target_id": int(row[5]),
+                "occurred_at": str(row[6]),
+                "before_json": row[7],
+                "after_json": row[8],
+                "correlation_id": row[9],
+            }
+            for row in rows
+        ]
+        return {"ok": True, "data": data}
+    except HTTPException:
+        raise
+    except Exception as e:
+        _raise_api_error(operation="GET /governance/audit-events", error=e)
     finally:
         con.close()
 

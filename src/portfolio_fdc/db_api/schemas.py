@@ -143,6 +143,18 @@ class ChangeRequestsQuery(BaseModel):
         return self
 
 
+class GovernanceAuditEventsQuery(BaseModel):
+    """`/governance/audit-events` GET 用のクエリ入力モデル。"""
+
+    event_type: str | None = Field(default=None, min_length=1, max_length=64)
+    target_type: str | None = Field(default=None, min_length=1, max_length=64)
+    target_id: int | None = Field(default=None, ge=1)
+    from_ts: datetime | None = None
+    to_ts: datetime | None = None
+    limit: int = Field(default=100, ge=1, le=500)
+    offset: int = Field(default=0, ge=0)
+
+
 class ChangeRequestApproveIn(BaseModel):
     """`/governance/change-requests/{request_id}/approve` POST 用の入力モデル。"""
 

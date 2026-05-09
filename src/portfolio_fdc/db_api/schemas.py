@@ -149,3 +149,11 @@ class ChangeRequestApproveIn(BaseModel):
     approved_by: str = Field(min_length=1, max_length=128)
     approved_by_role: str = Field(min_length=1, max_length=64)
     comment: str | None = Field(default=None, max_length=1000)
+
+
+class ChangeRequestApplyIn(BaseModel):
+    """`/governance/change-requests/{request_id}/apply` POST 用の入力モデル。"""
+
+    applied_by: str = Field(min_length=1, max_length=128)
+    applied_by_role: str = Field(min_length=1, max_length=64)
+    reason: str | None = Field(default=None, max_length=1000)

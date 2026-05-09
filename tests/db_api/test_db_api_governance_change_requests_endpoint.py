@@ -79,6 +79,8 @@ def _insert_change_request(
     proposed_by: str,
     proposed_at: str,
     idempotency_key: str,
+    change_payload: str = "{}",
+    expected_version: int = 1,
 ) -> int:
     con = _connect(MAIN_DB)
     try:
@@ -93,8 +95,8 @@ def _insert_change_request(
                 chart_id,
                 proposed_by,
                 proposed_at,
-                "{}",
-                1,
+                change_payload,
+                expected_version,
                 idempotency_key,
             ),
         )
@@ -233,6 +235,41 @@ def _find_approval_count(request_id: int) -> int:
             (request_id,),
         ).fetchone()
         return int(row[0])
+    finally:
+        con.close()
+
+
+def _count_chart_history(chart_id: int) -> int:
+    con = _connect(MAIN_DB)
+    try:
+        row = con.execute(
+            "SELECT COUNT(*) FROM ChartsHistory WHERE chart_id = ?",
+            (chart_id,),
+        ).fetchone()
+        return int(row[0])
+    finally:
+        con.close()
+
+
+def _update_chart_version(chart_id: int, version: int) -> None:
+    con = _connect(MAIN_DB)
+    try:
+        con.execute("UPDATE ChartsV2 SET version = ? WHERE id = ?", (version, chart_id))
+        con.commit()
+    finally:
+        con.close()
+
+
+def _force_change_request_chart_id(request_id: int, chart_id: int) -> None:
+    con = _connect(MAIN_DB)
+    try:
+        con.execute("PRAGMA foreign_keys = OFF")
+        con.execute(
+            "UPDATE GovernanceChangeRequests SET chart_id = ? WHERE id = ?",
+            (chart_id, request_id),
+        )
+        con.execute("PRAGMA foreign_keys = ON")
+        con.commit()
     finally:
         con.close()
 
@@ -556,6 +593,163 @@ def test_post_approve_change_requests_returns_409_for_duplicate_approval(
     assert body["ok"] is False
     assert body["error"]["code"] == "ALREADY_APPROVED"
     assert body["error"]["details"]["request_id"] == str(request_id)
+
+
+def test_post_apply_change_requests_success_noop_does_not_add_history(
+    client: TestClient,
+    seeded_change_requests_context: SeededChangeRequestsContext,
+) -> None:
+    seeded = seeded_change_requests_context
+    request_id = seeded.request_approved_chart_1
+    chart_id = seeded.chart_1_id
+    before_history = _count_chart_history(chart_id)
+
+    res = client.post(
+        f"/governance/change-requests/{request_id}/apply",
+        json={
+            "applied_by": "ops-user",
+            "applied_by_role": "ops",
+            "reason": "apply no-op",
+        },
+    )
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["ok"] is True
+    assert body["data"]["request_id"] == request_id
+    assert body["data"]["status"] == "applied"
+    assert body["data"]["noop"] is True
+    assert _find_change_request_status(request_id) == "applied"
+    assert _count_chart_history(chart_id) == before_history
+
+
+def test_post_apply_change_requests_returns_404_when_request_not_found(
+    client: TestClient,
+) -> None:
+    request_id = 9223372036854775807
+    res = client.post(
+        f"/governance/change-requests/{request_id}/apply",
+        json={
+            "applied_by": "ops-user",
+            "applied_by_role": "ops",
+        },
+    )
+
+    assert res.status_code == 404
+    body = res.json()
+    assert body["ok"] is False
+    assert body["error"]["code"] == "NOT_FOUND"
+    assert body["error"]["details"]["request_id"] == str(request_id)
+
+
+def test_post_apply_change_requests_returns_409_when_not_approved(
+    client: TestClient,
+    seeded_change_requests_context: SeededChangeRequestsContext,
+) -> None:
+    seeded = seeded_change_requests_context
+    request_id = seeded.request_pending_chart_1
+    res = client.post(
+        f"/governance/change-requests/{request_id}/apply",
+        json={
+            "applied_by": "ops-user",
+            "applied_by_role": "ops",
+        },
+    )
+
+    assert res.status_code == 409
+    body = res.json()
+    assert body["ok"] is False
+    assert body["error"]["code"] == "INVALID_STATUS_TRANSITION"
+
+
+def test_post_apply_change_requests_returns_409_for_stale_expected_version(
+    client: TestClient,
+    seeded_change_requests_context: SeededChangeRequestsContext,
+) -> None:
+    seeded = seeded_change_requests_context
+    _update_chart_version(seeded.chart_1_id, 3)
+
+    request_id = seeded.request_approved_chart_1
+    res = client.post(
+        f"/governance/change-requests/{request_id}/apply",
+        json={
+            "applied_by": "ops-user",
+            "applied_by_role": "ops",
+        },
+    )
+
+    assert res.status_code == 409
+    body = res.json()
+    assert body["ok"] is False
+    assert body["error"]["code"] == "STALE_EXPECTED_VERSION"
+    current = body["error"]["details"]["current"]
+    assert current["chart_id"] == seeded.chart_1_id
+    assert current["version"] == 3
+
+
+def test_post_apply_change_requests_returns_422_for_invalid_threshold_consistency(
+    client: TestClient,
+    seeded_change_requests_context: SeededChangeRequestsContext,
+) -> None:
+    seeded = seeded_change_requests_context
+    request_id = _insert_change_request(
+        chart_id=seeded.chart_2_id,
+        proposed_by="ops",
+        proposed_at="2026-05-04T00:00:00.000Z",
+        idempotency_key=f"apply-invalid-{uuid4().hex[:12]}",
+        change_payload='{"warn_low": 5.0, "warn_high": 2.0}',
+        expected_version=1,
+    )
+    _update_change_request_status(request_id, "approved")
+    try:
+        res = client.post(
+            f"/governance/change-requests/{request_id}/apply",
+            json={
+                "applied_by": "ops-user",
+                "applied_by_role": "ops",
+            },
+        )
+        assert res.status_code == 422
+        assert_validation_error_envelope(
+            res.json(),
+            expected_loc_fragment="change_payload",
+            expected_message_fragment="warn_low",
+        )
+    finally:
+        con = _connect(MAIN_DB)
+        try:
+            con.execute("DELETE FROM GovernanceApplyResults WHERE request_id = ?", (request_id,))
+            con.execute("DELETE FROM GovernanceApprovals WHERE request_id = ?", (request_id,))
+            con.execute(
+                "DELETE FROM GovernanceAuditEvents WHERE target_type = ? AND target_id = ?",
+                ("change_request", request_id),
+            )
+            con.execute("DELETE FROM GovernanceChangeRequests WHERE id = ?", (request_id,))
+            con.commit()
+        finally:
+            con.close()
+
+
+def test_post_apply_change_requests_returns_400_when_chart_missing(
+    client: TestClient,
+    seeded_change_requests_context: SeededChangeRequestsContext,
+) -> None:
+    seeded = seeded_change_requests_context
+    request_id = seeded.request_approved_chart_1
+    _force_change_request_chart_id(request_id, 9223372036854775701)
+
+    res = client.post(
+        f"/governance/change-requests/{request_id}/apply",
+        json={
+            "applied_by": "ops-user",
+            "applied_by_role": "ops",
+        },
+    )
+
+    assert res.status_code == 400
+    body = res.json()
+    assert body["ok"] is False
+    assert body["error"]["code"] == "CHART_NOT_FOUND"
 
 
 def test_post_change_requests_success_envelope_contract(

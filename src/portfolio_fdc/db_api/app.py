@@ -491,6 +491,14 @@ def _is_governance_change_request_chart_fk_error(error: sqlite3.IntegrityError) 
     return "foreign key constraint failed" in str(error).lower()
 
 
+class _GovernanceChangeRequestIdempotencyConflict(Exception):
+    """change-request 作成時の重複 idempotency_key を表す内部例外。"""
+
+
+class _GovernanceChangeRequestChartFkViolation(Exception):
+    """change-request 作成時の chart_id 外部キー違反を表す内部例外。"""
+
+
 def _build_waveform_preview(process_id: str, limit: int) -> dict[str, object]:
     """ProcessInfo.raw_csv_path からドリルダウン表示用の波形プレビューを返す。
 
@@ -823,15 +831,22 @@ def create_governance_change_request(payload: ChangeRequestIn, runner: RunnerDep
         con = _connect(MAIN_DB)
         try:
             con.execute("BEGIN")
-            request_id = _governance_change_request_repository.create(
-                con,
-                chart_id=payload.chart_id,
-                proposed_by=payload.proposed_by,
-                proposed_at=proposed_at,
-                change_payload=payload.change_payload,
-                expected_version=payload.expected_version,
-                idempotency_key=payload.idempotency_key,
-            )
+            try:
+                request_id = _governance_change_request_repository.create(
+                    con,
+                    chart_id=payload.chart_id,
+                    proposed_by=payload.proposed_by,
+                    proposed_at=proposed_at,
+                    change_payload=payload.change_payload,
+                    expected_version=payload.expected_version,
+                    idempotency_key=payload.idempotency_key,
+                )
+            except sqlite3.IntegrityError as e:
+                if _is_duplicate_change_request_idempotency_error(e):
+                    raise _GovernanceChangeRequestIdempotencyConflict from e
+                if _is_governance_change_request_chart_fk_error(e):
+                    raise _GovernanceChangeRequestChartFkViolation from e
+                raise
 
             _audit_event_writer.write(
                 con,
@@ -856,22 +871,20 @@ def create_governance_change_request(payload: ChangeRequestIn, runner: RunnerDep
     try:
         data = runner.submit("write", _write)
         return {"ok": True, "data": data}
-    except sqlite3.IntegrityError as e:
-        if _is_duplicate_change_request_idempotency_error(e):
-            return _duplicate_idempotency_error_response(
-                idempotency_key=payload.idempotency_key,
-            )
-        if _is_governance_change_request_chart_fk_error(e):
-            return _validation_error_response(
-                issues=[
-                    {
-                        "loc": ["body", "chart_id"],
-                        "msg": "chart_id must reference an existing chart",
-                        "type": "value_error",
-                    }
-                ]
-            )
-        _raise_api_error(operation="POST /governance/change-requests", error=e)
+    except _GovernanceChangeRequestIdempotencyConflict:
+        return _duplicate_idempotency_error_response(
+            idempotency_key=payload.idempotency_key,
+        )
+    except _GovernanceChangeRequestChartFkViolation:
+        return _validation_error_response(
+            issues=[
+                {
+                    "loc": ["body", "chart_id"],
+                    "msg": "chart_id must reference an existing chart",
+                    "type": "value_error",
+                }
+            ]
+        )
     except Exception as e:
         _raise_api_error(operation="POST /governance/change-requests", error=e)
 

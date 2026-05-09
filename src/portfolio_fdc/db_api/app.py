@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os as _os
 import pathlib
 import sqlite3
@@ -620,6 +621,18 @@ def _validate_threshold_consistency(
         raise _GovernanceApplyValidationError(
             message="crit_low must be less than or equal to crit_high"
         )
+    if crit_low is not None and warn_low is not None and crit_low > warn_low:
+        raise _GovernanceApplyValidationError(
+            message="crit_low must be less than or equal to warn_low"
+        )
+    if warn_high is not None and crit_high is not None and warn_high > crit_high:
+        raise _GovernanceApplyValidationError(
+            message="warn_high must be less than or equal to crit_high"
+        )
+    if crit_low is not None and warn_high is not None and crit_low > warn_high:
+        raise _GovernanceApplyValidationError(
+            message="crit_low must be less than or equal to warn_high"
+        )
 
 
 def _build_waveform_preview(process_id: str, limit: int) -> dict[str, object]:
@@ -1160,11 +1173,18 @@ def apply_governance_change_request(
                 crit_high=new_crit_high,
             )
 
+            def _thresh_eq(a: float | None, b: float | None) -> bool:
+                if a is None and b is None:
+                    return True
+                if a is None or b is None:
+                    return False
+                return math.isclose(a, b, rel_tol=1e-9, abs_tol=1e-12)
+
             is_noop = (
-                old_warn_low == new_warn_low
-                and old_warn_high == new_warn_high
-                and old_crit_low == new_crit_low
-                and old_crit_high == new_crit_high
+                _thresh_eq(old_warn_low, new_warn_low)
+                and _thresh_eq(old_warn_high, new_warn_high)
+                and _thresh_eq(old_crit_low, new_crit_low)
+                and _thresh_eq(old_crit_high, new_crit_high)
             )
 
             resulting_version = int(current_version)

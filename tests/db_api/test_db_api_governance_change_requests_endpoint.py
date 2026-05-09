@@ -262,15 +262,15 @@ def _update_chart_version(chart_id: int, version: int) -> None:
 
 def _force_change_request_chart_id(request_id: int, chart_id: int) -> None:
     con = _connect(MAIN_DB)
+    con.execute("PRAGMA foreign_keys = OFF")
     try:
-        con.execute("PRAGMA foreign_keys = OFF")
         con.execute(
             "UPDATE GovernanceChangeRequests SET chart_id = ? WHERE id = ?",
             (chart_id, request_id),
         )
-        con.execute("PRAGMA foreign_keys = ON")
         con.commit()
     finally:
+        con.execute("PRAGMA foreign_keys = ON")
         con.close()
 
 
@@ -621,6 +621,56 @@ def test_post_apply_change_requests_success_noop_does_not_add_history(
     assert body["data"]["noop"] is True
     assert _find_change_request_status(request_id) == "applied"
     assert _count_chart_history(chart_id) == before_history
+
+
+def test_post_apply_change_requests_success_with_threshold_change(
+    client: TestClient,
+    seeded_change_requests_context: SeededChangeRequestsContext,
+) -> None:
+    seeded = seeded_change_requests_context
+    chart_id = seeded.chart_1_id
+    idempotency_key = f"test-threshold-change-{uuid4().hex[:8]}"
+    previous_version = 1  # ChartsV2 version DEFAULT 1
+
+    request_id = _insert_change_request(
+        chart_id=chart_id,
+        proposed_by="test-user",
+        proposed_at="2026-05-10T00:00:00.000Z",
+        idempotency_key=idempotency_key,
+        change_payload='{"warn_low": 1.5}',
+        expected_version=previous_version,
+    )
+    _update_change_request_status(request_id, "approved")
+
+    try:
+        before_history = _count_chart_history(chart_id)
+
+        res = client.post(
+            f"/governance/change-requests/{request_id}/apply",
+            json={
+                "applied_by": "ops-user",
+                "applied_by_role": "ops",
+                "reason": "apply threshold change",
+            },
+        )
+
+        assert res.status_code == 200
+        body = res.json()
+        assert body["ok"] is True
+        assert body["data"]["request_id"] == request_id
+        assert body["data"]["noop"] is False
+        assert body["data"]["status"] == "applied"
+        assert _find_change_request_status(request_id) == "applied"
+        assert _count_chart_history(chart_id) == before_history + 1
+        assert body["data"]["resulting_version"] > previous_version
+    finally:
+        con = _connect(MAIN_DB)
+        try:
+            con.execute("DELETE FROM ChartsHistory WHERE chart_id = ?", (chart_id,))
+            con.commit()
+        finally:
+            con.close()
+        _cleanup_seeded(None, [request_id])
 
 
 def test_post_apply_change_requests_returns_404_when_request_not_found(

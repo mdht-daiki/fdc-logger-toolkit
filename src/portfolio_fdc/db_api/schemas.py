@@ -141,3 +141,11 @@ class ChangeRequestsQuery(BaseModel):
         if self.from_ts is not None and self.to_ts is not None:
             validate_timestamp_range(self.from_ts, self.to_ts)
         return self
+
+
+class ChangeRequestApproveIn(BaseModel):
+    """`/governance/change-requests/{request_id}/approve` POST 用の入力モデル。"""
+
+    approved_by: str = Field(min_length=1, max_length=128)
+    approved_by_role: str = Field(min_length=1, max_length=64)
+    comment: str | None = Field(default=None, max_length=1000)

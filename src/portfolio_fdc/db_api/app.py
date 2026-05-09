@@ -40,7 +40,11 @@ from .chart_repository import (
 )
 from .datetime_util import to_utc_millis
 from .db import MAIN_DB, TEMP_DB, _connect, _connect_readonly, _init_schema
-from .governance_repository import GovernanceChangeRequestRepository
+from .governance_repository import (
+    GovernanceApprovalsRepository,
+    GovernanceChangeRequestRepository,
+    GovernanceNotFoundError,
+)
 from .judge_repository import (
     JudgeDataCorruptionError,
     JudgeRepository,
@@ -48,6 +52,7 @@ from .judge_repository import (
 )
 from .schemas import (
     AggregateWriteIn,
+    ChangeRequestApproveIn,
     ChangeRequestIn,
     ChangeRequestsQuery,
     ParameterIn,
@@ -258,6 +263,7 @@ RunnerDep = Annotated[DBTaskRunner, Depends(get_runner)]
 _chart_repository = ChartRepository()
 _judge_repository = JudgeRepository()
 _governance_change_request_repository = GovernanceChangeRequestRepository()
+_governance_approvals_repository = GovernanceApprovalsRepository()
 _audit_event_writer = AuditEventWriter()
 
 
@@ -462,6 +468,21 @@ def _duplicate_idempotency_error_response(*, idempotency_key: str) -> JSONRespon
     )
 
 
+def _conflict_error_response(*, code: str, message: str, details: dict[str, str]) -> JSONResponse:
+    """契約準拠の 409 error envelope を返す。"""
+    return JSONResponse(
+        status_code=409,
+        content={
+            "ok": False,
+            "error": {
+                "code": code,
+                "message": message,
+                "details": details,
+            },
+        },
+    )
+
+
 def _validation_error_response(*, issues: list[dict[str, object]]) -> JSONResponse:
     """契約準拠の 422 validation error envelope を返す。"""
     return JSONResponse(
@@ -497,6 +518,14 @@ class _GovernanceChangeRequestIdempotencyConflict(Exception):
 
 class _GovernanceChangeRequestChartFkViolation(Exception):
     """change-request 作成時の chart_id 外部キー違反を表す内部例外。"""
+
+
+class _GovernanceApproveAlreadyApproved(Exception):
+    """approve 対象が既に approved の場合に送出する内部例外。"""
+
+
+class _GovernanceApproveInvalidState(Exception):
+    """approve 対象の status が pending 以外の場合に送出する内部例外。"""
 
 
 def _build_waveform_preview(process_id: str, limit: int) -> dict[str, object]:
@@ -887,6 +916,85 @@ def create_governance_change_request(payload: ChangeRequestIn, runner: RunnerDep
         )
     except Exception as e:
         _raise_api_error(operation="POST /governance/change-requests", error=e)
+
+
+@app.post("/governance/change-requests/{request_id}/approve")
+def approve_governance_change_request(
+    payload: ChangeRequestApproveIn,
+    runner: RunnerDep,
+    request_id: int = Path(ge=1),
+):
+    """ガバナンス変更申請を承認する。"""
+
+    approved_at = to_utc_millis(datetime.now(UTC).isoformat())
+
+    def _write() -> dict[str, int | str]:
+        con = _connect(MAIN_DB)
+        try:
+            con.execute("BEGIN")
+            row = _governance_change_request_repository.find_by_id(con, request_id)
+
+            if row.status == "approved":
+                raise _GovernanceApproveAlreadyApproved
+            if row.status != "pending":
+                raise _GovernanceApproveInvalidState
+
+            _governance_approvals_repository.create(
+                con,
+                request_id=request_id,
+                approved_by=payload.approved_by,
+                approved_by_role=payload.approved_by_role,
+                approved_at=approved_at,
+                comment=payload.comment,
+            )
+            _governance_change_request_repository.update_status(
+                con,
+                record_id=request_id,
+                new_status="approved",
+            )
+            _audit_event_writer.write(
+                con,
+                event_type="change_approved",
+                actor=payload.approved_by,
+                actor_role=payload.approved_by_role,
+                target_type="change_request",
+                target_id=request_id,
+                occurred_at=approved_at,
+                correlation_id=f"request:{request_id}",
+            )
+            con.commit()
+            return {"request_id": request_id, "status": "approved"}
+        except Exception:
+            con.rollback()
+            raise
+        finally:
+            con.close()
+
+    try:
+        data = runner.submit("write", _write)
+        return {"ok": True, "data": data}
+    except GovernanceNotFoundError:
+        return _not_found_error_response(
+            message="change request not found",
+            details={"request_id": str(request_id)},
+        )
+    except _GovernanceApproveAlreadyApproved:
+        return _conflict_error_response(
+            code="ALREADY_APPROVED",
+            message="change request is already approved",
+            details={"request_id": str(request_id)},
+        )
+    except _GovernanceApproveInvalidState:
+        return _conflict_error_response(
+            code="INVALID_STATUS_TRANSITION",
+            message="only pending change request can be approved",
+            details={"request_id": str(request_id)},
+        )
+    except Exception as e:
+        _raise_api_error(
+            operation="POST /governance/change-requests/{request_id}/approve",
+            error=e,
+        )
 
 
 @app.post("/processes")

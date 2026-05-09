@@ -124,6 +124,14 @@ def _cleanup_seeded(chart_set_id: int | None, request_ids: list[int]) -> None:
     try:
         if request_ids:
             con.executemany(
+                "DELETE FROM GovernanceApprovals WHERE request_id = ?",
+                [(request_id,) for request_id in request_ids],
+            )
+            con.executemany(
+                "DELETE FROM GovernanceApplyResults WHERE request_id = ?",
+                [(request_id,) for request_id in request_ids],
+            )
+            con.executemany(
                 "DELETE FROM GovernanceChangeRequests WHERE id = ?",
                 [(request_id,) for request_id in request_ids],
             )
@@ -146,6 +154,14 @@ def _delete_change_request_by_idempotency(idempotency_key: str) -> None:
             ).fetchall()
         ]
         if request_ids:
+            con.executemany(
+                "DELETE FROM GovernanceApprovals WHERE request_id = ?",
+                [(request_id,) for request_id in request_ids],
+            )
+            con.executemany(
+                "DELETE FROM GovernanceApplyResults WHERE request_id = ?",
+                [(request_id,) for request_id in request_ids],
+            )
             con.executemany(
                 "DELETE FROM GovernanceAuditEvents WHERE target_type = ? AND target_id = ?",
                 [("change_request", request_id) for request_id in request_ids],
@@ -191,6 +207,32 @@ def _find_latest_audit_event_by_correlation_id(correlation_id: str) -> tuple[str
         if row is None:
             return None
         return (str(row[0]), str(row[1]), int(row[2]))
+    finally:
+        con.close()
+
+
+def _find_change_request_status(request_id: int) -> str:
+    con = _connect(MAIN_DB)
+    try:
+        row = con.execute(
+            "SELECT status FROM GovernanceChangeRequests WHERE id = ?",
+            (request_id,),
+        ).fetchone()
+        if row is None:
+            raise RuntimeError("Change request not found")
+        return str(row[0])
+    finally:
+        con.close()
+
+
+def _find_approval_count(request_id: int) -> int:
+    con = _connect(MAIN_DB)
+    try:
+        row = con.execute(
+            "SELECT COUNT(*) FROM GovernanceApprovals WHERE request_id = ?",
+            (request_id,),
+        ).fetchone()
+        return int(row[0])
     finally:
         con.close()
 
@@ -446,6 +488,74 @@ def test_post_change_requests_success_returns_request_id_and_pending_status(
         assert body["data"]["status"] == "pending"
     finally:
         _delete_change_request_by_idempotency(idempotency_key)
+
+
+def test_post_approve_change_requests_success_transitions_to_approved(
+    client: TestClient,
+    seeded_change_requests_context: SeededChangeRequestsContext,
+) -> None:
+    seeded = seeded_change_requests_context
+    request_id = seeded.request_pending_chart_1
+
+    res = client.post(
+        f"/governance/change-requests/{request_id}/approve",
+        json={
+            "approved_by": "ops-user",
+            "approved_by_role": "ops",
+            "comment": "looks good",
+        },
+    )
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["ok"] is True
+    assert body["data"]["request_id"] == request_id
+    assert body["data"]["status"] == "approved"
+    assert _find_change_request_status(request_id) == "approved"
+    assert _find_approval_count(request_id) == 1
+
+
+def test_post_approve_change_requests_returns_404_when_request_not_found(
+    client: TestClient,
+) -> None:
+    request_id = 9223372036854775807
+
+    res = client.post(
+        f"/governance/change-requests/{request_id}/approve",
+        json={
+            "approved_by": "ops-user",
+            "approved_by_role": "ops",
+        },
+    )
+
+    assert res.status_code == 404
+    body = res.json()
+    assert body["ok"] is False
+    assert body["error"]["code"] == "NOT_FOUND"
+    assert body["error"]["details"]["request_id"] == str(request_id)
+
+
+def test_post_approve_change_requests_returns_409_for_duplicate_approval(
+    client: TestClient,
+    seeded_change_requests_context: SeededChangeRequestsContext,
+) -> None:
+    seeded = seeded_change_requests_context
+    request_id = seeded.request_approved_chart_1
+
+    res = client.post(
+        f"/governance/change-requests/{request_id}/approve",
+        json={
+            "approved_by": "ops-user",
+            "approved_by_role": "ops",
+            "comment": "duplicate approval",
+        },
+    )
+
+    assert res.status_code == 409
+    body = res.json()
+    assert body["ok"] is False
+    assert body["error"]["code"] == "ALREADY_APPROVED"
+    assert body["error"]["details"]["request_id"] == str(request_id)
 
 
 def test_post_change_requests_success_envelope_contract(

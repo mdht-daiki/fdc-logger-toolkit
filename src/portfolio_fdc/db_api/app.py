@@ -6,7 +6,9 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import math
 import os as _os
 import pathlib
 import sqlite3
@@ -40,7 +42,11 @@ from .chart_repository import (
 )
 from .datetime_util import to_utc_millis
 from .db import MAIN_DB, TEMP_DB, _connect, _connect_readonly, _init_schema
-from .governance_repository import GovernanceChangeRequestRepository
+from .governance_repository import (
+    GovernanceApprovalsRepository,
+    GovernanceChangeRequestRepository,
+    GovernanceNotFoundError,
+)
 from .judge_repository import (
     JudgeDataCorruptionError,
     JudgeRepository,
@@ -48,6 +54,8 @@ from .judge_repository import (
 )
 from .schemas import (
     AggregateWriteIn,
+    ChangeRequestApplyIn,
+    ChangeRequestApproveIn,
     ChangeRequestIn,
     ChangeRequestsQuery,
     ParameterIn,
@@ -258,6 +266,7 @@ RunnerDep = Annotated[DBTaskRunner, Depends(get_runner)]
 _chart_repository = ChartRepository()
 _judge_repository = JudgeRepository()
 _governance_change_request_repository = GovernanceChangeRequestRepository()
+_governance_approvals_repository = GovernanceApprovalsRepository()
 _audit_event_writer = AuditEventWriter()
 
 
@@ -462,6 +471,38 @@ def _duplicate_idempotency_error_response(*, idempotency_key: str) -> JSONRespon
     )
 
 
+def _conflict_error_response(*, code: str, message: str, details: dict[str, str]) -> JSONResponse:
+    """契約準拠の 409 error envelope を返す。"""
+    return JSONResponse(
+        status_code=409,
+        content={
+            "ok": False,
+            "error": {
+                "code": code,
+                "message": message,
+                "details": details,
+            },
+        },
+    )
+
+
+def _bad_request_error_response(
+    *, code: str, message: str, details: dict[str, str]
+) -> JSONResponse:
+    """契約準拠の 400 error envelope を返す。"""
+    return JSONResponse(
+        status_code=400,
+        content={
+            "ok": False,
+            "error": {
+                "code": code,
+                "message": message,
+                "details": details,
+            },
+        },
+    )
+
+
 def _validation_error_response(*, issues: list[dict[str, object]]) -> JSONResponse:
     """契約準拠の 422 validation error envelope を返す。"""
     return JSONResponse(
@@ -497,6 +538,101 @@ class _GovernanceChangeRequestIdempotencyConflict(Exception):
 
 class _GovernanceChangeRequestChartFkViolation(Exception):
     """change-request 作成時の chart_id 外部キー違反を表す内部例外。"""
+
+
+class _GovernanceApproveAlreadyApproved(Exception):
+    """approve 対象が既に approved の場合に送出する内部例外。"""
+
+
+class _GovernanceApproveInvalidState(Exception):
+    """approve 対象の status が pending 以外の場合に送出する内部例外。"""
+
+
+class _GovernanceApplyInvalidState(Exception):
+    """apply 対象の status が approved 以外の場合に送出する内部例外。"""
+
+
+class _GovernanceApplyChartNotFound(Exception):
+    """apply 対象 chart が存在しない場合に送出する内部例外。"""
+
+
+class _GovernanceApplyVersionConflict(Exception):
+    """expected_version と current.version が不一致の場合に送出する内部例外。"""
+
+    def __init__(self, *, current_version: int, current_updated_at: str, chart_id: int) -> None:
+        self.current_version = current_version
+        self.current_updated_at = current_updated_at
+        self.chart_id = chart_id
+
+
+class _GovernanceApplyValidationError(Exception):
+    """apply payload がしきい値整合性を満たさない場合に送出する内部例外。"""
+
+    def __init__(self, *, message: str) -> None:
+        self.message = message
+
+
+def _parse_threshold_patch(change_payload: str) -> dict[str, float | None]:
+    """change_payload からしきい値更新パッチを抽出する。"""
+    payload = json.loads(change_payload)
+    if not isinstance(payload, dict):
+        raise _GovernanceApplyValidationError(message="change_payload must be an object")
+
+    aliases = {
+        "warn_low": "warn_low",
+        "warning_lcl": "warn_low",
+        "warn_high": "warn_high",
+        "warning_ucl": "warn_high",
+        "crit_low": "crit_low",
+        "critical_lcl": "crit_low",
+        "crit_high": "crit_high",
+        "critical_ucl": "crit_high",
+    }
+    patch: dict[str, float | None] = {}
+    for key, value in payload.items():
+        mapped = aliases.get(str(key))
+        if mapped is None:
+            continue
+        if value is None:
+            patch[mapped] = None
+            continue
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise _GovernanceApplyValidationError(message=f"{key} must be a number or null")
+        numeric = float(value)
+        if numeric != numeric or numeric in (float("inf"), float("-inf")):
+            raise _GovernanceApplyValidationError(message=f"{key} must be finite")
+        patch[mapped] = numeric
+    return patch
+
+
+def _validate_threshold_consistency(
+    *,
+    warn_low: float | None,
+    warn_high: float | None,
+    crit_low: float | None,
+    crit_high: float | None,
+) -> None:
+    """しきい値の大小関係を検証する。"""
+    if warn_low is not None and warn_high is not None and warn_low > warn_high:
+        raise _GovernanceApplyValidationError(
+            message="warn_low must be less than or equal to warn_high"
+        )
+    if crit_low is not None and crit_high is not None and crit_low > crit_high:
+        raise _GovernanceApplyValidationError(
+            message="crit_low must be less than or equal to crit_high"
+        )
+    if crit_low is not None and warn_low is not None and crit_low > warn_low:
+        raise _GovernanceApplyValidationError(
+            message="crit_low must be less than or equal to warn_low"
+        )
+    if warn_high is not None and crit_high is not None and warn_high > crit_high:
+        raise _GovernanceApplyValidationError(
+            message="warn_high must be less than or equal to crit_high"
+        )
+    if crit_low is not None and warn_high is not None and crit_low > warn_high:
+        raise _GovernanceApplyValidationError(
+            message="crit_low must be less than or equal to warn_high"
+        )
 
 
 def _build_waveform_preview(process_id: str, limit: int) -> dict[str, object]:
@@ -887,6 +1023,319 @@ def create_governance_change_request(payload: ChangeRequestIn, runner: RunnerDep
         )
     except Exception as e:
         _raise_api_error(operation="POST /governance/change-requests", error=e)
+
+
+@app.post("/governance/change-requests/{request_id}/approve")
+def approve_governance_change_request(
+    payload: ChangeRequestApproveIn,
+    runner: RunnerDep,
+    request_id: int = Path(ge=1),
+):
+    """ガバナンス変更申請を承認する。"""
+
+    approved_at = to_utc_millis(datetime.now(UTC).isoformat())
+
+    def _write() -> dict[str, int | str]:
+        con = _connect(MAIN_DB)
+        try:
+            con.execute("BEGIN")
+            row = _governance_change_request_repository.find_by_id(con, request_id)
+
+            if row.status == "approved":
+                raise _GovernanceApproveAlreadyApproved
+            if row.status != "pending":
+                raise _GovernanceApproveInvalidState
+
+            _governance_approvals_repository.create(
+                con,
+                request_id=request_id,
+                approved_by=payload.approved_by,
+                approved_by_role=payload.approved_by_role,
+                approved_at=approved_at,
+                comment=payload.comment,
+            )
+            _governance_change_request_repository.update_status(
+                con,
+                record_id=request_id,
+                new_status="approved",
+            )
+            _audit_event_writer.write(
+                con,
+                event_type="change_approved",
+                actor=payload.approved_by,
+                actor_role=payload.approved_by_role,
+                target_type="change_request",
+                target_id=request_id,
+                occurred_at=approved_at,
+                correlation_id=f"request:{request_id}",
+            )
+            con.commit()
+            return {"request_id": request_id, "status": "approved"}
+        except Exception:
+            con.rollback()
+            raise
+        finally:
+            con.close()
+
+    try:
+        data = runner.submit("write", _write)
+        return {"ok": True, "data": data}
+    except GovernanceNotFoundError:
+        return _not_found_error_response(
+            message="change request not found",
+            details={"request_id": str(request_id)},
+        )
+    except _GovernanceApproveAlreadyApproved:
+        return _conflict_error_response(
+            code="ALREADY_APPROVED",
+            message="change request is already approved",
+            details={"request_id": str(request_id)},
+        )
+    except _GovernanceApproveInvalidState:
+        return _conflict_error_response(
+            code="INVALID_STATUS_TRANSITION",
+            message="only pending change request can be approved",
+            details={"request_id": str(request_id)},
+        )
+    except Exception as e:
+        _raise_api_error(
+            operation="POST /governance/change-requests/{request_id}/approve",
+            error=e,
+        )
+
+
+@app.post("/governance/change-requests/{request_id}/apply")
+def apply_governance_change_request(
+    payload: ChangeRequestApplyIn,
+    runner: RunnerDep,
+    request_id: int = Path(ge=1),
+):
+    """承認済みのガバナンス変更申請を反映する。"""
+
+    applied_at = to_utc_millis(datetime.now(UTC).isoformat())
+
+    def _write() -> dict[str, object]:
+        con = _connect(MAIN_DB)
+        try:
+            con.execute("BEGIN")
+            req = _governance_change_request_repository.find_by_id(con, request_id)
+            if req.status != "approved":
+                raise _GovernanceApplyInvalidState
+
+            chart_row = con.execute(
+                """
+                SELECT
+                    id, chart_set_id, tool_id, chamber_id, recipe_id, parameter,
+                    step_no, feature_type, warn_low, warn_high, crit_low, crit_high,
+                    version, updated_at
+                FROM ChartsV2
+                WHERE id = ?
+                """,
+                (req.chart_id,),
+            ).fetchone()
+            if chart_row is None:
+                raise _GovernanceApplyChartNotFound
+
+            (
+                chart_id,
+                chart_set_id,
+                tool_id,
+                chamber_id,
+                recipe_id,
+                parameter,
+                step_no,
+                feature_type,
+                old_warn_low,
+                old_warn_high,
+                old_crit_low,
+                old_crit_high,
+                current_version,
+                current_updated_at,
+            ) = chart_row
+
+            if int(current_version) != int(req.expected_version):
+                raise _GovernanceApplyVersionConflict(
+                    current_version=int(current_version),
+                    current_updated_at=str(current_updated_at),
+                    chart_id=int(chart_id),
+                )
+
+            patch = _parse_threshold_patch(req.change_payload)
+            new_warn_low = patch.get("warn_low", old_warn_low)
+            new_warn_high = patch.get("warn_high", old_warn_high)
+            new_crit_low = patch.get("crit_low", old_crit_low)
+            new_crit_high = patch.get("crit_high", old_crit_high)
+
+            _validate_threshold_consistency(
+                warn_low=new_warn_low,
+                warn_high=new_warn_high,
+                crit_low=new_crit_low,
+                crit_high=new_crit_high,
+            )
+
+            def _thresh_eq(a: float | None, b: float | None) -> bool:
+                if a is None and b is None:
+                    return True
+                if a is None or b is None:
+                    return False
+                return math.isclose(a, b, rel_tol=1e-9, abs_tol=1e-12)
+
+            is_noop = (
+                _thresh_eq(old_warn_low, new_warn_low)
+                and _thresh_eq(old_warn_high, new_warn_high)
+                and _thresh_eq(old_crit_low, new_crit_low)
+                and _thresh_eq(old_crit_high, new_crit_high)
+            )
+
+            resulting_version = int(current_version)
+            if not is_noop:
+                resulting_version = int(current_version) + 1
+                con.execute(
+                    """
+                    UPDATE ChartsV2
+                    SET warn_low = ?, warn_high = ?, crit_low = ?, crit_high = ?,
+                        version = ?, updated_at = ?, updated_by = ?,
+                        update_reason = ?, update_source = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        new_warn_low,
+                        new_warn_high,
+                        new_crit_low,
+                        new_crit_high,
+                        resulting_version,
+                        applied_at,
+                        payload.applied_by,
+                        payload.reason,
+                        "governance_apply",
+                        chart_id,
+                    ),
+                )
+                con.execute(
+                    """
+                    INSERT INTO ChartsHistory(
+                        chart_set_id, tool_id, chamber_id, recipe_id, parameter,
+                        step_no, feature_type,
+                        old_warn_low, old_warn_high, old_crit_low, old_crit_high,
+                        new_warn_low, new_warn_high, new_crit_low, new_crit_high,
+                        changed_at, changed_by, change_reason, change_source, chart_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        chart_set_id,
+                        tool_id,
+                        chamber_id,
+                        recipe_id,
+                        parameter,
+                        step_no,
+                        feature_type,
+                        old_warn_low,
+                        old_warn_high,
+                        old_crit_low,
+                        old_crit_high,
+                        new_warn_low,
+                        new_warn_high,
+                        new_crit_low,
+                        new_crit_high,
+                        applied_at,
+                        payload.applied_by,
+                        payload.reason,
+                        "governance_apply",
+                        chart_id,
+                    ),
+                )
+
+            con.execute(
+                """
+                INSERT OR REPLACE INTO GovernanceApplyResults(
+                    request_id, applied_at, success, resulting_version,
+                    error_code, error_message
+                ) VALUES (?, ?, 1, ?, NULL, NULL)
+                """,
+                (request_id, applied_at, resulting_version),
+            )
+            _governance_change_request_repository.update_status(
+                con,
+                record_id=request_id,
+                new_status="applied",
+            )
+            _audit_event_writer.write(
+                con,
+                event_type="change_applied",
+                actor=payload.applied_by,
+                actor_role=payload.applied_by_role,
+                target_type="change_request",
+                target_id=request_id,
+                occurred_at=applied_at,
+                correlation_id=f"request:{request_id}",
+            )
+            con.commit()
+            return {
+                "request_id": request_id,
+                "status": "applied",
+                "resulting_version": resulting_version,
+                "noop": is_noop,
+            }
+        except Exception:
+            con.rollback()
+            raise
+        finally:
+            con.close()
+
+    try:
+        data = runner.submit("write", _write)
+        return {"ok": True, "data": data}
+    except GovernanceNotFoundError:
+        return _not_found_error_response(
+            message="change request not found",
+            details={"request_id": str(request_id)},
+        )
+    except _GovernanceApplyInvalidState:
+        return _conflict_error_response(
+            code="INVALID_STATUS_TRANSITION",
+            message="only approved change request can be applied",
+            details={"request_id": str(request_id)},
+        )
+    except _GovernanceApplyChartNotFound:
+        return _bad_request_error_response(
+            code="CHART_NOT_FOUND",
+            message="target chart not found",
+            details={"request_id": str(request_id)},
+        )
+    except _GovernanceApplyVersionConflict as e:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "ok": False,
+                "error": {
+                    "code": "STALE_EXPECTED_VERSION",
+                    "message": "expected_version does not match current version",
+                    "details": {
+                        "request_id": str(request_id),
+                        "current": {
+                            "chart_id": e.chart_id,
+                            "version": e.current_version,
+                            "updated_at": e.current_updated_at,
+                        },
+                    },
+                },
+            },
+        )
+    except _GovernanceApplyValidationError as e:
+        return _validation_error_response(
+            issues=[
+                {
+                    "loc": ["body", "change_payload"],
+                    "msg": e.message,
+                    "type": "value_error",
+                }
+            ]
+        )
+    except Exception as e:
+        _raise_api_error(
+            operation="POST /governance/change-requests/{request_id}/apply",
+            error=e,
+        )
 
 
 @app.post("/processes")

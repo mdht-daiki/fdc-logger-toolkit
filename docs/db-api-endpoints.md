@@ -66,7 +66,7 @@
 
 検証方針:
 
-1. import 境界は `import-linter` で pre-commit で機械検出する（CI での強制は未実装・フォローアップ: Issue #108）。
+1. import 境界は `import-linter` で pre-commit と CI の両方で機械検出する（Issue #108 対応）。
 2. endpoint 権限は API スキーマ実装時にテスト（認可・認証）で検証する。
 
 ## Must-Test Cases for API Contract

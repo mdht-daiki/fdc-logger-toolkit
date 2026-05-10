@@ -1724,7 +1724,7 @@ def apply_governance_change_request(
                         current_version=int(current_version),
                         current_updated_at=str(current_updated_at),
                         chart_id=int(chart_id),
-                        current_status="unknown",
+                        current_status=str(getattr(req, "status", "unknown") or "unknown"),
                     )
 
                 patch = _parse_threshold_patch(req.change_payload)
@@ -1858,6 +1858,7 @@ def apply_governance_change_request(
                     occurred_at=applied_at,
                     correlation_id=f"request:{request_id}",
                 )
+                con.commit()
                 raise
         except Exception:
             con.rollback()

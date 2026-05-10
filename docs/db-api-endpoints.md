@@ -71,7 +71,7 @@
 
 ## Must-Test Cases for API Contract
 
-しきい値更新 API（planned endpoint）を実装する際、以下のケースを最小必須テストとする。
+しきい値更新 API を実装する際、以下のケースを最小必須テストとする.
 
 ### Normal Update
 
@@ -93,12 +93,24 @@
 1. 同一 `Idempotency-Key` で再送した場合、二重更新しない
 2. `ChartsHistory` が二重記録されない
 
-### Emergency Update
+### Emergency Update Flow
 
-1. emergency 権限なしでは拒否する
-2. emergency 権限ありでは強制更新を許可する
-3. `reason` 必須を検証する
-4. `ChartsHistory` に `is_emergency=true` を記録する
+#### POST /governance/emergency-changes (即時反映)
+
+1. 正常系: `reason` 必須で、即座に ChartsV2 を更新し version を 1 増加させる
+2. 成功時に ChartsHistory に 1 件追加される（`change_source='emergency_manual'`）
+3. AuditEvents に `emergency_changed` タイプのイベントが記録される
+4. NotificationOutbox に `pending` 状態で登録され、通知ポーラー対象になる
+5. 空 payload（`{}`）やタイポのみの payload は 422 を返す
+6. 対象 chart が存在しない場合は 404 を返す
+7. しきい値整合性チェック失敗は 422 を返す
+8. 変更なし更新（同一値送信）は no-op として成功応答を返し、ChartsHistory を追加しない
+
+#### POST /governance/emergency-changes/{request_id}/ratify (事後追認)
+
+1. 正常系: 緊急変更を追認し、`related_issue_or_pr` を GovernanceEmergencyChanges に埋め込む
+2. AuditEvents に `emergency_ratified` タイプのイベントが記録される
+3. 同一 request_id での重複追認は 409 で拒否する
 
 ### Boundary and Edge Cases
 

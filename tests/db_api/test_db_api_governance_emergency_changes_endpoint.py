@@ -306,7 +306,7 @@ def test_post_emergency_changes_success_updates_chart_and_writes_audit(
     assert _find_notification_outbox_status(ec_id) == ("pending", 0)
 
 
-def test_post_emergency_changes_returns_400_when_chart_not_found(client: TestClient) -> None:
+def test_post_emergency_changes_returns_404_when_chart_not_found(client: TestClient) -> None:
     res = client.post(
         "/governance/emergency-changes",
         json={
@@ -318,7 +318,7 @@ def test_post_emergency_changes_returns_400_when_chart_not_found(client: TestCli
         },
     )
 
-    assert res.status_code == 400
+    assert res.status_code == 404
     body = res.json()
     assert body["ok"] is False
     assert body["error"]["code"] == "CHART_NOT_FOUND"
@@ -345,6 +345,54 @@ def test_post_emergency_changes_returns_422_for_invalid_change_payload(
         res.json(),
         expected_loc_fragment="change_payload",
         expected_message_fragment="valid JSON",
+    )
+
+
+def test_post_emergency_changes_returns_422_for_empty_change_payload(
+    client: TestClient,
+    seeded_emergency_chart: tuple[int, int],
+) -> None:
+    _, chart_id = seeded_emergency_chart
+    res = client.post(
+        "/governance/emergency-changes",
+        json={
+            "chart_id": chart_id,
+            "changed_by": "ops-user",
+            "changed_by_role": "operator",
+            "reason": "incident mitigation",
+            "change_payload": "{}",
+        },
+    )
+
+    assert res.status_code == 422
+    assert_validation_error_envelope(
+        res.json(),
+        expected_loc_fragment="change_payload",
+        expected_message_fragment="must contain at least one of",
+    )
+
+
+def test_post_emergency_changes_returns_422_for_typo_only_change_payload(
+    client: TestClient,
+    seeded_emergency_chart: tuple[int, int],
+) -> None:
+    _, chart_id = seeded_emergency_chart
+    res = client.post(
+        "/governance/emergency-changes",
+        json={
+            "chart_id": chart_id,
+            "changed_by": "ops-user",
+            "changed_by_role": "operator",
+            "reason": "incident mitigation",
+            "change_payload": '{"typo_key": 1.5, "invalid_field": 2.0}',
+        },
+    )
+
+    assert res.status_code == 422
+    assert_validation_error_envelope(
+        res.json(),
+        expected_loc_fragment="change_payload",
+        expected_message_fragment="must contain at least one of",
     )
 
 

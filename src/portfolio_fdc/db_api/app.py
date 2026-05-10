@@ -449,14 +449,16 @@ def _parse_result_pk(result_id: str) -> int:
         raise HTTPException(status_code=400, detail="Invalid result_id") from exc
 
 
-def _not_found_error_response(*, message: str, details: dict[str, str]) -> JSONResponse:
-    """契約準拠の 404 error envelope を返す。"""
+def _not_found_error_response(
+    *, code: str = "NOT_FOUND", message: str, details: dict[str, str]
+) -> JSONResponse:
+    """404 error envelope を返す。code を指定可能にする。"""
     return JSONResponse(
         status_code=404,
         content={
             "ok": False,
             "error": {
-                "code": "NOT_FOUND",
+                "code": code,
                 "message": message,
                 "details": details,
             },
@@ -1122,6 +1124,12 @@ def create_governance_emergency_change(payload: EmergencyChangeIn, runner: Runne
             ) = row
 
             patch = _parse_threshold_patch(payload.change_payload)
+            # Reject empty or typo-only patches: at least one threshold key must be present
+            if not any(k in patch for k in ["warn_low", "warn_high", "crit_low", "crit_high"]):
+                raise _GovernanceApplyValidationError(
+                    message="change_payload must contain at least one of: "
+                    "warn_low, warn_high, crit_low, crit_high"
+                )
             new_warn_low = patch.get("warn_low", old_warn_low)
             new_warn_high = patch.get("warn_high", old_warn_high)
             new_crit_low = patch.get("crit_low", old_crit_low)
@@ -1270,7 +1278,7 @@ def create_governance_emergency_change(payload: EmergencyChangeIn, runner: Runne
         data = runner.submit("write", _write)
         return {"ok": True, "data": data}
     except _GovernanceEmergencyChangeChartNotFound:
-        return _bad_request_error_response(
+        return _not_found_error_response(
             code="CHART_NOT_FOUND",
             message="target chart not found",
             details={"chart_id": str(payload.chart_id)},

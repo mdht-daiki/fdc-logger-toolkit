@@ -15,7 +15,7 @@ import sqlite3
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from dataclasses import asdict
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from email.utils import format_datetime
 from threading import Lock
 from typing import Annotated, NoReturn, cast
@@ -89,6 +89,7 @@ CHARTS_FILTER_MAX_LENGTH = 128
 CHART_ID_PATTERN = r"^CHART_[0-9]+$"
 JUDGE_LEVEL_PATTERN = r"^(OK|WARN|NG)$"
 RESULT_ID_PATTERN = r"^JR_[0-9]+$"
+NOTIFICATION_RETRY_BACKOFF_MINUTES = {1: 1, 2: 5, 3: 30}
 
 
 def _legacy_delete_headers(process_id: str | None) -> dict[str, str]:
@@ -573,6 +574,37 @@ class _GovernanceApplyValidationError(Exception):
         self.message = message
 
 
+class _GovernanceNotificationNotFound(Exception):
+    """notification outbox が存在しない場合に送出する内部例外。"""
+
+
+class _GovernanceNotificationInvalidState(Exception):
+    """retry 対象の status が failed 以外の場合に送出する内部例外。"""
+
+    def __init__(self, *, status: str) -> None:
+        self.status = status
+
+
+class _GovernanceNotificationRetryLimitExceeded(Exception):
+    """retry_count が上限に達している場合に送出する内部例外。"""
+
+    def __init__(self, *, retry_count: int) -> None:
+        self.retry_count = retry_count
+
+
+class _GovernanceNotificationConcurrentModification(Exception):
+    """conditional UPDATE が 0 件更新になった場合に送出する内部例外。"""
+
+
+def _compute_notification_next_retry_at(*, base_time: datetime, retry_count: int) -> str:
+    """retry_count に応じた次回試行時刻を UTC ミリ秒 ISO 文字列で返す。"""
+    minutes = NOTIFICATION_RETRY_BACKOFF_MINUTES.get(retry_count)
+    if minutes is None:
+        max_retries = len(NOTIFICATION_RETRY_BACKOFF_MINUTES)
+        raise ValueError(f"retry_count must be between 1 and {max_retries}")
+    return to_utc_millis((base_time + timedelta(minutes=minutes)).isoformat())
+
+
 def _parse_threshold_patch(change_payload: str) -> dict[str, float | None]:
     """change_payload からしきい値更新パッチを抽出する。"""
     payload = json.loads(change_payload)
@@ -1021,6 +1053,135 @@ def get_governance_audit_events(
         _raise_api_error(operation="GET /governance/audit-events", error=e)
     finally:
         con.close()
+
+
+@app.post("/governance/notifications/{event_id}/retry")
+def retry_governance_notification(
+    runner: RunnerDep,
+    event_id: int = Path(ge=1),
+):
+    """通知 outbox の failed レコードを再送キューへ戻す。"""
+
+    def _retry_failed_notification_outbox() -> dict[str, object]:
+        con = _connect(MAIN_DB)
+        try:
+            con.execute("BEGIN")
+            row = con.execute(
+                """
+                SELECT id, status, retry_count
+                FROM GovernanceNotificationOutbox
+                WHERE event_id = ?
+                """,
+                (event_id,),
+            ).fetchone()
+            if row is None:
+                raise _GovernanceNotificationNotFound
+
+            outbox_id = int(row[0])
+            status = str(row[1])
+            retry_count = int(row[2])
+
+            if status != "failed":
+                raise _GovernanceNotificationInvalidState(status=status)
+            if retry_count >= len(NOTIFICATION_RETRY_BACKOFF_MINUTES):
+                raise _GovernanceNotificationRetryLimitExceeded(retry_count=retry_count)
+
+            now = datetime.now(UTC)
+            now_iso = to_utc_millis(now.isoformat())
+            next_retry_at = _compute_notification_next_retry_at(
+                base_time=now,
+                retry_count=retry_count + 1,
+            )
+
+            update_cur = con.execute(
+                """
+                UPDATE GovernanceNotificationOutbox
+                SET status = 'pending',
+                    retry_count = retry_count + 1,
+                    next_retry_at = ?,
+                    last_attempt_at = ?,
+                    last_error = NULL
+                WHERE id = ?
+                  AND status = 'failed'
+                  AND retry_count = ?
+                """,
+                (next_retry_at, now_iso, outbox_id, retry_count),
+            )
+            if update_cur.rowcount == 0:
+                latest = con.execute(
+                    """
+                    SELECT status, retry_count
+                    FROM GovernanceNotificationOutbox
+                    WHERE id = ?
+                    """,
+                    (outbox_id,),
+                ).fetchone()
+                if latest is None:
+                    raise _GovernanceNotificationNotFound
+
+                latest_status = str(latest[0])
+                latest_retry_count = int(latest[1])
+                if latest_status != "failed":
+                    raise _GovernanceNotificationInvalidState(status=latest_status)
+                if latest_retry_count >= len(NOTIFICATION_RETRY_BACKOFF_MINUTES):
+                    raise _GovernanceNotificationRetryLimitExceeded(retry_count=latest_retry_count)
+                raise _GovernanceNotificationConcurrentModification
+
+            _audit_event_writer.write(
+                con,
+                event_type="notification_queued",
+                actor="ops",
+                actor_role="ops",
+                target_type="notification",
+                target_id=outbox_id,
+                occurred_at=now_iso,
+                correlation_id=f"event:{event_id}",
+            )
+            con.commit()
+            return {
+                "event_id": event_id,
+                "status": "pending",
+                "retry_count": retry_count + 1,
+                "next_retry_at": next_retry_at,
+            }
+        except Exception:
+            con.rollback()
+            raise
+        finally:
+            con.close()
+
+    try:
+        data = runner.submit("write", _retry_failed_notification_outbox)
+        return {"ok": True, "data": data}
+    except _GovernanceNotificationNotFound:
+        return _not_found_error_response(
+            message="notification outbox not found",
+            details={"event_id": str(event_id)},
+        )
+    except _GovernanceNotificationInvalidState as e:
+        return _bad_request_error_response(
+            code="INVALID_RETRY_TARGET",
+            message="only failed notification can be retried",
+            details={"event_id": str(event_id), "current_status": e.status},
+        )
+    except _GovernanceNotificationRetryLimitExceeded as e:
+        return _conflict_error_response(
+            code="RETRY_LIMIT_EXCEEDED",
+            message="retry_count has reached the maximum",
+            details={
+                "event_id": str(event_id),
+                "retry_count": str(e.retry_count),
+                "max_retry_count": str(len(NOTIFICATION_RETRY_BACKOFF_MINUTES)),
+            },
+        )
+    except _GovernanceNotificationConcurrentModification:
+        return _conflict_error_response(
+            code="CONCURRENT_MODIFICATION",
+            message="notification outbox was modified concurrently",
+            details={"event_id": str(event_id)},
+        )
+    except Exception as e:
+        _raise_api_error(operation="POST /governance/notifications/{event_id}/retry", error=e)
 
 
 @app.post("/governance/change-requests")

@@ -34,7 +34,7 @@
 | `POST`   | `/governance/emergency-changes/{request_id}/ratify` | governance     | planned     | ops             | Issue #102              | 緊急変更の事後追認                           |
 | `GET`    | `/governance/change-requests`                       | governance     | implemented | ops/audit       | source: `db_api/app.py` | 変更申請の検索                               |
 | `GET`    | `/governance/audit-events`                          | governance     | implemented | ops/audit       | source: `db_api/app.py` | 監査イベントの検索                           |
-| `POST`   | `/governance/notifications/{event_id}/retry`        | governance     | planned     | ops             | Issue #102              | 通知失敗時の再送                             |
+| `POST`   | `/governance/notifications/{event_id}/retry`        | governance     | implemented | ops             | source: `db_api/app.py` | 通知失敗時の再送                             |
 
 ## Notes
 

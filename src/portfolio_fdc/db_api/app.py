@@ -1123,7 +1123,12 @@ def create_governance_emergency_change(payload: EmergencyChangeIn, runner: Runne
                 current_version,
             ) = row
 
-            patch = _parse_threshold_patch(payload.change_payload)
+            try:
+                patch = _parse_threshold_patch(payload.change_payload)
+            except json.JSONDecodeError as e:
+                raise _GovernanceApplyValidationError(
+                    message="change_payload must be valid JSON"
+                ) from e
             # Reject empty or typo-only patches: at least one threshold key must be present
             if not any(k in patch for k in ["warn_low", "warn_high", "crit_low", "crit_high"]):
                 raise _GovernanceApplyValidationError(

@@ -489,7 +489,7 @@ def test_post_emergency_changes_ratify_returns_409_when_already_ratified(
     assert body["error"]["code"] == "ALREADY_RATIFIED"
 
 
-def test_post_emergency_changes_returns_400_for_invalid_chart_id(
+def test_post_emergency_changes_returns_422_for_invalid_chart_id(
     client: TestClient,
 ) -> None:
     res = client.post(

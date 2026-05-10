@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -108,6 +109,30 @@ def _delete_seeded_notification_records(event_id: int, correlation_id: str) -> N
         con.close()
 
 
+def _count_notification_queued_events(event_id: int) -> int:
+    con = _connect(MAIN_DB)
+    try:
+        row = con.execute(
+            """
+                        SELECT COUNT(*)
+                        FROM GovernanceAuditEvents AS ae
+                        JOIN GovernanceNotificationOutbox AS outbox
+                            ON outbox.id = ae.target_id
+                        WHERE outbox.event_id = ?
+                            AND ae.target_type = 'notification'
+                            AND ae.event_type = 'notification_queued'
+                        """,
+            (event_id,),
+        ).fetchone()
+        return int(row[0])
+    finally:
+        con.close()
+
+
+def _parse_utc_millis(ts: str) -> datetime:
+    return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+
+
 def test_post_notifications_retry_success_updates_failed_to_pending(
     client: TestClient,
 ) -> None:
@@ -116,7 +141,10 @@ def test_post_notifications_retry_success_updates_failed_to_pending(
     _insert_outbox(event_id=event_id, status="failed", retry_count=1, last_error="smtp timeout")
 
     try:
+        before_call = datetime.now(UTC)
+        before_audit_count = _count_notification_queued_events(event_id)
         res = client.post(f"/governance/notifications/{event_id}/retry")
+        after_call = datetime.now(UTC)
 
         assert res.status_code == 200
         body = res.json()
@@ -131,6 +159,12 @@ def test_post_notifications_retry_success_updates_failed_to_pending(
         assert retry_count == 2
         assert next_retry_at == body["data"]["next_retry_at"]
         assert last_error is None
+
+        actual_next_retry_at = _parse_utc_millis(body["data"]["next_retry_at"])
+        lower_bound = before_call + timedelta(minutes=5) - timedelta(seconds=2)
+        upper_bound = after_call + timedelta(minutes=5) + timedelta(seconds=2)
+        assert lower_bound <= actual_next_retry_at <= upper_bound
+        assert _count_notification_queued_events(event_id) == before_audit_count + 1
     finally:
         _delete_seeded_notification_records(event_id, correlation_id)
 
@@ -154,6 +188,7 @@ def test_post_notifications_retry_returns_400_when_status_is_pending(
     _insert_outbox(event_id=event_id, status="pending", retry_count=1)
 
     try:
+        seeded_status, seeded_retry_count, _, _ = _find_outbox_by_event_id(event_id)
         res = client.post(f"/governance/notifications/{event_id}/retry")
 
         assert res.status_code == 400
@@ -161,6 +196,9 @@ def test_post_notifications_retry_returns_400_when_status_is_pending(
         assert body["ok"] is False
         assert body["error"]["code"] == "INVALID_RETRY_TARGET"
         assert body["error"]["details"]["current_status"] == "pending"
+        status, retry_count, _, _ = _find_outbox_by_event_id(event_id)
+        assert status == seeded_status
+        assert retry_count == seeded_retry_count
     finally:
         _delete_seeded_notification_records(event_id, correlation_id)
 
@@ -173,6 +211,7 @@ def test_post_notifications_retry_returns_400_when_status_is_sent(
     _insert_outbox(event_id=event_id, status="sent", retry_count=1)
 
     try:
+        seeded_status, seeded_retry_count, _, _ = _find_outbox_by_event_id(event_id)
         res = client.post(f"/governance/notifications/{event_id}/retry")
 
         assert res.status_code == 400
@@ -180,6 +219,9 @@ def test_post_notifications_retry_returns_400_when_status_is_sent(
         assert body["ok"] is False
         assert body["error"]["code"] == "INVALID_RETRY_TARGET"
         assert body["error"]["details"]["current_status"] == "sent"
+        status, retry_count, _, _ = _find_outbox_by_event_id(event_id)
+        assert status == seeded_status
+        assert retry_count == seeded_retry_count
     finally:
         _delete_seeded_notification_records(event_id, correlation_id)
 
@@ -192,6 +234,7 @@ def test_post_notifications_retry_returns_409_when_retry_limit_exceeded(
     _insert_outbox(event_id=event_id, status="failed", retry_count=3)
 
     try:
+        seeded_status, seeded_retry_count, _, _ = _find_outbox_by_event_id(event_id)
         res = client.post(f"/governance/notifications/{event_id}/retry")
 
         assert res.status_code == 409
@@ -199,5 +242,8 @@ def test_post_notifications_retry_returns_409_when_retry_limit_exceeded(
         assert body["ok"] is False
         assert body["error"]["code"] == "RETRY_LIMIT_EXCEEDED"
         assert body["error"]["details"]["retry_count"] == "3"
+        status, retry_count, _, _ = _find_outbox_by_event_id(event_id)
+        assert status == seeded_status
+        assert retry_count == seeded_retry_count
     finally:
         _delete_seeded_notification_records(event_id, correlation_id)

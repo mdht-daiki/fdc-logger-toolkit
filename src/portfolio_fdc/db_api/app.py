@@ -89,7 +89,6 @@ CHARTS_FILTER_MAX_LENGTH = 128
 CHART_ID_PATTERN = r"^CHART_[0-9]+$"
 JUDGE_LEVEL_PATTERN = r"^(OK|WARN|NG)$"
 RESULT_ID_PATTERN = r"^JR_[0-9]+$"
-MAX_NOTIFICATION_RETRY_COUNT = 3
 NOTIFICATION_RETRY_BACKOFF_MINUTES = {1: 1, 2: 5, 3: 30}
 
 
@@ -1081,7 +1080,7 @@ def retry_governance_notification(
 
             if status != "failed":
                 raise _GovernanceNotificationInvalidState(status=status)
-            if retry_count >= MAX_NOTIFICATION_RETRY_COUNT:
+            if retry_count >= len(NOTIFICATION_RETRY_BACKOFF_MINUTES):
                 raise _GovernanceNotificationRetryLimitExceeded(retry_count=retry_count)
 
             now = datetime.now(UTC)
@@ -1121,7 +1120,7 @@ def retry_governance_notification(
                 latest_retry_count = int(latest[1])
                 if latest_status != "failed":
                     raise _GovernanceNotificationInvalidState(status=latest_status)
-                if latest_retry_count >= MAX_NOTIFICATION_RETRY_COUNT:
+                if latest_retry_count >= len(NOTIFICATION_RETRY_BACKOFF_MINUTES):
                     raise _GovernanceNotificationRetryLimitExceeded(retry_count=latest_retry_count)
                 raise _GovernanceNotificationConcurrentModification
 
@@ -1169,7 +1168,7 @@ def retry_governance_notification(
             details={
                 "event_id": str(event_id),
                 "retry_count": str(e.retry_count),
-                "max_retry_count": str(MAX_NOTIFICATION_RETRY_COUNT),
+                "max_retry_count": str(len(NOTIFICATION_RETRY_BACKOFF_MINUTES)),
             },
         )
     except _GovernanceNotificationConcurrentModification:

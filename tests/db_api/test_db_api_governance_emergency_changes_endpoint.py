@@ -411,6 +411,7 @@ def test_post_emergency_changes_ratify_success_updates_related_issue_or_pr(
             "change_payload": '{"warn_high": 1.9, "crit_high": 2.0}',
         },
     )
+    assert create_res.status_code == 200
     ec_id = int(create_res.json()["data"]["request_id"])
 
     res = client.post(
@@ -468,6 +469,7 @@ def test_post_emergency_changes_ratify_returns_409_when_already_ratified(
             "change_payload": '{"warn_high": 1.9, "crit_high": 2.0}',
         },
     )
+    assert create_res.status_code == 200
     ec_id = int(create_res.json()["data"]["request_id"])
 
     first_res = client.post(
@@ -485,3 +487,97 @@ def test_post_emergency_changes_ratify_returns_409_when_already_ratified(
     body = second_res.json()
     assert body["ok"] is False
     assert body["error"]["code"] == "ALREADY_RATIFIED"
+
+
+def test_post_emergency_changes_returns_400_for_invalid_chart_id(
+    client: TestClient,
+) -> None:
+    res = client.post(
+        "/governance/emergency-changes",
+        json={
+            "chart_id": "not-a-number",
+            "changed_by": "ops-user",
+            "changed_by_role": "operator",
+            "reason": "incident mitigation",
+            "change_payload": '{"warn_high": 1.9}',
+        },
+    )
+
+    assert res.status_code == 422
+    body = res.json()
+    assert body["ok"] is False
+    # Verify that chart_id is mentioned in the validation error
+    issues = body.get("error", {}).get("details", {}).get("issues", [])
+    assert any("chart_id" in str(issue.get("loc", [])) for issue in issues)
+
+
+def test_post_emergency_changes_returns_422_for_threshold_consistency(
+    client: TestClient,
+    seeded_emergency_chart: tuple[int, int],
+) -> None:
+    _, chart_id = seeded_emergency_chart
+    # Send payload with warn_low > warn_high, violating consistency rule
+    res = client.post(
+        "/governance/emergency-changes",
+        json={
+            "chart_id": chart_id,
+            "changed_by": "ops-user",
+            "changed_by_role": "operator",
+            "reason": "incident mitigation",
+            "change_payload": '{"warn_low": 3.0, "warn_high": 1.0}',
+        },
+    )
+
+    assert res.status_code == 422
+    assert_validation_error_envelope(
+        res.json(),
+        expected_loc_fragment="change_payload",
+        expected_message_fragment="warn_low",
+    )
+
+
+def test_post_emergency_changes_noop_success_does_not_add_history(
+    client: TestClient,
+    seeded_emergency_chart: tuple[int, int],
+) -> None:
+    _, chart_id = seeded_emergency_chart
+
+    # Get initial history count
+    con = _connect(MAIN_DB)
+    try:
+        initial_count = con.execute(
+            "SELECT COUNT(*) FROM ChartsHistory WHERE chart_id = ?",
+            (chart_id,),
+        ).fetchone()[0]
+    finally:
+        con.close()
+
+    # Submit a no-op change (same values as current)
+    payload_json = '{"warn_low": 1.0, "warn_high": 2.0, "crit_low": 0.8, "crit_high": 2.2}'
+    res = client.post(
+        "/governance/emergency-changes",
+        json={
+            "chart_id": chart_id,
+            "changed_by": "ops-user",
+            "changed_by_role": "operator",
+            "reason": "incident mitigation",
+            "change_payload": payload_json,
+        },
+    )
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["ok"] is True
+    assert body["data"]["noop"] is True
+
+    # Verify history count did not increase
+    con = _connect(MAIN_DB)
+    try:
+        final_count = con.execute(
+            "SELECT COUNT(*) FROM ChartsHistory WHERE chart_id = ?",
+            (chart_id,),
+        ).fetchone()[0]
+    finally:
+        con.close()
+
+    assert final_count == initial_count

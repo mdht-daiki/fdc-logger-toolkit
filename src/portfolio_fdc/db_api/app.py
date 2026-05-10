@@ -578,10 +578,18 @@ class _GovernanceApplyChartNotFound(Exception):
 class _GovernanceApplyVersionConflict(Exception):
     """expected_version と current.version が不一致の場合に送出する内部例外。"""
 
-    def __init__(self, *, current_version: int, current_updated_at: str, chart_id: int) -> None:
+    def __init__(
+        self,
+        *,
+        current_version: int,
+        current_updated_at: str,
+        chart_id: int,
+        current_status: str,
+    ) -> None:
         self.current_version = current_version
         self.current_updated_at = current_updated_at
         self.chart_id = chart_id
+        self.current_status = current_status
 
 
 class _GovernanceApplyValidationError(Exception):
@@ -1636,7 +1644,7 @@ def approve_governance_change_request(
 
     try:
         data = runner.submit("write", _write)
-        return {"ok": True, "data": data}
+        return {"ok": True, "data": data, "timestamp": to_utc_millis(datetime.now(UTC).isoformat())}
     except GovernanceNotFoundError:
         return _not_found_error_response(
             message="change request not found",
@@ -1675,164 +1683,183 @@ def apply_governance_change_request(
         con = _connect(MAIN_DB)
         try:
             con.execute("BEGIN")
-            req = _governance_change_request_repository.find_by_id(con, request_id)
-            if req.status != "approved":
-                raise _GovernanceApplyInvalidState
+            try:
+                req = _governance_change_request_repository.find_by_id(con, request_id)
+                if req.status != "approved":
+                    raise _GovernanceApplyInvalidState
 
-            chart_row = con.execute(
-                """
-                SELECT
-                    id, chart_set_id, tool_id, chamber_id, recipe_id, parameter,
-                    step_no, feature_type, warn_low, warn_high, crit_low, crit_high,
-                    version, updated_at
-                FROM ChartsV2
-                WHERE id = ?
-                """,
-                (req.chart_id,),
-            ).fetchone()
-            if chart_row is None:
-                raise _GovernanceApplyChartNotFound
-
-            (
-                chart_id,
-                chart_set_id,
-                tool_id,
-                chamber_id,
-                recipe_id,
-                parameter,
-                step_no,
-                feature_type,
-                old_warn_low,
-                old_warn_high,
-                old_crit_low,
-                old_crit_high,
-                current_version,
-                current_updated_at,
-            ) = chart_row
-
-            if int(current_version) != int(req.expected_version):
-                raise _GovernanceApplyVersionConflict(
-                    current_version=int(current_version),
-                    current_updated_at=str(current_updated_at),
-                    chart_id=int(chart_id),
-                )
-
-            patch = _parse_threshold_patch(req.change_payload)
-            new_warn_low = patch.get("warn_low", old_warn_low)
-            new_warn_high = patch.get("warn_high", old_warn_high)
-            new_crit_low = patch.get("crit_low", old_crit_low)
-            new_crit_high = patch.get("crit_high", old_crit_high)
-
-            _validate_threshold_consistency(
-                warn_low=new_warn_low,
-                warn_high=new_warn_high,
-                crit_low=new_crit_low,
-                crit_high=new_crit_high,
-            )
-
-            def _thresh_eq(a: float | None, b: float | None) -> bool:
-                if a is None and b is None:
-                    return True
-                if a is None or b is None:
-                    return False
-                return math.isclose(a, b, rel_tol=1e-9, abs_tol=1e-12)
-
-            is_noop = (
-                _thresh_eq(old_warn_low, new_warn_low)
-                and _thresh_eq(old_warn_high, new_warn_high)
-                and _thresh_eq(old_crit_low, new_crit_low)
-                and _thresh_eq(old_crit_high, new_crit_high)
-            )
-
-            resulting_version = int(current_version)
-            if not is_noop:
-                resulting_version = int(current_version) + 1
-                con.execute(
+                chart_row = con.execute(
                     """
-                    UPDATE ChartsV2
-                    SET warn_low = ?, warn_high = ?, crit_low = ?, crit_high = ?,
-                        version = ?, updated_at = ?, updated_by = ?,
-                        update_reason = ?, update_source = ?
+                    SELECT
+                        id, chart_set_id, tool_id, chamber_id, recipe_id, parameter,
+                        step_no, feature_type, warn_low, warn_high, crit_low, crit_high,
+                        version, updated_at
+                    FROM ChartsV2
                     WHERE id = ?
                     """,
-                    (
-                        new_warn_low,
-                        new_warn_high,
-                        new_crit_low,
-                        new_crit_high,
-                        resulting_version,
-                        applied_at,
-                        payload.applied_by,
-                        payload.reason,
-                        "governance_apply",
-                        chart_id,
-                    ),
-                )
-                con.execute(
-                    """
-                    INSERT INTO ChartsHistory(
-                        chart_set_id, tool_id, chamber_id, recipe_id, parameter,
-                        step_no, feature_type,
-                        old_warn_low, old_warn_high, old_crit_low, old_crit_high,
-                        new_warn_low, new_warn_high, new_crit_low, new_crit_high,
-                        changed_at, changed_by, change_reason, change_source, chart_id
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        chart_set_id,
-                        tool_id,
-                        chamber_id,
-                        recipe_id,
-                        parameter,
-                        step_no,
-                        feature_type,
-                        old_warn_low,
-                        old_warn_high,
-                        old_crit_low,
-                        old_crit_high,
-                        new_warn_low,
-                        new_warn_high,
-                        new_crit_low,
-                        new_crit_high,
-                        applied_at,
-                        payload.applied_by,
-                        payload.reason,
-                        "governance_apply",
-                        chart_id,
-                    ),
+                    (req.chart_id,),
+                ).fetchone()
+                if chart_row is None:
+                    raise _GovernanceApplyChartNotFound
+
+                (
+                    chart_id,
+                    chart_set_id,
+                    tool_id,
+                    chamber_id,
+                    recipe_id,
+                    parameter,
+                    step_no,
+                    feature_type,
+                    old_warn_low,
+                    old_warn_high,
+                    old_crit_low,
+                    old_crit_high,
+                    current_version,
+                    current_updated_at,
+                ) = chart_row
+
+                if int(current_version) != int(req.expected_version):
+                    raise _GovernanceApplyVersionConflict(
+                        current_version=int(current_version),
+                        current_updated_at=str(current_updated_at),
+                        chart_id=int(chart_id),
+                        current_status=str(getattr(req, "status", "unknown") or "unknown"),
+                    )
+
+                patch = _parse_threshold_patch(req.change_payload)
+                new_warn_low = patch.get("warn_low", old_warn_low)
+                new_warn_high = patch.get("warn_high", old_warn_high)
+                new_crit_low = patch.get("crit_low", old_crit_low)
+                new_crit_high = patch.get("crit_high", old_crit_high)
+
+                _validate_threshold_consistency(
+                    warn_low=new_warn_low,
+                    warn_high=new_warn_high,
+                    crit_low=new_crit_low,
+                    crit_high=new_crit_high,
                 )
 
-            con.execute(
-                """
-                INSERT OR REPLACE INTO GovernanceApplyResults(
-                    request_id, applied_at, success, resulting_version,
-                    error_code, error_message
-                ) VALUES (?, ?, 1, ?, NULL, NULL)
-                """,
-                (request_id, applied_at, resulting_version),
-            )
-            _governance_change_request_repository.update_status(
-                con,
-                record_id=request_id,
-                new_status="applied",
-            )
-            _audit_event_writer.write(
-                con,
-                event_type="change_applied",
-                actor=payload.applied_by,
-                actor_role=payload.applied_by_role,
-                target_type="change_request",
-                target_id=request_id,
-                occurred_at=applied_at,
-                correlation_id=f"request:{request_id}",
-            )
-            con.commit()
-            return {
-                "request_id": request_id,
-                "status": "applied",
-                "resulting_version": resulting_version,
-                "noop": is_noop,
-            }
+                def _thresh_eq(a: float | None, b: float | None) -> bool:
+                    if a is None and b is None:
+                        return True
+                    if a is None or b is None:
+                        return False
+                    return math.isclose(a, b, rel_tol=1e-9, abs_tol=1e-12)
+
+                is_noop = (
+                    _thresh_eq(old_warn_low, new_warn_low)
+                    and _thresh_eq(old_warn_high, new_warn_high)
+                    and _thresh_eq(old_crit_low, new_crit_low)
+                    and _thresh_eq(old_crit_high, new_crit_high)
+                )
+
+                resulting_version = int(current_version)
+                if not is_noop:
+                    resulting_version = int(current_version) + 1
+                    con.execute(
+                        """
+                        UPDATE ChartsV2
+                        SET warn_low = ?, warn_high = ?, crit_low = ?, crit_high = ?,
+                            version = ?, updated_at = ?, updated_by = ?,
+                            update_reason = ?, update_source = ?
+                        WHERE id = ?
+                        """,
+                        (
+                            new_warn_low,
+                            new_warn_high,
+                            new_crit_low,
+                            new_crit_high,
+                            resulting_version,
+                            applied_at,
+                            payload.applied_by,
+                            payload.reason,
+                            "governance_apply",
+                            chart_id,
+                        ),
+                    )
+                    con.execute(
+                        """
+                        INSERT INTO ChartsHistory(
+                            chart_set_id, tool_id, chamber_id, recipe_id, parameter,
+                            step_no, feature_type,
+                            old_warn_low, old_warn_high, old_crit_low, old_crit_high,
+                            new_warn_low, new_warn_high, new_crit_low, new_crit_high,
+                            changed_at, changed_by, change_reason, change_source, chart_id
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            chart_set_id,
+                            tool_id,
+                            chamber_id,
+                            recipe_id,
+                            parameter,
+                            step_no,
+                            feature_type,
+                            old_warn_low,
+                            old_warn_high,
+                            old_crit_low,
+                            old_crit_high,
+                            new_warn_low,
+                            new_warn_high,
+                            new_crit_low,
+                            new_crit_high,
+                            applied_at,
+                            payload.applied_by,
+                            payload.reason,
+                            "governance_apply",
+                            chart_id,
+                        ),
+                    )
+
+                con.execute(
+                    """
+                    INSERT OR REPLACE INTO GovernanceApplyResults(
+                        request_id, applied_at, success, resulting_version,
+                        error_code, error_message
+                    ) VALUES (?, ?, 1, ?, NULL, NULL)
+                    """,
+                    (request_id, applied_at, resulting_version),
+                )
+                _governance_change_request_repository.update_status(
+                    con,
+                    record_id=request_id,
+                    new_status="applied",
+                )
+                _audit_event_writer.write(
+                    con,
+                    event_type="change_applied",
+                    actor=payload.applied_by,
+                    actor_role=payload.applied_by_role,
+                    target_type="change_request",
+                    target_id=request_id,
+                    occurred_at=applied_at,
+                    correlation_id=f"request:{request_id}",
+                )
+                con.commit()
+                return {
+                    "request_id": request_id,
+                    "status": "applied",
+                    "resulting_version": resulting_version,
+                    "noop": is_noop,
+                }
+            except (
+                _GovernanceApplyInvalidState,
+                _GovernanceApplyValidationError,
+                _GovernanceApplyVersionConflict,
+            ):
+                _audit_event_writer.write(
+                    con,
+                    event_type="change_apply_failed",
+                    actor=payload.applied_by,
+                    actor_role=payload.applied_by_role,
+                    target_type="change_request",
+                    target_id=request_id,
+                    occurred_at=applied_at,
+                    correlation_id=f"request:{request_id}",
+                )
+                con.commit()
+                raise
         except Exception:
             con.rollback()
             raise
@@ -1841,7 +1868,7 @@ def apply_governance_change_request(
 
     try:
         data = runner.submit("write", _write)
-        return {"ok": True, "data": data}
+        return {"ok": True, "data": data, "timestamp": to_utc_millis(datetime.now(UTC).isoformat())}
     except GovernanceNotFoundError:
         return _not_found_error_response(
             message="change request not found",
@@ -1873,6 +1900,7 @@ def apply_governance_change_request(
                             "chart_id": e.chart_id,
                             "version": e.current_version,
                             "updated_at": e.current_updated_at,
+                            "status": e.current_status,
                         },
                     },
                 },

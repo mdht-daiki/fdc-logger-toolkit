@@ -595,6 +595,40 @@ def test_post_approve_change_requests_returns_409_for_duplicate_approval(
     assert body["error"]["details"]["request_id"] == str(request_id)
 
 
+def test_post_approve_change_requests_success_envelope_contract(
+    client: TestClient,
+    seeded_change_requests_context: SeededChangeRequestsContext,
+) -> None:
+    seeded = seeded_change_requests_context
+    idempotency_key = f"approve-envelope-{uuid4().hex[:12]}"
+
+    request_id = _insert_change_request(
+        chart_id=seeded.chart_2_id,
+        proposed_by="ops",
+        proposed_at="2026-05-04T00:00:00.000Z",
+        idempotency_key=idempotency_key,
+        change_payload="{}",
+        expected_version=1,
+    )
+    try:
+        res = client.post(
+            f"/governance/change-requests/{request_id}/approve",
+            json={
+                "approved_by": "tester",
+                "approved_by_role": "ops",
+                "comment": "test approve contract",
+            },
+        )
+
+        assert res.status_code == 200
+        body = res.json()
+        assert body["ok"] is True
+        assert "data" in body
+        assert "timestamp" in body
+    finally:
+        _delete_change_request_by_idempotency(idempotency_key)
+
+
 def test_post_apply_change_requests_success_noop_does_not_add_history(
     client: TestClient,
     seeded_change_requests_context: SeededChangeRequestsContext,
@@ -718,6 +752,7 @@ def test_post_apply_change_requests_returns_409_for_stale_expected_version(
 ) -> None:
     seeded = seeded_change_requests_context
     _update_chart_version(seeded.chart_1_id, 3)
+    before_history = _count_chart_history(seeded.chart_1_id)
 
     request_id = seeded.request_approved_chart_1
     res = client.post(
@@ -735,6 +770,7 @@ def test_post_apply_change_requests_returns_409_for_stale_expected_version(
     current = body["error"]["details"]["current"]
     assert current["chart_id"] == seeded.chart_1_id
     assert current["version"] == 3
+    assert _count_chart_history(seeded.chart_1_id) == before_history
 
 
 def test_post_apply_change_requests_returns_422_for_invalid_threshold_consistency(
@@ -800,6 +836,40 @@ def test_post_apply_change_requests_returns_400_when_chart_missing(
     body = res.json()
     assert body["ok"] is False
     assert body["error"]["code"] == "CHART_NOT_FOUND"
+
+
+def test_post_apply_change_requests_success_envelope_contract(
+    client: TestClient,
+    seeded_change_requests_context: SeededChangeRequestsContext,
+) -> None:
+    seeded = seeded_change_requests_context
+    idempotency_key = f"apply-envelope-{uuid4().hex[:12]}"
+
+    request_id = _insert_change_request(
+        chart_id=seeded.chart_1_id,
+        proposed_by="ops",
+        proposed_at="2026-05-04T00:00:00.000Z",
+        idempotency_key=idempotency_key,
+        change_payload='{"warn_low": 1.0}',
+        expected_version=1,
+    )
+    _update_change_request_status(request_id, "approved")
+    try:
+        res = client.post(
+            f"/governance/change-requests/{request_id}/apply",
+            json={
+                "applied_by": "tester",
+                "applied_by_role": "ops",
+            },
+        )
+
+        assert res.status_code == 200
+        body = res.json()
+        assert body["ok"] is True
+        assert "data" in body
+        assert "timestamp" in body
+    finally:
+        _delete_change_request_by_idempotency(idempotency_key)
 
 
 def test_post_change_requests_success_envelope_contract(

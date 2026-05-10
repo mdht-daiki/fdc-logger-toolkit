@@ -1060,7 +1060,7 @@ def retry_governance_notification(
 ):
     """通知 outbox の failed レコードを再送キューへ戻す。"""
 
-    def _write() -> dict[str, object]:
+    def _retry_failed_notification_outbox() -> dict[str, object]:
         con = _connect(MAIN_DB)
         try:
             con.execute("BEGIN")
@@ -1149,7 +1149,7 @@ def retry_governance_notification(
             con.close()
 
     try:
-        data = runner.submit("write", _write)
+        data = runner.submit("write", _retry_failed_notification_outbox)
         return {"ok": True, "data": data}
     except _GovernanceNotificationNotFound:
         return _not_found_error_response(

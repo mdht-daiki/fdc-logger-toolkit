@@ -18,6 +18,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from .aggregate_repository import delete_process, write_aggregate_atomic
 from .api_common import (
     compute_notification_next_retry_at,
     parse_chart_pk,
@@ -287,6 +288,8 @@ governance_router = GovernanceRouter(
 ingest_router = IngestRouter(
     get_runner=_runner_from_request,
     legacy_headers=_legacy_delete_headers,
+    delete_process=lambda *args, **kwargs: delete_process(*args, **kwargs),
+    write_aggregate_atomic=lambda *args, **kwargs: write_aggregate_atomic(*args, **kwargs),
 )
 
 app.include_router(query_router.router)

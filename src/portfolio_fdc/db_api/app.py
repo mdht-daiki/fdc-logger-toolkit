@@ -986,16 +986,16 @@ def get_governance_audit_events(
             where_clauses.append("target_id = ?")
             params.append(query.target_id)
         if query.from_ts is not None:
-            where_clauses.append("datetime(occurred_at) >= datetime(?)")
+            where_clauses.append("occurred_at >= ?")
             params.append(_normalize_query_datetime(query.from_ts))
         if query.to_ts is not None:
-            where_clauses.append("datetime(occurred_at) <= datetime(?)")
+            where_clauses.append("occurred_at <= ?")
             params.append(_normalize_query_datetime(query.to_ts))
 
         if where_clauses:
             sql += " WHERE " + " AND ".join(where_clauses)
 
-        sql += " ORDER BY datetime(occurred_at) DESC, id DESC LIMIT ? OFFSET ?"
+        sql += " ORDER BY occurred_at DESC, id DESC LIMIT ? OFFSET ?"
         params.extend((query.limit, query.offset))
 
         rows = con.execute(sql, params).fetchall()

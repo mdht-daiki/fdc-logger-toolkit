@@ -30,8 +30,8 @@
 | `POST`   | `/governance/change-requests`                       | governance     | implemented | dashboard/ops   | source: `db_api/app.py` | 通常変更の申請作成                           |
 | `POST`   | `/governance/change-requests/{request_id}/approve`  | governance     | implemented | ops             | source: `db_api/app.py` | 変更申請の承認                               |
 | `POST`   | `/governance/change-requests/{request_id}/apply`    | governance     | implemented | ops             | source: `db_api/app.py` | 承認済み申請の反映                           |
-| `POST`   | `/governance/emergency-changes`                     | governance     | planned     | dashboard/ops   | Issue #102              | 緊急変更の即時反映                           |
-| `POST`   | `/governance/emergency-changes/{request_id}/ratify` | governance     | planned     | ops             | Issue #102              | 緊急変更の事後追認                           |
+| `POST`   | `/governance/emergency-changes`                     | governance     | implemented | dashboard/ops   | source: `db_api/app.py` | 緊急変更の即時反映                           |
+| `POST`   | `/governance/emergency-changes/{request_id}/ratify` | governance     | implemented | ops             | source: `db_api/app.py` | 緊急変更の事後追認                           |
 | `GET`    | `/governance/change-requests`                       | governance     | implemented | ops/audit       | source: `db_api/app.py` | 変更申請の検索                               |
 | `GET`    | `/governance/audit-events`                          | governance     | implemented | ops/audit       | source: `db_api/app.py` | 監査イベントの検索                           |
 | `POST`   | `/governance/notifications/{event_id}/retry`        | governance     | implemented | ops             | source: `db_api/app.py` | 通知失敗時の再送                             |

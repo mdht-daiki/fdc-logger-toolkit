@@ -45,7 +45,9 @@ from .db import MAIN_DB, TEMP_DB, _connect, _connect_readonly, _init_schema
 from .governance_repository import (
     GovernanceApprovalsRepository,
     GovernanceChangeRequestRepository,
+    GovernanceEmergencyChangesRepository,
     GovernanceNotFoundError,
+    GovernanceRatificationsRepository,
 )
 from .judge_repository import (
     JudgeDataCorruptionError,
@@ -58,6 +60,8 @@ from .schemas import (
     ChangeRequestApproveIn,
     ChangeRequestIn,
     ChangeRequestsQuery,
+    EmergencyChangeIn,
+    EmergencyChangeRatifyIn,
     GovernanceAuditEventsQuery,
     ParameterIn,
     ProcessDeleteIn,
@@ -269,6 +273,8 @@ _chart_repository = ChartRepository()
 _judge_repository = JudgeRepository()
 _governance_change_request_repository = GovernanceChangeRequestRepository()
 _governance_approvals_repository = GovernanceApprovalsRepository()
+_governance_emergency_changes_repository = GovernanceEmergencyChangesRepository()
+_governance_ratifications_repository = GovernanceRatificationsRepository()
 _audit_event_writer = AuditEventWriter()
 
 
@@ -534,6 +540,15 @@ def _is_governance_change_request_chart_fk_error(error: sqlite3.IntegrityError) 
     return "foreign key constraint failed" in str(error).lower()
 
 
+def _is_governance_ratification_ec_unique_error(error: sqlite3.IntegrityError) -> bool:
+    """GovernanceRatifications.ec_id の UNIQUE 違反かを判定する。"""
+    message = str(error)
+    return (
+        "GovernanceRatifications.ec_id" in message
+        or "UNIQUE constraint failed: GovernanceRatifications.ec_id" in message
+    )
+
+
 class _GovernanceChangeRequestIdempotencyConflict(Exception):
     """change-request 作成時の重複 idempotency_key を表す内部例外。"""
 
@@ -594,6 +609,17 @@ class _GovernanceNotificationRetryLimitExceeded(Exception):
 
 class _GovernanceNotificationConcurrentModification(Exception):
     """conditional UPDATE が 0 件更新になった場合に送出する内部例外。"""
+
+
+class _GovernanceEmergencyChangeChartNotFound(Exception):
+    """emergency change 対象 chart が存在しない場合に送出する内部例外。"""
+
+
+class _GovernanceEmergencyRatificationConflict(Exception):
+    """emergency change が既に追認済みの場合に送出する内部例外。"""
+
+    def __init__(self, *, ec_id: int) -> None:
+        self.ec_id = ec_id
 
 
 def _compute_notification_next_retry_at(*, base_time: datetime, retry_count: int) -> str:
@@ -1053,6 +1079,297 @@ def get_governance_audit_events(
         _raise_api_error(operation="GET /governance/audit-events", error=e)
     finally:
         con.close()
+
+
+@app.post("/governance/emergency-changes")
+def create_governance_emergency_change(payload: EmergencyChangeIn, runner: RunnerDep):
+    """緊急変更を即時反映する。"""
+
+    changed_at = to_utc_millis(datetime.now(UTC).isoformat())
+
+    def _write() -> dict[str, object]:
+        con = _connect(MAIN_DB)
+        try:
+            con.execute("BEGIN")
+            row = con.execute(
+                """
+                SELECT
+                    id, chart_set_id, tool_id, chamber_id, recipe_id, parameter,
+                    step_no, feature_type, warn_low, warn_high, crit_low, crit_high,
+                    version
+                FROM ChartsV2
+                WHERE id = ?
+                """,
+                (payload.chart_id,),
+            ).fetchone()
+            if row is None:
+                raise _GovernanceEmergencyChangeChartNotFound
+
+            (
+                chart_id,
+                chart_set_id,
+                tool_id,
+                chamber_id,
+                recipe_id,
+                parameter,
+                step_no,
+                feature_type,
+                old_warn_low,
+                old_warn_high,
+                old_crit_low,
+                old_crit_high,
+                current_version,
+            ) = row
+
+            patch = _parse_threshold_patch(payload.change_payload)
+            new_warn_low = patch.get("warn_low", old_warn_low)
+            new_warn_high = patch.get("warn_high", old_warn_high)
+            new_crit_low = patch.get("crit_low", old_crit_low)
+            new_crit_high = patch.get("crit_high", old_crit_high)
+
+            _validate_threshold_consistency(
+                warn_low=new_warn_low,
+                warn_high=new_warn_high,
+                crit_low=new_crit_low,
+                crit_high=new_crit_high,
+            )
+
+            def _thresh_eq(a: float | None, b: float | None) -> bool:
+                if a is None and b is None:
+                    return True
+                if a is None or b is None:
+                    return False
+                return math.isclose(a, b, rel_tol=1e-9, abs_tol=1e-12)
+
+            is_noop = (
+                _thresh_eq(old_warn_low, new_warn_low)
+                and _thresh_eq(old_warn_high, new_warn_high)
+                and _thresh_eq(old_crit_low, new_crit_low)
+                and _thresh_eq(old_crit_high, new_crit_high)
+            )
+
+            resulting_version = int(current_version)
+            before_json = json.dumps(
+                {
+                    "warn_low": old_warn_low,
+                    "warn_high": old_warn_high,
+                    "crit_low": old_crit_low,
+                    "crit_high": old_crit_high,
+                }
+            )
+            after_json = json.dumps(
+                {
+                    "warn_low": new_warn_low,
+                    "warn_high": new_warn_high,
+                    "crit_low": new_crit_low,
+                    "crit_high": new_crit_high,
+                }
+            )
+            if not is_noop:
+                resulting_version = int(current_version) + 1
+                con.execute(
+                    """
+                    UPDATE ChartsV2
+                    SET warn_low = ?, warn_high = ?, crit_low = ?, crit_high = ?,
+                        version = ?, updated_at = ?, updated_by = ?,
+                        update_reason = ?, update_source = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        new_warn_low,
+                        new_warn_high,
+                        new_crit_low,
+                        new_crit_high,
+                        resulting_version,
+                        changed_at,
+                        payload.changed_by,
+                        payload.reason,
+                        "emergency_manual",
+                        chart_id,
+                    ),
+                )
+                con.execute(
+                    """
+                    INSERT INTO ChartsHistory(
+                        chart_set_id, tool_id, chamber_id, recipe_id, parameter,
+                        step_no, feature_type,
+                        old_warn_low, old_warn_high, old_crit_low, old_crit_high,
+                        new_warn_low, new_warn_high, new_crit_low, new_crit_high,
+                        changed_at, changed_by, change_reason, change_source, chart_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        chart_set_id,
+                        tool_id,
+                        chamber_id,
+                        recipe_id,
+                        parameter,
+                        step_no,
+                        feature_type,
+                        old_warn_low,
+                        old_warn_high,
+                        old_crit_low,
+                        old_crit_high,
+                        new_warn_low,
+                        new_warn_high,
+                        new_crit_low,
+                        new_crit_high,
+                        changed_at,
+                        payload.changed_by,
+                        payload.reason,
+                        "emergency_manual",
+                        chart_id,
+                    ),
+                )
+
+            emergency_change_id = _governance_emergency_changes_repository.create(
+                con,
+                chart_id=int(chart_id),
+                changed_by=payload.changed_by,
+                changed_by_role=payload.changed_by_role,
+                changed_at=changed_at,
+                reason=payload.reason,
+                before_json=before_json,
+                after_json=after_json,
+                resulting_version=resulting_version,
+                related_issue_or_pr=None,
+            )
+            audit_event_id = _audit_event_writer.write(
+                con,
+                event_type="emergency_changed",
+                actor=payload.changed_by,
+                actor_role=payload.changed_by_role,
+                target_type="emergency_change",
+                target_id=emergency_change_id,
+                occurred_at=changed_at,
+                before_json=before_json,
+                after_json=after_json,
+                correlation_id=f"emergency:{emergency_change_id}",
+            )
+            con.execute(
+                """
+                INSERT INTO GovernanceNotificationOutbox(event_id, status)
+                VALUES (?, 'pending')
+                """,
+                (audit_event_id,),
+            )
+            con.commit()
+            return {
+                "request_id": emergency_change_id,
+                "status": "applied",
+                "resulting_version": resulting_version,
+                "noop": is_noop,
+            }
+        except Exception:
+            con.rollback()
+            raise
+        finally:
+            con.close()
+
+    try:
+        data = runner.submit("write", _write)
+        return {"ok": True, "data": data}
+    except _GovernanceEmergencyChangeChartNotFound:
+        return _bad_request_error_response(
+            code="CHART_NOT_FOUND",
+            message="target chart not found",
+            details={"chart_id": str(payload.chart_id)},
+        )
+    except _GovernanceApplyValidationError as e:
+        return _validation_error_response(
+            issues=[
+                {
+                    "loc": ["body", "change_payload"],
+                    "msg": e.message,
+                    "type": "value_error",
+                }
+            ]
+        )
+    except Exception as e:
+        _raise_api_error(operation="POST /governance/emergency-changes", error=e)
+
+
+@app.post("/governance/emergency-changes/{request_id}/ratify")
+def ratify_governance_emergency_change(
+    payload: EmergencyChangeRatifyIn,
+    runner: RunnerDep,
+    request_id: int = Path(ge=1),
+):
+    """緊急変更を事後追認する。"""
+
+    ratified_at = to_utc_millis(datetime.now(UTC).isoformat())
+
+    def _write() -> dict[str, object]:
+        con = _connect(MAIN_DB)
+        try:
+            con.execute("BEGIN")
+            _governance_emergency_changes_repository.find_by_id(con, request_id)
+
+            try:
+                _governance_ratifications_repository.create(
+                    con,
+                    ec_id=request_id,
+                    ratified_by_role=payload.ratified_by_role,
+                    ratified_at=ratified_at,
+                    ratification_comment=payload.ratification_comment,
+                    related_pr=payload.related_pr,
+                )
+            except sqlite3.IntegrityError as e:
+                if _is_governance_ratification_ec_unique_error(e):
+                    raise _GovernanceEmergencyRatificationConflict(ec_id=request_id) from e
+                if "foreign key constraint failed" in str(e).lower():
+                    raise GovernanceNotFoundError(
+                        f"GovernanceEmergencyChanges id={request_id} not found"
+                    ) from e
+                raise
+
+            if payload.related_pr is not None:
+                con.execute(
+                    """
+                    UPDATE GovernanceEmergencyChanges
+                    SET related_issue_or_pr = ?
+                    WHERE id = ?
+                    """,
+                    (payload.related_pr, request_id),
+                )
+
+            _audit_event_writer.write(
+                con,
+                event_type="emergency_ratified",
+                actor="ops",
+                actor_role=payload.ratified_by_role,
+                target_type="emergency_change",
+                target_id=request_id,
+                occurred_at=ratified_at,
+                correlation_id=f"emergency:{request_id}",
+            )
+            con.commit()
+            return {"request_id": request_id, "status": "ratified"}
+        except Exception:
+            con.rollback()
+            raise
+        finally:
+            con.close()
+
+    try:
+        data = runner.submit("write", _write)
+        return {"ok": True, "data": data}
+    except GovernanceNotFoundError:
+        return _not_found_error_response(
+            message="emergency change not found",
+            details={"request_id": str(request_id)},
+        )
+    except _GovernanceEmergencyRatificationConflict:
+        return _conflict_error_response(
+            code="ALREADY_RATIFIED",
+            message="emergency change is already ratified",
+            details={"request_id": str(request_id)},
+        )
+    except Exception as e:
+        _raise_api_error(
+            operation="POST /governance/emergency-changes/{request_id}/ratify",
+            error=e,
+        )
 
 
 @app.post("/governance/notifications/{event_id}/retry")

@@ -598,7 +598,10 @@ class _GovernanceNotificationConcurrentModification(Exception):
 
 def _compute_notification_next_retry_at(*, base_time: datetime, retry_count: int) -> str:
     """retry_count に応じた次回試行時刻を UTC ミリ秒 ISO 文字列で返す。"""
-    minutes = NOTIFICATION_RETRY_BACKOFF_MINUTES[retry_count]
+    minutes = NOTIFICATION_RETRY_BACKOFF_MINUTES.get(retry_count)
+    if minutes is None:
+        max_retries = len(NOTIFICATION_RETRY_BACKOFF_MINUTES)
+        raise ValueError(f"retry_count must be between 1 and {max_retries}")
     return to_utc_millis((base_time + timedelta(minutes=minutes)).isoformat())
 
 

@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
+from portfolio_fdc.db_api.app import _compute_notification_next_retry_at
 from portfolio_fdc.db_api.db import MAIN_DB, _connect
 
 
@@ -131,6 +132,17 @@ def _count_notification_queued_events(event_id: int) -> int:
 
 def _parse_utc_millis(ts: str) -> datetime:
     return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+
+
+def test_compute_notification_next_retry_at_rejects_invalid_retry_count() -> None:
+    base_time = datetime(2026, 5, 10, 0, 0, tzinfo=UTC)
+
+    try:
+        _compute_notification_next_retry_at(base_time=base_time, retry_count=4)
+    except ValueError as exc:
+        assert "retry_count must be between 1 and 3" in str(exc)
+    else:
+        raise AssertionError("expected ValueError")
 
 
 def test_post_notifications_retry_success_updates_failed_to_pending(

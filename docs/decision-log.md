@@ -1,5 +1,34 @@
 # Decision Log
 
+## 2026-05-11: `#143` emergency-changes/ratify - 実装前論点 B/B/A/A/B を確定
+
+日付基準: JST
+
+### Context
+
+`#143`（`POST /governance/emergency-changes` / `POST /governance/emergency-changes/{request_id}/ratify`）について、
+Issue の受け入れ条件、既存実装、運用ドキュメント間に差分があったため、実装前に論点を固定する必要があった。
+
+### Decision
+
+1. 緊急ルートの role 判定は Phase 1 では記録のみ（403 強制は将来の認証層で実装）
+2. `reason` は任意（後追い可）
+3. history の emergency 表現は `ChartsHistory.change_source='emergency_manual'` を正式仕様とする
+4. ratify 時の `related_pr` / `related_issue_or_pr` 更新は API で実施する
+5. ratify の監査イベントは `actor` を入力値（`ratified_by`）で受け取る
+
+### Why
+
+1. Phase 1 の即応性を維持しつつ、監査データ（actor/role/差分）を確保するため
+2. スキーマ追加や認可厳格化を将来フェーズへ分離し、現行実装との差分を最小化するため
+3. `related_issue_or_pr` の追認時記録を 1 操作で完結させ、運用漏れを減らすため
+
+### Consequence
+
+1. emergency POST は `reason` 欠落時でも受理し、監査・履歴は継続記録する
+2. ratify POST は `ratified_by` を必須入力として監査イベントに反映する
+3. `docs/chart-governance-playbook.md` / `docs/db-api-endpoints.md` を同一変更で更新し、記述差分を解消する
+
 ## 2026-05-07: `#141` POST /governance/change-requests - リクエストボディ項目を確定
 
 日付基準: JST

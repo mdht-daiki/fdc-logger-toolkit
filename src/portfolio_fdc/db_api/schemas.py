@@ -177,7 +177,7 @@ class EmergencyChangeIn(BaseModel):
     chart_id: int = Field(ge=1)
     changed_by: str = Field(min_length=1, max_length=128)
     changed_by_role: str = Field(min_length=1, max_length=64)
-    reason: str = Field(min_length=1, max_length=1000)
+    reason: str | None = Field(default=None, max_length=1000)
     change_payload: str = Field(min_length=1)
 
     @field_validator("change_payload")
@@ -193,6 +193,7 @@ class EmergencyChangeIn(BaseModel):
 class EmergencyChangeRatifyIn(BaseModel):
     """`/governance/emergency-changes/{request_id}/ratify` POST 用の入力モデル。"""
 
+    ratified_by: str = Field(min_length=1, max_length=128)
     ratified_by_role: str = Field(min_length=1, max_length=64)
     ratification_comment: str | None = Field(default=None, max_length=1000)
     related_pr: str | None = Field(default=None, min_length=1, max_length=128)

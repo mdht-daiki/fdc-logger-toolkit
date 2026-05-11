@@ -131,6 +131,26 @@ def _find_emergency_change(emergency_change_id: int) -> tuple[int, str | None]:
         con.close()
 
 
+def _find_latest_emergency_change_reason_by_chart(chart_id: int) -> str:
+    con = _connect(MAIN_DB)
+    try:
+        row = con.execute(
+            """
+            SELECT reason
+            FROM GovernanceEmergencyChanges
+            WHERE chart_id = ?
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (chart_id,),
+        ).fetchone()
+        if row is None:
+            raise RuntimeError("emergency change not found")
+        return str(row[0])
+    finally:
+        con.close()
+
+
 def _find_ratification_row(ec_id: int) -> tuple[str, str | None, str | None]:
     con = _connect(MAIN_DB)
     try:
@@ -637,6 +657,9 @@ def test_post_emergency_changes_accepts_missing_reason(
     assert change_source == "emergency_manual"
     assert change_reason is None
     assert changed_by == "ops-user"
+
+    stored_reason = _find_latest_emergency_change_reason_by_chart(chart_id)
+    assert stored_reason == ""
 
 
 def test_post_emergency_changes_ratify_returns_422_when_ratified_by_missing(

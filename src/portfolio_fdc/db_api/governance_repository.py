@@ -280,6 +280,7 @@ class GovernanceEmergencyChangesRepository:
         related_issue_or_pr: str | None = None,
     ) -> int:
         """緊急変更レコードを INSERT し、生成された id を返す。"""
+        stored_reason = reason if reason is not None else ""
         cur = con.execute(
             """
             INSERT INTO GovernanceEmergencyChanges
@@ -292,7 +293,7 @@ class GovernanceEmergencyChangesRepository:
                 changed_by,
                 changed_by_role,
                 changed_at,
-                reason if reason is not None else "",
+                stored_reason,
                 before_json,
                 after_json,
                 resulting_version,

@@ -6,6 +6,7 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 
 from portfolio_fdc.db_api.db import MAIN_DB, _connect
+from tests.utils.test_utils import assert_validation_error_envelope
 
 
 def _insert_audit_event(
@@ -236,3 +237,60 @@ def test_get_governance_audit_events_returns_400_for_naive_from_ts(
 
     assert res.status_code == 400
     assert "timezone" in res.json()["detail"]
+
+
+def test_get_governance_audit_events_returns_400_for_naive_to_ts_only(
+    client: TestClient,
+) -> None:
+    res = client.get(
+        "/governance/audit-events",
+        params={
+            "to_ts": "2026-05-02T00:00:00",
+        },
+    )
+
+    assert res.status_code == 400
+    assert "timezone" in res.json()["detail"]
+
+
+def test_get_governance_audit_events_returns_400_when_from_ts_is_after_to_ts(
+    client: TestClient,
+) -> None:
+    res = client.get(
+        "/governance/audit-events",
+        params={
+            "from_ts": "2026-05-03T00:00:00Z",
+            "to_ts": "2026-05-02T00:00:00Z",
+        },
+    )
+
+    assert res.status_code == 400
+    assert "end_ts must be greater than or equal to start_ts" in res.json()["detail"]
+
+
+def test_get_governance_audit_events_returns_422_for_invalid_limit(
+    client: TestClient,
+) -> None:
+    res = client.get(
+        "/governance/audit-events",
+        params={
+            "limit": 0,
+        },
+    )
+
+    assert res.status_code == 422
+    assert_validation_error_envelope(res.json(), expected_loc_fragment="limit")
+
+
+def test_get_governance_audit_events_returns_422_for_invalid_offset(
+    client: TestClient,
+) -> None:
+    res = client.get(
+        "/governance/audit-events",
+        params={
+            "offset": -1,
+        },
+    )
+
+    assert res.status_code == 422
+    assert_validation_error_envelope(res.json(), expected_loc_fragment="offset")

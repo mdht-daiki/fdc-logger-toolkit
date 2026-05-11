@@ -263,6 +263,14 @@ class EmergencyChangeRow:
     related_issue_or_pr: str | None
 
 
+def _normalize_reason(reason: str | None) -> str:
+    """GovernanceEmergencyChanges.reason の保存値を正規化する。
+
+    None は空文字として保存する。
+    """
+    return "" if reason is None else reason
+
+
 class GovernanceEmergencyChangesRepository:
     """GovernanceEmergencyChanges テーブルへの操作を提供する。"""
 
@@ -279,8 +287,10 @@ class GovernanceEmergencyChangesRepository:
         resulting_version: int,
         related_issue_or_pr: str | None = None,
     ) -> int:
-        """緊急変更レコードを INSERT し、生成された id を返す。"""
-        stored_reason = reason if reason is not None else ""
+        """緊急変更レコードを INSERT し、生成された id を返す。
+
+        GovernanceEmergencyChanges.reason は None の場合に空文字として保存する。
+        """
         cur = con.execute(
             """
             INSERT INTO GovernanceEmergencyChanges
@@ -293,7 +303,7 @@ class GovernanceEmergencyChangesRepository:
                 changed_by,
                 changed_by_role,
                 changed_at,
-                stored_reason,
+                _normalize_reason(reason),
                 before_json,
                 after_json,
                 resulting_version,

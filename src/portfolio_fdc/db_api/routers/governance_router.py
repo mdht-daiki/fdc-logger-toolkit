@@ -410,7 +410,7 @@ class GovernanceRouter:
                     self._audit_event_writer.write(
                         con,
                         event_type="emergency_ratified",
-                        actor="ops",
+                        actor=payload.ratified_by,
                         actor_role=payload.ratified_by_role,
                         target_type="emergency_change",
                         target_id=request_id,

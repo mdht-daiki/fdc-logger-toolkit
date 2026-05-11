@@ -97,7 +97,7 @@
 
 #### POST /governance/emergency-changes (即時反映)
 
-1. 正常系: `reason` 必須で、即座に ChartsV2 を更新し version を 1 増加させる
+1. 正常系: `reason` は任意（後追い可）とし、即座に ChartsV2 を更新し version を 1 増加させる
 2. 成功時に ChartsHistory に 1 件追加される（`change_source='emergency_manual'`）
 3. AuditEvents に `emergency_changed` タイプのイベントが記録される
 4. NotificationOutbox に `pending` 状態で登録され、通知ポーラー対象になる
@@ -109,7 +109,7 @@
 #### POST /governance/emergency-changes/{request_id}/ratify (事後追認)
 
 1. 正常系: 緊急変更を追認し、`related_issue_or_pr` を GovernanceEmergencyChanges に埋め込む
-2. AuditEvents に `emergency_ratified` タイプのイベントが記録される
+2. AuditEvents に `emergency_ratified` タイプのイベントが記録される（`actor` は `ratified_by` 入力値を使用）
 3. 同一 request_id での重複追認は 409 で拒否する
 
 ### Boundary and Edge Cases

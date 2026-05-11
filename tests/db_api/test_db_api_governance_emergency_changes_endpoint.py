@@ -63,7 +63,9 @@ def _insert_chart(chart_set_id: int, suffix: str) -> int:
         con.close()
 
 
-def _find_chart_row(chart_id: int) -> tuple[float, float, float, float, int, str, str, str]:
+def _find_chart_row(
+    chart_id: int,
+) -> tuple[float, float, float, float, int, str, str | None, str]:
     con = _connect(MAIN_DB)
     try:
         row = con.execute(
@@ -84,14 +86,14 @@ def _find_chart_row(chart_id: int) -> tuple[float, float, float, float, int, str
             float(row[3]),
             int(row[4]),
             str(row[5]),
-            str(row[6]),
+            None if row[6] is None else str(row[6]),
             str(row[7]),
         )
     finally:
         con.close()
 
 
-def _find_latest_history_row(chart_id: int) -> tuple[str, str, str]:
+def _find_latest_history_row(chart_id: int) -> tuple[str, str | None, str]:
     con = _connect(MAIN_DB)
     try:
         row = con.execute(
@@ -106,7 +108,7 @@ def _find_latest_history_row(chart_id: int) -> tuple[str, str, str]:
         ).fetchone()
         if row is None:
             raise RuntimeError("history not found")
-        return (str(row[0]), str(row[1]), str(row[2]))
+        return (str(row[0]), None if row[1] is None else str(row[1]), str(row[2]))
     finally:
         con.close()
 
@@ -167,6 +169,26 @@ def _find_emergency_audit_event_type(ec_id: int) -> str:
         if row is None:
             raise RuntimeError("audit event not found")
         return str(row[0])
+    finally:
+        con.close()
+
+
+def _find_latest_emergency_audit_event(ec_id: int) -> tuple[str, str, str]:
+    con = _connect(MAIN_DB)
+    try:
+        row = con.execute(
+            """
+            SELECT event_type, actor, actor_role
+            FROM GovernanceAuditEvents
+            WHERE target_type = 'emergency_change' AND target_id = ?
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (ec_id,),
+        ).fetchone()
+        if row is None:
+            raise RuntimeError("audit event not found")
+        return (str(row[0]), str(row[1]), str(row[2]))
     finally:
         con.close()
 
@@ -417,6 +439,7 @@ def test_post_emergency_changes_ratify_success_updates_related_issue_or_pr(
     res = client.post(
         f"/governance/emergency-changes/{ec_id}/ratify",
         json={
+            "ratified_by": "ops-manager",
             "ratified_by_role": "manager",
             "ratification_comment": "reviewed after the incident",
             "related_pr": "PR-123",
@@ -437,13 +460,17 @@ def test_post_emergency_changes_ratify_success_updates_related_issue_or_pr(
     change_version, related_issue_or_pr = _find_emergency_change(ec_id)
     assert change_version == 2
     assert related_issue_or_pr == "PR-123"
-    assert _find_emergency_audit_event_type(ec_id) == "emergency_ratified"
+    event_type, actor, actor_role = _find_latest_emergency_audit_event(ec_id)
+    assert event_type == "emergency_ratified"
+    assert actor == "ops-manager"
+    assert actor_role == "manager"
 
 
 def test_post_emergency_changes_ratify_returns_404_when_not_found(client: TestClient) -> None:
     res = client.post(
         "/governance/emergency-changes/9223372036854775807/ratify",
         json={
+            "ratified_by": "ops-manager",
             "ratified_by_role": "manager",
         },
     )
@@ -474,13 +501,13 @@ def test_post_emergency_changes_ratify_returns_409_when_already_ratified(
 
     first_res = client.post(
         f"/governance/emergency-changes/{ec_id}/ratify",
-        json={"ratified_by_role": "manager"},
+        json={"ratified_by": "ops-manager", "ratified_by_role": "manager"},
     )
     assert first_res.status_code == 200
 
     second_res = client.post(
         f"/governance/emergency-changes/{ec_id}/ratify",
-        json={"ratified_by_role": "manager"},
+        json={"ratified_by": "ops-manager", "ratified_by_role": "manager"},
     )
 
     assert second_res.status_code == 409
@@ -581,3 +608,64 @@ def test_post_emergency_changes_noop_success_does_not_add_history(
         con.close()
 
     assert final_count == initial_count
+
+
+def test_post_emergency_changes_accepts_missing_reason(
+    client: TestClient,
+    seeded_emergency_chart: tuple[int, int],
+) -> None:
+    _, chart_id = seeded_emergency_chart
+    res = client.post(
+        "/governance/emergency-changes",
+        json={
+            "chart_id": chart_id,
+            "changed_by": "ops-user",
+            "changed_by_role": "operator",
+            "change_payload": '{"warn_high": 1.95}',
+        },
+    )
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["ok"] is True
+    assert body["data"]["noop"] is False
+
+    _, _, _, _, _, _, update_reason, _ = _find_chart_row(chart_id)
+    assert update_reason is None
+
+    change_source, change_reason, changed_by = _find_latest_history_row(chart_id)
+    assert change_source == "emergency_manual"
+    assert change_reason is None
+    assert changed_by == "ops-user"
+
+
+def test_post_emergency_changes_ratify_returns_422_when_ratified_by_missing(
+    client: TestClient,
+    seeded_emergency_chart: tuple[int, int],
+) -> None:
+    _, chart_id = seeded_emergency_chart
+    create_res = client.post(
+        "/governance/emergency-changes",
+        json={
+            "chart_id": chart_id,
+            "changed_by": "ops-user",
+            "changed_by_role": "operator",
+            "change_payload": '{"warn_high": 1.9}',
+        },
+    )
+    assert create_res.status_code == 200
+    ec_id = int(create_res.json()["data"]["request_id"])
+
+    ratify_res = client.post(
+        f"/governance/emergency-changes/{ec_id}/ratify",
+        json={
+            "ratified_by_role": "manager",
+        },
+    )
+
+    assert ratify_res.status_code == 422
+    assert_validation_error_envelope(
+        ratify_res.json(),
+        expected_loc_fragment="ratified_by",
+        expected_message_fragment="Field required",
+    )

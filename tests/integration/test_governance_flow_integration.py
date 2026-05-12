@@ -24,9 +24,11 @@ def _insert_chart_set(suffix: str = "test") -> int:
     con = _connect(MAIN_DB)
     try:
         now = datetime.now(UTC).isoformat()
+        unique_suffix = uuid4().hex[:8]
+        set_name = f"test_set_{suffix}_{unique_suffix}"
         con.execute(
             "INSERT INTO ChartSet(name, note, created_at, created_by) VALUES (?, ?, ?, ?)",
-            (f"test_set_{suffix}", "integration test", now, "test_user"),
+            (set_name, "integration test", now, "test_user"),
         )
         chart_set_id = int(con.execute("SELECT last_insert_rowid()").fetchone()[0])
         con.commit()
@@ -249,10 +251,23 @@ def test_governance_read_endpoints_non_regression(client: TestClient) -> None:
     request_id = response.json()["data"]["request_id"]
 
     approve_payload = {"approved_by": "manager_01", "approved_by_role": "manager", "comment": "OK"}
-    client.post(f"/governance/change-requests/{request_id}/approve", json=approve_payload)
+    response = client.post(
+        f"/governance/change-requests/{request_id}/approve",
+        json=approve_payload,
+    )
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+    assert response.json()["data"]["request_id"] == request_id
 
     apply_payload = {"applied_by": "ops_01", "applied_by_role": "operator"}
-    client.post(f"/governance/change-requests/{request_id}/apply", json=apply_payload)
+    response = client.post(
+        f"/governance/change-requests/{request_id}/apply",
+        json=apply_payload,
+    )
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+    assert response.json()["data"]["request_id"] == request_id
+    assert response.json()["data"]["status"] == "applied"
 
     # 2. GET /governance/change-requests が正常に動作
     response = client.get("/governance/change-requests")
@@ -275,4 +290,9 @@ def test_governance_read_endpoints_non_regression(client: TestClient) -> None:
     assert response.status_code == 200
     assert response.json()["ok"] is True
     audit_list = response.json().get("data", [])
-    assert len(audit_list) >= 1
+    correlated_events = [
+        event
+        for event in audit_list
+        if event.get("target_type") == "change_request" and event.get("target_id") == request_id
+    ]
+    assert correlated_events

@@ -150,9 +150,28 @@ class JudgeEngine:
                             )
 
                     if level == "NG":
-                        stop_api_called = True
+                        pending_payload = self._build_message_json(
+                            process_row=process_row,
+                            parameter_row=parameter_row,
+                            chart_row=chart_row,
+                            level=level,
+                            judged_at=judged_at,
+                            notification_called=notification_called,
+                            notification_status=notification_status,
+                            stop_api_called=False,
+                            stop_api_status="PENDING",
+                        )
+                        result_id = self._insert_result(
+                            con,
+                            process_row=process_row,
+                            level=level,
+                            judged_at=judged_at,
+                            payload=pending_payload,
+                        )
                         summary = self._replace_summary(
                             summary,
+                            evaluated=summary.evaluated + 1,
+                            written=summary.written + 1,
                             stop_api_attempted=summary.stop_api_attempted + 1,
                         )
                         try:
@@ -165,8 +184,10 @@ class JudgeEngine:
                                     "feature_value": parameter_row.feature_value,
                                 }
                             )
+                            stop_api_called = True
                             stop_api_status = "CALLED"
                         except Exception:
+                            stop_api_called = True
                             stop_api_status = "FAILED"
                             summary = self._replace_summary(
                                 summary,
@@ -177,6 +198,29 @@ class JudgeEngine:
                                 process_row.process_id,
                                 chart_row.chart_id,
                             )
+                        final_payload = self._build_message_json(
+                            process_row=process_row,
+                            parameter_row=parameter_row,
+                            chart_row=chart_row,
+                            level=level,
+                            judged_at=judged_at,
+                            notification_called=notification_called,
+                            notification_status=notification_status,
+                            stop_api_called=stop_api_called,
+                            stop_api_status=stop_api_status,
+                        )
+                        self._update_result(
+                            con,
+                            result_id=result_id,
+                            level=level,
+                            judged_at=judged_at,
+                            payload=final_payload,
+                        )
+                        summary = self._replace_summary(
+                            summary,
+                            written=summary.written + 1,
+                        )
+                        continue
 
                     payload = self._build_message_json(
                         process_row=process_row,
@@ -249,6 +293,11 @@ class JudgeEngine:
                     SELECT 1
                     FROM Parameters p
                     WHERE p.process_id = pi.process_id
+                )
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM JudgementResults jr
+                    WHERE jr.process_id = pi.process_id
                 )
                 ORDER BY julianday(pi.start_ts) DESC, pi.process_id DESC
                 """,
@@ -404,9 +453,9 @@ class JudgeEngine:
         level: str,
         judged_at: str,
         payload: dict[str, Any],
-    ) -> None:
+    ) -> int:
         payload_str = json.dumps(payload, ensure_ascii=False)
-        con.execute(
+        cur = con.execute(
             """
             INSERT INTO JudgementResults(
                 process_id, tool_id, chamber_id, recipe_id, status, judged_at, message_json
@@ -421,6 +470,29 @@ class JudgeEngine:
                 judged_at,
                 payload_str,
             ),
+        )
+        result_id = cur.lastrowid
+        if result_id is None:
+            raise RuntimeError("failed to get inserted judgement result id")
+        return int(result_id)
+
+    def _update_result(
+        self,
+        con: sqlite3.Connection,
+        *,
+        result_id: int,
+        level: str,
+        judged_at: str,
+        payload: dict[str, Any],
+    ) -> None:
+        payload_str = json.dumps(payload, ensure_ascii=False)
+        con.execute(
+            """
+            UPDATE JudgementResults
+            SET status = ?, judged_at = ?, message_json = ?
+            WHERE id = ?
+            """,
+            (level, judged_at, payload_str, result_id),
         )
 
 

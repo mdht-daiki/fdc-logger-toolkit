@@ -5,6 +5,8 @@ import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 from portfolio_fdc.db_api.db import _init_schema
 from portfolio_fdc.judge.run_once import JudgeEngine, run_once
 
@@ -229,7 +231,7 @@ def test_judge_run_once_records_warn_and_ng_results(tmp_path: Path) -> None:
     ).run_once()
 
     assert summary.evaluated == 2
-    assert summary.written == 2
+    assert summary.written == 3
     assert summary.notifications_attempted == 2
     assert summary.stop_api_attempted == 1
     assert summary.notifications_failed == 0
@@ -297,7 +299,7 @@ def test_judge_run_once_marks_failed_stop_api_without_crashing(tmp_path: Path) -
     summary = run_once(db_path=db_path, stop_api_hook=_raise_stop_api)
 
     assert summary.evaluated == 1
-    assert summary.written == 1
+    assert summary.written == 2
     assert summary.notifications_attempted == 1
     assert summary.stop_api_attempted == 1
     assert summary.stop_api_failed == 1
@@ -306,3 +308,226 @@ def test_judge_run_once_marks_failed_stop_api_without_crashing(tmp_path: Path) -
     assert results[0][0] == "NG"
     assert results[0][1]["stop_api_status"] == "FAILED"
     assert results[0][1]["stop_api_called"] is True
+
+
+@pytest.mark.parametrize(
+    (
+        "feature_value",
+        "expected_status",
+        "expected_notification_attempted",
+        "expected_stop_attempted",
+        "expected_written",
+    ),
+    [
+        (1.4, "OK", 0, 0, 1),
+        (2.6, "OK", 0, 0, 1),
+        (1.2, "WARN", 1, 0, 1),
+        (2.8, "WARN", 1, 0, 1),
+        (1.39, "WARN", 1, 0, 1),
+        (2.81, "NG", 1, 1, 2),
+    ],
+)
+def test_judge_evaluate_boundaries(
+    tmp_path: Path,
+    feature_value: float,
+    expected_status: str,
+    expected_notification_attempted: int,
+    expected_stop_attempted: int,
+    expected_written: int,
+) -> None:
+    db_path = tmp_path / "main.db"
+    _init_schema(db_path)
+    chart_set_id = _seed_chart_set_and_active_chart(db_path)
+
+    tool_id = "TOOL_BOUNDARY"
+    chamber_id = "CH1"
+    recipe_id = "RECIPE_BOUNDARY"
+    process_id = f"P_BOUNDARY_{str(feature_value).replace('.', '_')}"
+
+    _insert_chart(
+        db_path,
+        chart_set_id,
+        tool_id=tool_id,
+        chamber_id=chamber_id,
+        recipe_id=recipe_id,
+        parameter="dc_bias",
+        step_no=1,
+        feature_type="mean",
+        warn_low=1.4,
+        warn_high=2.6,
+        crit_low=1.2,
+        crit_high=2.8,
+    )
+    _insert_process(
+        db_path,
+        process_id=process_id,
+        tool_id=tool_id,
+        chamber_id=chamber_id,
+        recipe_id=recipe_id,
+    )
+    _insert_parameter(
+        db_path,
+        process_id=process_id,
+        parameter="dc_bias",
+        step_no=1,
+        feature_type="mean",
+        feature_value=feature_value,
+    )
+
+    summary = JudgeEngine(db_path=db_path).run_once(process_id=process_id)
+
+    assert summary.evaluated == 1
+    assert summary.written == expected_written
+    assert summary.notifications_attempted == expected_notification_attempted
+    assert summary.stop_api_attempted == expected_stop_attempted
+
+    results = _read_judge_results(db_path)
+    assert len(results) == 1
+    assert results[0][0] == expected_status
+
+
+def test_judge_handles_timeout(tmp_path: Path) -> None:
+    db_path = tmp_path / "main.db"
+    _init_schema(db_path)
+    chart_set_id = _seed_chart_set_and_active_chart(db_path)
+
+    tool_id = "TOOL_TIMEOUT"
+    chamber_id = "CH1"
+    recipe_id = "RECIPE_TIMEOUT"
+
+    _insert_chart(
+        db_path,
+        chart_set_id,
+        tool_id=tool_id,
+        chamber_id=chamber_id,
+        recipe_id=recipe_id,
+        parameter="warn_param",
+        step_no=1,
+        feature_type="mean",
+        warn_low=1.4,
+        warn_high=2.6,
+        crit_low=1.2,
+        crit_high=2.8,
+    )
+    _insert_chart(
+        db_path,
+        chart_set_id,
+        tool_id=tool_id,
+        chamber_id=chamber_id,
+        recipe_id=recipe_id,
+        parameter="ng_param",
+        step_no=1,
+        feature_type="mean",
+        warn_low=10.0,
+        warn_high=20.0,
+        crit_low=8.0,
+        crit_high=22.0,
+    )
+
+    _insert_process(
+        db_path,
+        process_id="P_TIMEOUT_WARN",
+        tool_id=tool_id,
+        chamber_id=chamber_id,
+        recipe_id=recipe_id,
+    )
+    _insert_parameter(
+        db_path,
+        process_id="P_TIMEOUT_WARN",
+        parameter="warn_param",
+        step_no=1,
+        feature_type="mean",
+        feature_value=2.7,
+    )
+
+    _insert_process(
+        db_path,
+        process_id="P_TIMEOUT_NG",
+        tool_id=tool_id,
+        chamber_id=chamber_id,
+        recipe_id=recipe_id,
+    )
+    _insert_parameter(
+        db_path,
+        process_id="P_TIMEOUT_NG",
+        parameter="ng_param",
+        step_no=1,
+        feature_type="mean",
+        feature_value=23.0,
+    )
+
+    def _raise_timeout(_payload: dict[str, object]) -> None:
+        raise TimeoutError("timeout")
+
+    summary = run_once(
+        db_path=db_path,
+        notification_sink=_raise_timeout,
+        stop_api_hook=_raise_timeout,
+    )
+
+    assert summary.evaluated == 2
+    assert summary.written == 3
+    assert summary.notifications_attempted == 2
+    assert summary.notifications_failed == 2
+    assert summary.stop_api_attempted == 1
+    assert summary.stop_api_failed == 1
+
+    results = _read_judge_results(db_path)
+    by_process_id = {payload["process_id"]: (status, payload) for status, payload in results}
+
+    assert by_process_id["P_TIMEOUT_WARN"][0] == "WARN"
+    assert by_process_id["P_TIMEOUT_WARN"][1]["notification_status"] == "FAILED"
+
+    assert by_process_id["P_TIMEOUT_NG"][0] == "NG"
+    assert by_process_id["P_TIMEOUT_NG"][1]["notification_status"] == "FAILED"
+    assert by_process_id["P_TIMEOUT_NG"][1]["stop_api_status"] == "FAILED"
+
+
+def test_judge_run_once_skips_already_judged_processes(tmp_path: Path) -> None:
+    db_path = tmp_path / "main.db"
+    _init_schema(db_path)
+    chart_set_id = _seed_chart_set_and_active_chart(db_path)
+
+    tool_id = "TOOL_SKIP"
+    chamber_id = "CH1"
+    recipe_id = "RECIPE_SKIP"
+    process_id = "P_SKIP_1"
+
+    _insert_chart(
+        db_path,
+        chart_set_id,
+        tool_id=tool_id,
+        chamber_id=chamber_id,
+        recipe_id=recipe_id,
+        parameter="dc_bias",
+        step_no=1,
+        feature_type="mean",
+        warn_low=1.4,
+        warn_high=2.6,
+        crit_low=1.2,
+        crit_high=2.8,
+    )
+    _insert_process(
+        db_path,
+        process_id=process_id,
+        tool_id=tool_id,
+        chamber_id=chamber_id,
+        recipe_id=recipe_id,
+    )
+    _insert_parameter(
+        db_path,
+        process_id=process_id,
+        parameter="dc_bias",
+        step_no=1,
+        feature_type="mean",
+        feature_value=2.9,
+    )
+
+    first = run_once(db_path=db_path)
+    second = run_once(db_path=db_path)
+
+    assert first.evaluated == 1
+    assert second.evaluated == 0
+
+    results = _read_judge_results(db_path)
+    assert len(results) == 1

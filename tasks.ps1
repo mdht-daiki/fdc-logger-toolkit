@@ -1,4 +1,4 @@
-param(
+﻿param(
   [Parameter(Position=0)]
   [ValidateSet("help","venv","install","precommit","fmt","lint","type","test","test-fast","test-slow","test-db-api-aggregate","check","aggregate-dry-run","clean","cleanup-retention","vacuum-db","judge-run-once")]
   [string]$Task = "help"

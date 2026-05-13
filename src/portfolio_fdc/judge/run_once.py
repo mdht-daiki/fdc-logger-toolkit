@@ -18,6 +18,13 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class JudgeRunSummary:
+    """run_once の集計結果。
+
+    Note:
+        written は「論理レコード件数」ではなく DB 書き込み操作回数。
+        NG の場合は PENDING INSERT と最終 UPDATE の 2 操作になる。
+    """
+
     evaluated: int = 0
     written: int = 0
     notifications_attempted: int = 0
@@ -78,7 +85,7 @@ class JudgeEngine:
         self._stop_api_hook = stop_api_hook or (lambda _payload: None)
 
     def run_once(self, *, process_id: str | None = None) -> JudgeRunSummary:
-        """1 回分の判定を実行し、書き込み件数などの集計を返す。"""
+        """1 回分の判定を実行し、集計を返す。"""
         _init_schema(self._db_path)
         con = _connect(self._db_path)
         try:
@@ -150,6 +157,7 @@ class JudgeEngine:
                             )
 
                     if level == "NG":
+                        # NG は PENDING INSERT -> stop API -> 最終 UPDATE の 2 操作。
                         pending_payload = self._build_message_json(
                             process_row=process_row,
                             parameter_row=parameter_row,
@@ -253,6 +261,7 @@ class JudgeEngine:
 
     @staticmethod
     def _replace_summary(summary: JudgeRunSummary, **changes: int) -> JudgeRunSummary:
+        # written は DB 操作回数を表す。
         return JudgeRunSummary(
             evaluated=changes.get("evaluated", summary.evaluated),
             written=changes.get("written", summary.written),
@@ -279,8 +288,13 @@ class JudgeEngine:
             rows = con.execute(
                 """
                 SELECT process_id, tool_id, chamber_id, recipe_id, start_ts
-                FROM ProcessInfo
-                WHERE process_id = ?
+                FROM ProcessInfo pi
+                WHERE pi.process_id = ?
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM JudgementResults jr
+                    WHERE jr.process_id = pi.process_id
+                )
                 """,
                 (process_id,),
             ).fetchall()

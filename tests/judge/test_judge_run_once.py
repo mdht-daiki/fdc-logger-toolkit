@@ -531,3 +531,53 @@ def test_judge_run_once_skips_already_judged_processes(tmp_path: Path) -> None:
 
     results = _read_judge_results(db_path)
     assert len(results) == 1
+
+
+def test_judge_run_once_skips_already_judged_process_with_explicit_id(tmp_path: Path) -> None:
+    db_path = tmp_path / "main.db"
+    _init_schema(db_path)
+    chart_set_id = _seed_chart_set_and_active_chart(db_path)
+
+    tool_id = "TOOL_SKIP_BY_ID"
+    chamber_id = "CH1"
+    recipe_id = "RECIPE_SKIP_BY_ID"
+    process_id = "P_SKIP_BY_ID_1"
+
+    _insert_chart(
+        db_path,
+        chart_set_id,
+        tool_id=tool_id,
+        chamber_id=chamber_id,
+        recipe_id=recipe_id,
+        parameter="dc_bias",
+        step_no=1,
+        feature_type="mean",
+        warn_low=1.4,
+        warn_high=2.6,
+        crit_low=1.2,
+        crit_high=2.8,
+    )
+    _insert_process(
+        db_path,
+        process_id=process_id,
+        tool_id=tool_id,
+        chamber_id=chamber_id,
+        recipe_id=recipe_id,
+    )
+    _insert_parameter(
+        db_path,
+        process_id=process_id,
+        parameter="dc_bias",
+        step_no=1,
+        feature_type="mean",
+        feature_value=2.9,
+    )
+
+    first = run_once(db_path=db_path, process_id=process_id)
+    second = run_once(db_path=db_path, process_id=process_id)
+
+    assert first.evaluated == 1
+    assert second.evaluated == 0
+
+    results = _read_judge_results(db_path)
+    assert len(results) == 1

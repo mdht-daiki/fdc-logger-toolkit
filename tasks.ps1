@@ -1,6 +1,6 @@
 param(
   [Parameter(Position=0)]
-  [ValidateSet("help","venv","install","precommit","fmt","lint","type","test","test-fast","test-slow","test-db-api-aggregate","check","aggregate-dry-run","clean","cleanup-retention","vacuum-db")]
+  [ValidateSet("help","venv","install","precommit","fmt","lint","type","test","test-fast","test-slow","test-db-api-aggregate","check","aggregate-dry-run","clean","cleanup-retention","vacuum-db","judge-run-once")]
   [string]$Task = "help"
   ,
   [string]$AggInput = "data/scrape/scrape_TOOL_A.csv"
@@ -8,6 +8,12 @@ param(
   [string]$AggConfig = "src/portfolio_fdc/configs/aggregate_tools.yaml"
   ,
   [string]$AggDetailOut = "data/detail"
+  ,
+  [string]$JudgeDbPath = ""
+  ,
+  [string]$JudgeProcessId = ""
+  ,
+  [string]$JudgeDbApi = ""
 )
 
 $RepoRoot = $PSScriptRoot
@@ -18,6 +24,7 @@ $PreCommit = Join-Path $VenvDir "Scripts\pre-commit.exe"
 # Mirror db.py: use PORTFOLIO_DB_DIR env var when set, otherwise fall back to <repo>/data/db
 $DbDir = if ($env:PORTFOLIO_DB_DIR) { $env:PORTFOLIO_DB_DIR } else { Join-Path $RepoRoot "data\db" }
 $DbPath = Join-Path $DbDir "main.db"
+$ResolvedJudgeDbPath = if ($JudgeDbPath) { $JudgeDbPath } else { $DbPath }
 
 function Ensure-Venv {
   param(
@@ -62,6 +69,7 @@ switch ($Task) {
     Write-Host "  .\tasks.ps1 clean      - remove caches/build artifacts"
     Write-Host "  .\tasks.ps1 cleanup-retention - delete retention-expired data (daily task)"
     Write-Host "  .\tasks.ps1 vacuum-db - VACUUM SQLite database (weekly task)"
+    Write-Host "  .\tasks.ps1 judge-run-once - execute one judge cycle (scheduler entry point)"
   }
 
   "venv" {
@@ -123,6 +131,30 @@ switch ($Task) {
   "aggregate-dry-run" {
     Ensure-DevInstall
     & $Py -m portfolio_fdc.main.aggregate --input $AggInput --config $AggConfig --detail-out $AggDetailOut --dry-run | Out-Host
+  }
+
+  "judge-run-once" {
+    # Scheduler entry point for the judge MVP. The actual Task Scheduler registration
+    # and real email / MES integrations are handled as follow-up phases.
+    Ensure-Venv -SkipPipUpgrade
+
+    $JudgeArgs = @(
+      "-m",
+      "portfolio_fdc.judge.run_once",
+      "--db-path",
+      $ResolvedJudgeDbPath
+    )
+
+    if ($JudgeProcessId) {
+      $JudgeArgs += @("--process-id", $JudgeProcessId)
+    }
+
+    if ($JudgeDbApi) {
+      $JudgeArgs += @("--db-api", $JudgeDbApi)
+    }
+
+    & $Py @JudgeArgs | Out-Host
+    exit $LASTEXITCODE
   }
 
   "clean" {

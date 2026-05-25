@@ -356,3 +356,143 @@ def render_judge_tab(base_url: str, recipe_id: str, chart_id: str, result_id: st
             detail_block,
         ]
     )
+
+
+def _build_emergency_change_form(chart_id: str) -> html.Div:
+    return html.Div(
+        [
+            html.H5("Emergency Change"),
+            html.Label("chart_id"),
+            dcc.Input(
+                id="emergency-chart-id",
+                type="text",
+                value=chart_id or "",
+                style={"width": "100%"},
+            ),
+            html.Label("changed_by"),
+            dcc.Input(
+                id="emergency-changed-by",
+                type="text",
+                value="",
+                placeholder="enter actor",
+                style={"width": "100%"},
+            ),
+            html.Label("changed_by_role"),
+            dcc.Input(
+                id="emergency-changed-by-role",
+                type="text",
+                value="",
+                placeholder="enter role",
+                style={"width": "100%"},
+            ),
+            html.Label("reason (optional)"),
+            dcc.Input(
+                id="emergency-reason",
+                type="text",
+                value="",
+                style={"width": "100%"},
+            ),
+            html.Label("change_payload (JSON)"),
+            dcc.Textarea(
+                id="emergency-change-payload",
+                value='{"warn_high": 1.9, "crit_high": 2.0}',
+                style={"width": "100%", "height": "96px", "fontFamily": "Consolas"},
+            ),
+            html.Button(
+                "Apply Emergency Change",
+                id="emergency-submit-btn",
+                n_clicks=0,
+                style={"marginTop": "8px"},
+            ),
+            html.Pre(
+                id="emergency-action-result",
+                style={"backgroundColor": "#f5f5f5", "padding": "8px", "marginTop": "8px"},
+            ),
+        ],
+        style={"border": "1px solid #ddd", "padding": "10px", "marginBottom": "10px"},
+    )
+
+
+def _build_ratify_form() -> html.Div:
+    return html.Div(
+        [
+            html.H5("Ratify Emergency Change"),
+            html.Label("request_id"),
+            dcc.Input(
+                id="ratify-request-id",
+                type="text",
+                value="",
+                style={"width": "100%"},
+            ),
+            html.Label("ratified_by"),
+            dcc.Input(
+                id="ratify-by",
+                type="text",
+                value="",
+                placeholder="enter actor",
+                style={"width": "100%"},
+            ),
+            html.Label("ratified_by_role"),
+            dcc.Input(
+                id="ratify-role",
+                type="text",
+                value="",
+                placeholder="enter role",
+                style={"width": "100%"},
+            ),
+            html.Label("ratification_comment (optional)"),
+            dcc.Input(
+                id="ratify-comment",
+                type="text",
+                value="",
+                style={"width": "100%"},
+            ),
+            html.Label("related_pr (optional)"),
+            dcc.Input(
+                id="ratify-related-pr",
+                type="text",
+                value="",
+                style={"width": "100%"},
+            ),
+            html.Button("Ratify", id="ratify-submit-btn", n_clicks=0, style={"marginTop": "8px"}),
+            html.Pre(
+                id="ratify-action-result",
+                style={"backgroundColor": "#f5f5f5", "padding": "8px", "marginTop": "8px"},
+            ),
+        ],
+        style={"border": "1px solid #ddd", "padding": "10px", "marginBottom": "10px"},
+    )
+
+
+def _build_history_block(base_url: str) -> list[html.Div]:
+    return [
+        html.Div(
+            [
+                html.H5("History Preview (/charts/history)"),
+                html.Div(
+                    id="emergency-history-preview", children="Apply 実行後に履歴を表示します。"
+                ),
+            ],
+            style={"border": "1px solid #ddd", "padding": "10px"},
+        ),
+        html.Div(
+            f"target db_api: {base_url}",
+            style={"marginTop": "10px", "color": "#666", "fontSize": "0.9rem"},
+        ),
+    ]
+
+
+def render_emergency_tab(base_url: str, chart_id: str) -> html.Div:
+    return html.Div(
+        [
+            html.H4("Emergency Change / Ratify"),
+            html.Div(
+                "403/4xx/5xx の error envelope をそのまま表示します。"
+                "実行後に履歴プレビューで反映を確認できます。",
+                style={"marginBottom": "8px", "color": "#444"},
+            ),
+            _build_emergency_change_form(chart_id),
+            _build_ratify_form(),
+            *_build_history_block(base_url),
+        ]
+    )

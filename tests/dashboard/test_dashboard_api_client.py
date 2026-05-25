@@ -8,6 +8,7 @@ import requests
 from portfolio_fdc.dashboard.api_client import (
     APIError,
     _request_envelope,
+    create_emergency_change,
     get_active_charts,
     get_chart_points,
     get_charts,
@@ -17,6 +18,7 @@ from portfolio_fdc.dashboard.api_client import (
     get_process_waveform_preview,
     parse_api_error,
     parse_utc_millis,
+    ratify_emergency_change,
 )
 
 
@@ -285,3 +287,78 @@ def test_request_envelope_converts_request_exception_to_api_error(
 
     assert "Network error" in exc_info.value.message
     assert "connection refused" in exc_info.value.message
+
+
+def test_create_emergency_change_returns_data_on_ok_true(monkeypatch: pytest.MonkeyPatch) -> None:
+    called: dict[str, Any] = {}
+
+    def _fake_post(*_args: Any, **_kwargs: Any) -> _FakeResponse:
+        called["args"] = _args
+        called["kwargs"] = _kwargs
+        return _FakeResponse(
+            200,
+            {
+                "ok": True,
+                "data": {"request_id": 1, "status": "applied", "resulting_version": 2},
+            },
+        )
+
+    monkeypatch.setattr("portfolio_fdc.dashboard.api_client.requests.post", _fake_post)
+
+    payload = {
+        "chart_id": 10,
+        "changed_by": "ops-user",
+        "changed_by_role": "operator",
+        "reason": "incident mitigation",
+        "change_payload": '{"warn_high": 1.9}',
+    }
+
+    result = create_emergency_change(
+        "http://localhost:8000",
+        payload,
+    )
+
+    assert result["request_id"] == 1
+    assert result["status"] == "applied"
+    assert called["args"][0].endswith("/governance/emergency-changes")
+    assert called["kwargs"]["json"] == payload
+
+
+def test_ratify_emergency_change_raises_api_error_for_403(monkeypatch: pytest.MonkeyPatch) -> None:
+    called: dict[str, Any] = {}
+
+    def _fake_post(*_args: Any, **_kwargs: Any) -> _FakeResponse:
+        called["args"] = _args
+        called["kwargs"] = _kwargs
+        return _FakeResponse(
+            403,
+            {
+                "ok": False,
+                "error": {
+                    "code": "FORBIDDEN",
+                    "message": "role is not allowed for emergency route",
+                },
+            },
+        )
+
+    monkeypatch.setattr("portfolio_fdc.dashboard.api_client.requests.post", _fake_post)
+
+    request_id = 11
+    payload = {
+        "ratified_by": "reviewer",
+        "ratified_by_role": "viewer",
+        "ratification_comment": None,
+        "related_pr": None,
+    }
+
+    with pytest.raises(APIError) as exc_info:
+        ratify_emergency_change(
+            "http://localhost:8000",
+            request_id,
+            payload,
+        )
+
+    assert exc_info.value.status_code == 403
+    assert exc_info.value.code == "FORBIDDEN"
+    assert called["args"][0].endswith(f"/governance/emergency-changes/{request_id}/ratify")
+    assert called["kwargs"]["json"] == payload

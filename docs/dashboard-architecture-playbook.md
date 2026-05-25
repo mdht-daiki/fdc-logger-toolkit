@@ -131,10 +131,69 @@ URL 契約トラッキング（Discussion #94）:
 
 ### Phase 2: Limited Edit Flow
 
-- draft set 作成
-- draft set に対する閾値編集
-- 変更プレビューと差分確認
-- 監査情報（change_source / change_reason）入力
+- emergency change 実行 UI（`POST /governance/emergency-changes`）
+- emergency ratify UI（`POST /governance/emergency-changes/{request_id}/ratify`）
+- role/認可結果に応じた 403 表示
+- 実行結果と履歴（`/charts/history`）の確認導線
+
+#### Phase 2 Endpoint Contract Detail（Emergency 系）
+
+1. `POST /governance/emergency-changes`
+
+- Request JSON（必須/任意）
+  - 必須: `chart_id`(int), `changed_by`(string), `changed_by_role`(string), `change_payload`(string, JSON)
+  - 任意: `reason`(string|null)
+- 認証・認可境界（重要）
+  - `changed_by` / `changed_by_role` は監査メモ用途として受け付ける（必須の入力契約は維持）
+  - 認可判定はサーバ側で認証トークン/セッションのクレームから確定した actor/role のみを使用する
+  - 役割確定に利用するクレーム（例: `sub`, `roles`, `scope`）はサーバ側設定で固定し、入力 JSON の role 値は認可根拠に使わない
+  - サーバ側で確定した actor/role は監査ログへ記録し、必要に応じて入力値との差分も監査可能にする
+- Success Response JSON
+  - `{"ok": true, "data": {"request_id": int, "status": "applied", "resulting_version": int, "noop": bool}}`
+- Error Response JSON（envelope）
+  - 共通: `{"ok": false, "error": {"code": string, "message": string, "details": object}}`
+  - 想定 status: `400`, `403`, `422`, `500`
+- 認可要件
+  - emergency 実行権限を持つ role のみ許可
+  - 権限外 role は `403`（`code=FORBIDDEN` 系）
+- テスト要件
+  - 正常: apply 成功、`request_id/status/resulting_version/noop` 検証
+  - 異常: 422（入力不正）, 403（認可失敗）, 5xx（内部異常）
+
+2. `POST /governance/emergency-changes/{request_id}/ratify`
+
+- Request JSON（必須/任意）
+  - 必須: `ratified_by`(string), `ratified_by_role`(string)
+  - 任意: `ratification_comment`(string|null), `related_pr`(string|null)
+- 認証・認可境界（重要）
+  - `ratified_by` / `ratified_by_role` は監査メモ用途として受け付ける（必須の入力契約は維持）
+  - 認可判定はサーバ側で認証トークン/セッションのクレームから確定した actor/role のみを使用する
+  - 役割確定に利用するクレーム（例: `sub`, `roles`, `scope`）はサーバ側設定で固定し、入力 JSON の role 値は認可根拠に使わない
+  - サーバ側で確定した actor/role は監査ログへ記録し、必要に応じて入力値との差分も監査可能にする
+- Success Response JSON
+  - `{"ok": true, "data": {"request_id": int, "status": "ratified"}}`
+- Error Response JSON（envelope）
+  - 共通: `{"ok": false, "error": {"code": string, "message": string, "details": object}}`
+  - 想定 status: `400`, `403`, `404`, `409`, `422`, `500`
+- 認可要件
+  - ratify 権限を持つ role のみ許可
+  - 権限外 role は `403`（`code=FORBIDDEN` 系）
+- テスト要件
+  - 正常: ratify 成功、`request_id/status` 検証
+  - 異常: 404（対象なし）, 409（多重 ratify）, 403（認可失敗）, 422（入力不正）
+
+3. 実行結果導線 `GET /charts/history`
+
+- 用途
+  - apply 実行後に `change_source`/`changed_by`/`changed_at` を確認する
+- Response JSON
+  - `{"ok": true, "data": [{"history_id": ..., "chart_id": ..., "change_source": ..., "changed_by": ..., "changed_at": ...}]}`
+- Error Response JSON（envelope）
+  - 共通: `{"ok": false, "error": {"code": string, "message": string, "details": object}}`
+  - 想定 status: `400`, `403`, `500`
+- テスト要件
+  - 正常: emergency apply 後に履歴が取得できる
+  - 異常: 履歴取得失敗時でも apply 成功表示は維持し、履歴失敗メッセージを表示する
 
 ### Phase 3: Governed Activation Flow
 

@@ -18,3 +18,4 @@ class DashboardDependencies:
     render_active_tab: TabRenderer
     render_history_tab: TabRenderer
     render_judge_tab: TabRenderer
+    render_emergency_tab: TabRenderer

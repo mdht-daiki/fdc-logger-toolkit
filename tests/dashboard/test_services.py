@@ -306,6 +306,17 @@ def test_url_filter_service_tab_judge():
     assert result_id == "res1"
 
 
+def test_url_filter_service_tab_emergency():
+    service = UrlFilterService()
+    tab, recipe_id, chart_id, result_id = service.sync_filters_from_url(
+        "?tab=emergency&recipe_id=r1&chart_id=c1&result_id=res1"
+    )
+    assert tab == "emergency"
+    assert recipe_id == "r1"
+    assert chart_id == "c1"
+    assert result_id == "res1"
+
+
 def test_tab_load_service_tab_branches(logger, deps):
     service = TabLoadService(logger, deps)
     deps.validate_base_url.return_value = "safe_url"
@@ -313,6 +324,7 @@ def test_tab_load_service_tab_branches(logger, deps):
     deps.render_active_tab.return_value = ("active", "")
     deps.render_history_tab.return_value = ("history", "")
     deps.render_judge_tab.return_value = ("judge", "")
+    deps.render_emergency_tab.return_value = ("emergency", "")
     # charts
     result, msg = service.load_data("charts", 1, "base_url", "r1", "c1", "res1", None)
     assert result == ("charts", "")
@@ -328,6 +340,10 @@ def test_tab_load_service_tab_branches(logger, deps):
     # judge
     result, msg = service.load_data("judge", 1, "base_url", "r1", "c1", "res1", None)
     assert result == ("judge", "")
+    assert msg == ""
+    # emergency
+    result, msg = service.load_data("emergency", 1, "base_url", "r1", "c1", "res1", None)
+    assert result == ("emergency", "")
     assert msg == ""
 
 
@@ -434,6 +450,7 @@ def test_tab_load_service_validate_base_url_tuple(logger, deps):
     deps.render_active_tab.return_value = ("active", "")
     deps.render_history_tab.return_value = ("history", "")
     deps.render_judge_tab.return_value = ("judge", "")
+    deps.render_emergency_tab.return_value = ("emergency", "")
     # charts
     result, msg = service.load_data("charts", 1, "base_url", "r1", "c1", "res1", None)
     assert result == ("charts", "")
@@ -449,6 +466,10 @@ def test_tab_load_service_validate_base_url_tuple(logger, deps):
     # judge
     result, msg = service.load_data("judge", 1, "base_url", "r1", "c1", "res1", None)
     assert result == ("judge", "")
+    assert msg == ""
+    # emergency
+    result, msg = service.load_data("emergency", 1, "base_url", "r1", "c1", "res1", None)
+    assert result == ("emergency", "")
     assert msg == ""
 
 

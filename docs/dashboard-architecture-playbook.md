@@ -131,10 +131,10 @@ URL 契約トラッキング（Discussion #94）:
 
 ### Phase 2: Limited Edit Flow
 
-- draft set 作成
-- draft set に対する閾値編集
-- 変更プレビューと差分確認
-- 監査情報（change_source / change_reason）入力
+- emergency change 実行 UI（`POST /governance/emergency-changes`）
+- emergency ratify UI（`POST /governance/emergency-changes/{request_id}/ratify`）
+- role/認可結果に応じた 403 表示
+- 実行結果と履歴（`/charts/history`）の確認導線
 
 ### Phase 3: Governed Activation Flow
 

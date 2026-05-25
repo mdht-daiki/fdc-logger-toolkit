@@ -101,6 +101,35 @@ def _request_envelope(
     return payload.get("data")
 
 
+def _post_envelope(base_url: str, path: str, payload_obj: dict[str, Any]) -> Any:
+    url = f"{base_url.rstrip('/')}{path}"
+    try:
+        response = requests.post(url, json=payload_obj, timeout=DEFAULT_TIMEOUT_SEC)
+    except requests.RequestException as exc:
+        raise APIError(message=f"Network error: {exc}") from exc
+
+    payload: dict[str, Any] | None = None
+    try:
+        payload = response.json()
+    except ValueError:
+        if response.status_code >= 400:
+            raise APIError(
+                message=f"API error (status={response.status_code})",
+                status_code=response.status_code,
+            ) from None
+
+    if response.status_code >= 400:
+        raise parse_api_error(payload, response.status_code)
+
+    if not isinstance(payload, dict):
+        raise APIError(message="Invalid response envelope")
+
+    if payload.get("ok") is not True:
+        raise parse_api_error(payload, response.status_code)
+
+    return payload.get("data")
+
+
 def _raise_invalid_shape(endpoint: str, expected: str, actual: Any) -> NoReturn:
     logger = logging.getLogger(__name__)
     logger.error(
@@ -179,4 +208,31 @@ def get_judge_result(base_url: str, result_id: str) -> dict[str, Any]:
     data = _request_envelope(base_url, f"/judge/results/{encoded_result_id}")
     if not isinstance(data, dict):
         _raise_invalid_shape(f"/judge/results/{encoded_result_id}", "dict", data)
+    return data
+
+
+def create_emergency_change(base_url: str, payload: dict[str, Any]) -> dict[str, Any]:
+    data = _post_envelope(base_url, "/governance/emergency-changes", payload)
+    if not isinstance(data, dict):
+        _raise_invalid_shape("/governance/emergency-changes", "dict", data)
+    return data
+
+
+def ratify_emergency_change(
+    base_url: str,
+    request_id: int | str,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    encoded_request_id = _path_segment(str(request_id))
+    data = _post_envelope(
+        base_url,
+        f"/governance/emergency-changes/{encoded_request_id}/ratify",
+        payload,
+    )
+    if not isinstance(data, dict):
+        _raise_invalid_shape(
+            f"/governance/emergency-changes/{encoded_request_id}/ratify",
+            "dict",
+            data,
+        )
     return data

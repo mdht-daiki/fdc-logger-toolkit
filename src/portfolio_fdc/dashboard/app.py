@@ -6,12 +6,21 @@ from typing import Any
 
 from dash import Dash, Input, Output, State, dcc, html
 
-from .api_client import get_charts, get_process_waveform_preview
+from .api_client import (
+    APIError,
+    create_emergency_change,
+    get_charts,
+    get_charts_history,
+    get_process_waveform_preview,
+    parse_utc_millis,
+    ratify_emergency_change,
+)
 from .base_url import DEFAULT_DB_API_BASE_URL, validate_base_url
 from .controller import DashboardController, DashboardDependencies
 from .tab_renderers import (
     render_active_tab,
     render_charts_tab,
+    render_emergency_tab,
     render_history_tab,
     render_judge_tab,
 )
@@ -28,6 +37,7 @@ def _build_controller() -> DashboardController:
         render_active_tab=_render_active_tab,
         render_history_tab=_render_history_tab,
         render_judge_tab=_render_judge_tab,
+        render_emergency_tab=_render_emergency_tab,
     )
     return DashboardController(logger, deps)
 
@@ -67,6 +77,50 @@ _render_charts_tab = render_charts_tab
 _render_active_tab = render_active_tab
 _render_history_tab = render_history_tab
 _render_judge_tab = render_judge_tab
+_render_emergency_tab = render_emergency_tab
+
+
+def _format_api_error(prefix: str, exc: APIError) -> str:
+    suffix = ""
+    if exc.code:
+        suffix += f" [{exc.code}]"
+    if exc.status_code is not None:
+        suffix += f" (status={exc.status_code})"
+    return f"{prefix}: {exc.message}{suffix}"
+
+
+def _to_positive_int(raw: str, field_name: str) -> tuple[int | None, str | None]:
+    value = (raw or "").strip()
+    if not value:
+        return None, f"{field_name} is required"
+    try:
+        parsed = int(value)
+    except ValueError:
+        return None, f"{field_name} must be integer"
+    if parsed <= 0:
+        return None, f"{field_name} must be >= 1"
+    return parsed, None
+
+
+def _build_history_preview(rows: list[dict[str, Any]]) -> list[Any]:
+    if not rows:
+        return [html.Div("No history rows found for target chart")]
+
+    lines = []
+    for row in rows[:5]:
+        changed_at = parse_utc_millis(str(row.get("changed_at")) if row.get("changed_at") else None)
+        lines.append(
+            " | ".join(
+                [
+                    f"history_id={row.get('history_id')}",
+                    f"source={row.get('change_source')}",
+                    f"changed_by={row.get('changed_by')}",
+                    f"changed_at={changed_at}",
+                ]
+            )
+        )
+    return [html.Pre("\n".join(lines), style={"backgroundColor": "#f5f5f5", "padding": "8px"})]
+
 
 app.layout = html.Div(
     [
@@ -157,6 +211,7 @@ app.layout = html.Div(
                     dcc.Tab(label="Active", value="active"),
                     dcc.Tab(label="History", value="history"),
                     dcc.Tab(label="Judge", value="judge"),
+                    dcc.Tab(label="Emergency", value="emergency"),
                 ],
             ),
             className="dashboard-tabs-wrap",
@@ -283,6 +338,140 @@ def render_active_drilldown(
     base_url: str,
 ) -> dict[str, Any]:
     return _build_controller().render_active_drilldown(click_data, base_url)
+
+
+@app.callback(
+    Output("emergency-action-result", "children"),
+    Output("emergency-history-preview", "children"),
+    Input("emergency-submit-btn", "n_clicks"),
+    State("base-url", "value"),
+    State("emergency-chart-id", "value"),
+    State("emergency-changed-by", "value"),
+    State("emergency-changed-by-role", "value"),
+    State("emergency-reason", "value"),
+    State("emergency-change-payload", "value"),
+    prevent_initial_call=True,
+)
+def submit_emergency_change(
+    n_clicks: int,
+    base_url: str,
+    chart_id: str,
+    changed_by: str,
+    changed_by_role: str,
+    reason: str,
+    change_payload: str,
+) -> tuple[str, list[Any]]:
+    if not n_clicks:
+        return "", [html.Div("Apply 実行後に履歴を表示します。")]
+
+    parsed_chart_id, chart_err = _to_positive_int(chart_id, "chart_id")
+    if chart_err is not None:
+        return chart_err, [html.Div("Apply 実行後に履歴を表示します。")]
+
+    actor = (changed_by or "").strip()
+    role = (changed_by_role or "").strip()
+    payload_text = (change_payload or "").strip()
+    if not actor:
+        return "changed_by is required", [html.Div("Apply 実行後に履歴を表示します。")]
+    if not role:
+        return "changed_by_role is required", [html.Div("Apply 実行後に履歴を表示します。")]
+    if not payload_text:
+        return "change_payload is required", [html.Div("Apply 実行後に履歴を表示します。")]
+
+    try:
+        safe_base_url = validate_base_url(base_url)[0]
+        data = create_emergency_change(
+            safe_base_url,
+            {
+                "chart_id": parsed_chart_id,
+                "changed_by": actor,
+                "changed_by_role": role,
+                "reason": (reason or "").strip() or None,
+                "change_payload": payload_text,
+            },
+        )
+        history_rows = get_charts_history(
+            safe_base_url,
+            params={"limit": 20, "chart_id": str(parsed_chart_id)},
+        )
+    except APIError as exc:
+        return _format_api_error("Emergency apply failed", exc), [
+            html.Div("履歴取得に失敗しました")
+        ]
+    except Exception:
+        logger.exception("Unexpected error while submitting emergency change")
+        return "Unexpected error while submitting emergency change", [
+            html.Div("履歴取得に失敗しました")
+        ]
+
+    result_text = (
+        "Emergency apply success\n"
+        f"request_id={data.get('request_id')}\n"
+        f"status={data.get('status')}\n"
+        f"resulting_version={data.get('resulting_version')}\n"
+        f"noop={data.get('noop')}"
+    )
+    return result_text, _build_history_preview(history_rows)
+
+
+@app.callback(
+    Output("ratify-action-result", "children"),
+    Input("ratify-submit-btn", "n_clicks"),
+    State("base-url", "value"),
+    State("ratify-request-id", "value"),
+    State("ratify-by", "value"),
+    State("ratify-role", "value"),
+    State("ratify-comment", "value"),
+    State("ratify-related-pr", "value"),
+    prevent_initial_call=True,
+)
+def submit_emergency_ratify(
+    n_clicks: int,
+    base_url: str,
+    request_id: str,
+    ratified_by: str,
+    ratified_by_role: str,
+    ratification_comment: str,
+    related_pr: str,
+) -> str:
+    if not n_clicks:
+        return ""
+
+    parsed_request_id, request_err = _to_positive_int(request_id, "request_id")
+    if request_err is not None:
+        return request_err
+    assert parsed_request_id is not None
+
+    actor = (ratified_by or "").strip()
+    role = (ratified_by_role or "").strip()
+    if not actor:
+        return "ratified_by is required"
+    if not role:
+        return "ratified_by_role is required"
+
+    try:
+        safe_base_url = validate_base_url(base_url)[0]
+        data = ratify_emergency_change(
+            safe_base_url,
+            parsed_request_id,
+            {
+                "ratified_by": actor,
+                "ratified_by_role": role,
+                "ratification_comment": (ratification_comment or "").strip() or None,
+                "related_pr": (related_pr or "").strip() or None,
+            },
+        )
+    except APIError as exc:
+        return _format_api_error("Emergency ratify failed", exc)
+    except Exception:
+        logger.exception("Unexpected error while ratifying emergency change")
+        return "Unexpected error while ratifying emergency change"
+
+    return (
+        "Emergency ratify success\n"
+        f"request_id={data.get('request_id')}\n"
+        f"status={data.get('status')}"
+    )
 
 
 if __name__ == "__main__":

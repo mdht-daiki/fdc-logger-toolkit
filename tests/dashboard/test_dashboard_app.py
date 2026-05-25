@@ -216,6 +216,24 @@ def test_load_data_renders_active_tab_after_load_click(
     assert error == ""
 
 
+def test_load_data_renders_emergency_tab_after_load_click(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _fake_render_emergency_tab(*_args: Any, **_kwargs: Any) -> html.Div:
+        return html.Div("EMERGENCY_RENDERED")
+
+    monkeypatch.setattr(
+        "portfolio_fdc.dashboard.app._render_emergency_tab",
+        _fake_render_emergency_tab,
+    )
+
+    content, error = load_data("emergency", 1, "http://localhost:8000", "", "", "", None)
+
+    assert isinstance(content, html.Div)
+    assert content.children == "EMERGENCY_RENDERED"
+    assert error == ""
+
+
 def test_validate_base_url_accepts_localhost() -> None:
     assert validate_base_url("http://localhost:8000")[0] == "http://localhost:8000"
 
@@ -363,7 +381,7 @@ def test_validate_base_url_ip_url_conversion(monkeypatch):
 
 
 def test_sync_filters_from_url_accepts_valid_tabs() -> None:
-    for tab in ("charts", "active", "history", "judge"):
+    for tab in ("charts", "active", "history", "judge", "emergency"):
         result_tab, _, _, _ = sync_filters_from_url(f"?tab={tab}")
         assert result_tab == tab
 

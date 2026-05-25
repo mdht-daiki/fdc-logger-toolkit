@@ -2,12 +2,12 @@ from unittest.mock import MagicMock, patch
 
 from dash import html
 
-from src.portfolio_fdc.dashboard import tab_renderers
+from portfolio_fdc.dashboard import tab_renderers
 
 
 # --- render_charts_tab ---
 def test_render_charts_tab_minimal():
-    with patch("src.portfolio_fdc.dashboard.tab_renderers.get_charts") as mock_get_charts:
+    with patch("portfolio_fdc.dashboard.tab_renderers.get_charts") as mock_get_charts:
         mock_get_charts.return_value = [
             {
                 "chart_id": "C1",
@@ -34,17 +34,11 @@ def test_render_charts_tab_minimal():
 # --- render_active_tab ---
 def test_render_active_tab_minimal():
     with (
-        patch(
-            "src.portfolio_fdc.dashboard.tab_renderers.get_active_charts"
-        ) as mock_get_active_charts,
-        patch(
-            "src.portfolio_fdc.dashboard.tab_renderers.get_chart_points"
-        ) as mock_get_chart_points,
-        patch("src.portfolio_fdc.dashboard.tab_renderers.spc_band_with_points_figure") as mock_fig,
-        patch("src.portfolio_fdc.dashboard.tab_renderers.empty_drilldown_figure") as mock_empty,
-        patch(
-            "src.portfolio_fdc.dashboard.tab_renderers.parse_utc_millis"
-        ) as mock_parse_utc_millis,
+        patch("portfolio_fdc.dashboard.tab_renderers.get_active_charts") as mock_get_active_charts,
+        patch("portfolio_fdc.dashboard.tab_renderers.get_chart_points") as mock_get_chart_points,
+        patch("portfolio_fdc.dashboard.tab_renderers.spc_band_with_points_figure") as mock_fig,
+        patch("portfolio_fdc.dashboard.tab_renderers.empty_drilldown_figure") as mock_empty,
+        patch("portfolio_fdc.dashboard.tab_renderers.parse_utc_millis") as mock_parse_utc_millis,
     ):
         mock_get_active_charts.return_value = {
             "charts": [
@@ -75,7 +69,7 @@ def test_render_active_tab_minimal():
 # --- render_history_tab ---
 def test_render_history_tab_minimal():
     with patch(
-        "src.portfolio_fdc.dashboard.tab_renderers.get_charts_history"
+        "portfolio_fdc.dashboard.tab_renderers.get_charts_history"
     ) as mock_get_charts_history:
         mock_get_charts_history.return_value = [
             {
@@ -98,16 +92,10 @@ def test_render_history_tab_minimal():
 # --- render_judge_tab ---
 def test_render_judge_tab_minimal():
     with (
-        patch(
-            "src.portfolio_fdc.dashboard.tab_renderers._build_judge_table_rows"
-        ) as mock_table_rows,
-        patch(
-            "src.portfolio_fdc.dashboard.tab_renderers._build_judge_drilldown_links"
-        ) as mock_links,
-        patch("src.portfolio_fdc.dashboard.tab_renderers._build_judge_detail_block") as mock_detail,
-        patch(
-            "src.portfolio_fdc.dashboard.tab_renderers.get_judge_result"
-        ) as mock_get_judge_result,
+        patch("portfolio_fdc.dashboard.tab_renderers._build_judge_table_rows") as mock_table_rows,
+        patch("portfolio_fdc.dashboard.tab_renderers._build_judge_drilldown_links") as mock_links,
+        patch("portfolio_fdc.dashboard.tab_renderers._build_judge_detail_block") as mock_detail,
+        patch("portfolio_fdc.dashboard.tab_renderers.get_judge_result") as mock_get_judge_result,
     ):
         mock_table_rows.return_value = (
             [{"result_id": "R1", "level": "OK"}],
@@ -125,3 +113,14 @@ def test_render_judge_tab_minimal():
         mock_detail.assert_called_once()
         mock_get_judge_result.assert_called_once_with("base", result_id="RID1")
         assert div.children[0].children == "Judge Results (priority: NG > WARN > OK)"
+
+
+def test_render_emergency_tab_minimal():
+    div = tab_renderers.render_emergency_tab("http://localhost:8000", "C1")
+    assert isinstance(div, html.Div)
+    assert div.children[0].children == "Emergency Change / Ratify"
+
+    emergency_card = div.children[2]
+    emergency_chart_id_input = emergency_card.children[2]
+    assert emergency_chart_id_input.id == "emergency-chart-id"
+    assert emergency_chart_id_input.value == "C1"

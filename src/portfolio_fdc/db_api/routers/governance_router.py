@@ -114,8 +114,8 @@ class _GovernanceEmergencyForbiddenRole(Exception):
         self.route = route
 
 
-_EMERGENCY_APPLY_ALLOWED_ROLES = {"operator", "ops", "admin"}
-_EMERGENCY_RATIFY_ALLOWED_ROLES = {"manager", "ops", "admin"}
+_EMERGENCY_APPLY_ALLOWED_ROLES = {"engineer", "operator", "ops", "admin"}
+_EMERGENCY_RATIFY_ALLOWED_ROLES = {"manager", "manager_on_call", "ops", "admin"}
 
 
 def _normalize_role(role: str) -> str:

@@ -228,6 +228,58 @@ def test_governance_duplicate_ratify_blocked(client: TestClient) -> None:
     assert response.status_code == 409
 
 
+def test_governance_emergency_apply_forbidden_role_returns_403(client: TestClient) -> None:
+    """緊急変更で非許可ロールが 403 になることを確認。"""
+    chart_set_id = _insert_chart_set("emergency_forbidden_apply")
+    chart_id = _insert_chart(chart_set_id)
+
+    payload = {
+        "chart_id": chart_id,
+        "changed_by": "viewer_user",
+        "changed_by_role": "viewer",
+        "reason": "forbidden apply check",
+        "change_payload": '{"warn_low": 19.0}',
+    }
+    response = client.post("/governance/emergency-changes", json=payload)
+
+    assert response.status_code == 403
+    body = response.json()
+    assert body["ok"] is False
+    assert body["error"]["code"] == "FORBIDDEN"
+
+
+def test_governance_emergency_ratify_forbidden_role_returns_403(client: TestClient) -> None:
+    """追認で非許可ロールが 403 になることを確認。"""
+    chart_set_id = _insert_chart_set("emergency_forbidden_ratify")
+    chart_id = _insert_chart(chart_set_id)
+
+    create_payload = {
+        "chart_id": chart_id,
+        "changed_by": "duty_engineer",
+        "changed_by_role": "engineer",
+        "reason": "ratify forbidden check",
+        "change_payload": '{"warn_low": 17.0}',
+    }
+    create_response = client.post("/governance/emergency-changes", json=create_payload)
+    assert create_response.status_code == 200
+    emergency_id = create_response.json()["data"]["request_id"]
+
+    ratify_payload = {
+        "ratified_by": "viewer_user",
+        "ratified_by_role": "viewer",
+        "related_pr": "https://github.com/mdht-daiki/fdc-logger-toolkit/pull/1001",
+    }
+    response = client.post(
+        f"/governance/emergency-changes/{emergency_id}/ratify",
+        json=ratify_payload,
+    )
+
+    assert response.status_code == 403
+    body = response.json()
+    assert body["ok"] is False
+    assert body["error"]["code"] == "FORBIDDEN"
+
+
 def test_governance_read_endpoints_non_regression(client: TestClient) -> None:
     """
     既存 read endpoint の非回帰確認。

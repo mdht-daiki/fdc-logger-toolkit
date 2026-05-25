@@ -366,6 +366,29 @@ def test_post_emergency_changes_returns_404_when_chart_not_found(client: TestCli
     assert body["error"]["code"] == "CHART_NOT_FOUND"
 
 
+def test_post_emergency_changes_returns_403_for_disallowed_role(
+    client: TestClient,
+    seeded_emergency_chart: tuple[int, int],
+) -> None:
+    _, chart_id = seeded_emergency_chart
+    res = client.post(
+        "/governance/emergency-changes",
+        json={
+            "chart_id": chart_id,
+            "changed_by": "ops-user",
+            "changed_by_role": "viewer",
+            "reason": "incident mitigation",
+            "change_payload": '{"warn_high": 1.9}',
+        },
+    )
+
+    assert res.status_code == 403
+    body = res.json()
+    assert body["ok"] is False
+    assert body["error"]["code"] == "FORBIDDEN"
+    assert body["error"]["details"]["role"] == "viewer"
+
+
 def test_post_emergency_changes_returns_422_for_invalid_change_payload(
     client: TestClient,
     seeded_emergency_chart: tuple[int, int],
@@ -499,6 +522,39 @@ def test_post_emergency_changes_ratify_returns_404_when_not_found(client: TestCl
     body = res.json()
     assert body["ok"] is False
     assert body["error"]["code"] == "NOT_FOUND"
+
+
+def test_post_emergency_changes_ratify_returns_403_for_disallowed_role(
+    client: TestClient,
+    seeded_emergency_chart: tuple[int, int],
+) -> None:
+    _, chart_id = seeded_emergency_chart
+    create_res = client.post(
+        "/governance/emergency-changes",
+        json={
+            "chart_id": chart_id,
+            "changed_by": "ops-user",
+            "changed_by_role": "operator",
+            "reason": "incident mitigation",
+            "change_payload": '{"warn_high": 1.9, "crit_high": 2.0}',
+        },
+    )
+    assert create_res.status_code == 200
+    ec_id = int(create_res.json()["data"]["request_id"])
+
+    res = client.post(
+        f"/governance/emergency-changes/{ec_id}/ratify",
+        json={
+            "ratified_by": "ops-manager",
+            "ratified_by_role": "viewer",
+        },
+    )
+
+    assert res.status_code == 403
+    body = res.json()
+    assert body["ok"] is False
+    assert body["error"]["code"] == "FORBIDDEN"
+    assert body["error"]["details"]["role"] == "viewer"
 
 
 def test_post_emergency_changes_ratify_returns_409_when_already_ratified(

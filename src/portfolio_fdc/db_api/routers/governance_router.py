@@ -108,6 +108,44 @@ class _GovernanceEmergencyRatificationConflict(Exception):
         self.ec_id = ec_id
 
 
+class _GovernanceEmergencyForbiddenRole(Exception):
+    def __init__(self, *, role: str, route: str) -> None:
+        self.role = role
+        self.route = route
+
+
+_EMERGENCY_APPLY_ALLOWED_ROLES = {"operator", "ops", "admin"}
+_EMERGENCY_RATIFY_ALLOWED_ROLES = {"manager", "ops", "admin"}
+
+
+def _normalize_role(role: str) -> str:
+    return role.strip().lower()
+
+
+def _ensure_allowed_role(*, role: str, route: str, allowed_roles: set[str]) -> None:
+    normalized_role = _normalize_role(role)
+    if normalized_role in allowed_roles:
+        return
+    raise _GovernanceEmergencyForbiddenRole(role=role, route=route)
+
+
+def _forbidden_role_error_response(*, role: str, route: str) -> JSONResponse:
+    return JSONResponse(
+        status_code=403,
+        content={
+            "ok": False,
+            "error": {
+                "code": "FORBIDDEN",
+                "message": "role is not allowed for emergency route",
+                "details": {
+                    "route": route,
+                    "role": role,
+                },
+            },
+        },
+    )
+
+
 def _is_duplicate_change_request_idempotency_error(error: sqlite3.IntegrityError) -> bool:
     message = str(error)
     return (
@@ -343,8 +381,15 @@ class GovernanceRouter:
                     con.close()
 
             try:
+                _ensure_allowed_role(
+                    role=payload.changed_by_role,
+                    route="/governance/emergency-changes",
+                    allowed_roles=_EMERGENCY_APPLY_ALLOWED_ROLES,
+                )
                 data = runner.submit("write", _write)
                 return {"ok": True, "data": data}
+            except _GovernanceEmergencyForbiddenRole as e:
+                return _forbidden_role_error_response(role=e.role, route=e.route)
             except _GovernanceEmergencyChangeChartNotFound:
                 return not_found_error_response(
                     code="CHART_NOT_FOUND",
@@ -426,8 +471,15 @@ class GovernanceRouter:
                     con.close()
 
             try:
+                _ensure_allowed_role(
+                    role=payload.ratified_by_role,
+                    route="/governance/emergency-changes/{request_id}/ratify",
+                    allowed_roles=_EMERGENCY_RATIFY_ALLOWED_ROLES,
+                )
                 data = runner.submit("write", _write)
                 return {"ok": True, "data": data}
+            except _GovernanceEmergencyForbiddenRole as e:
+                return _forbidden_role_error_response(role=e.role, route=e.route)
             except GovernanceNotFoundError:
                 return not_found_error_response(
                     message="emergency change not found",

@@ -1,3 +1,4 @@
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 from dash import html
@@ -116,11 +117,31 @@ def test_render_judge_tab_minimal():
 
 
 def test_render_emergency_tab_minimal():
+    def _find_by_id(node: Any, target_id: str) -> Any:
+        node_id = getattr(node, "id", None)
+        if node_id == target_id:
+            return node
+
+        children = getattr(node, "children", None)
+        if children is None:
+            return None
+
+        if not isinstance(children, (list, tuple)):
+            children = [children]
+
+        for child in children:
+            found = _find_by_id(child, target_id)
+            if found is not None:
+                return found
+        return None
+
     div = tab_renderers.render_emergency_tab("http://localhost:8000", "C1")
     assert isinstance(div, html.Div)
     assert div.children[0].children == "Emergency Change / Ratify"
 
-    emergency_card = div.children[2]
-    emergency_chart_id_input = emergency_card.children[2]
+    emergency_card = _find_by_id(div, "emergency-chart-id")
+    assert emergency_card is not None, "Could not find emergency form element"
+    emergency_chart_id_input = emergency_card
+    assert emergency_chart_id_input is not None, "Could not find emergency-chart-id"
     assert emergency_chart_id_input.id == "emergency-chart-id"
     assert emergency_chart_id_input.value == "C1"

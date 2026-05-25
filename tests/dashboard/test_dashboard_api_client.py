@@ -290,7 +290,11 @@ def test_request_envelope_converts_request_exception_to_api_error(
 
 
 def test_create_emergency_change_returns_data_on_ok_true(monkeypatch: pytest.MonkeyPatch) -> None:
+    called: dict[str, Any] = {}
+
     def _fake_post(*_args: Any, **_kwargs: Any) -> _FakeResponse:
+        called["args"] = _args
+        called["kwargs"] = _kwargs
         return _FakeResponse(
             200,
             {
@@ -301,23 +305,31 @@ def test_create_emergency_change_returns_data_on_ok_true(monkeypatch: pytest.Mon
 
     monkeypatch.setattr("portfolio_fdc.dashboard.api_client.requests.post", _fake_post)
 
+    payload = {
+        "chart_id": 10,
+        "changed_by": "ops-user",
+        "changed_by_role": "operator",
+        "reason": "incident mitigation",
+        "change_payload": '{"warn_high": 1.9}',
+    }
+
     result = create_emergency_change(
         "http://localhost:8000",
-        {
-            "chart_id": 10,
-            "changed_by": "ops-user",
-            "changed_by_role": "operator",
-            "reason": "incident mitigation",
-            "change_payload": '{"warn_high": 1.9}',
-        },
+        payload,
     )
 
     assert result["request_id"] == 1
     assert result["status"] == "applied"
+    assert called["args"][0].endswith("/governance/emergency-changes")
+    assert called["kwargs"]["json"] == payload
 
 
 def test_ratify_emergency_change_raises_api_error_for_403(monkeypatch: pytest.MonkeyPatch) -> None:
+    called: dict[str, Any] = {}
+
     def _fake_post(*_args: Any, **_kwargs: Any) -> _FakeResponse:
+        called["args"] = _args
+        called["kwargs"] = _kwargs
         return _FakeResponse(
             403,
             {
@@ -331,17 +343,22 @@ def test_ratify_emergency_change_raises_api_error_for_403(monkeypatch: pytest.Mo
 
     monkeypatch.setattr("portfolio_fdc.dashboard.api_client.requests.post", _fake_post)
 
+    request_id = 11
+    payload = {
+        "ratified_by": "reviewer",
+        "ratified_by_role": "viewer",
+        "ratification_comment": None,
+        "related_pr": None,
+    }
+
     with pytest.raises(APIError) as exc_info:
         ratify_emergency_change(
             "http://localhost:8000",
-            11,
-            {
-                "ratified_by": "reviewer",
-                "ratified_by_role": "viewer",
-                "ratification_comment": None,
-                "related_pr": None,
-            },
+            request_id,
+            payload,
         )
 
     assert exc_info.value.status_code == 403
     assert exc_info.value.code == "FORBIDDEN"
+    assert called["args"][0].endswith(f"/governance/emergency-changes/{request_id}/ratify")
+    assert called["kwargs"]["json"] == payload

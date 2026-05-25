@@ -380,6 +380,17 @@ def submit_emergency_change(
 
     try:
         safe_base_url = validate_base_url(base_url)[0]
+    except APIError as exc:
+        return _format_api_error("Emergency apply failed", exc), [
+            html.Div("履歴取得に失敗しました")
+        ]
+    except Exception:
+        logger.exception("Unexpected error while validating base URL for emergency apply")
+        return "Unexpected error while submitting emergency change", [
+            html.Div("履歴取得に失敗しました")
+        ]
+
+    try:
         data = create_emergency_change(
             safe_base_url,
             {
@@ -389,10 +400,6 @@ def submit_emergency_change(
                 "reason": (reason or "").strip() or None,
                 "change_payload": payload_text,
             },
-        )
-        history_rows = get_charts_history(
-            safe_base_url,
-            params={"limit": 20, "chart_id": str(parsed_chart_id)},
         )
     except APIError as exc:
         return _format_api_error("Emergency apply failed", exc), [
@@ -404,6 +411,20 @@ def submit_emergency_change(
             html.Div("履歴取得に失敗しました")
         ]
 
+    history_rows: list[dict[str, Any]] | None = None
+    history_failed = False
+    try:
+        history_rows = get_charts_history(
+            safe_base_url,
+            params={"limit": 20, "chart_id": str(parsed_chart_id)},
+        )
+    except APIError as exc:
+        history_failed = True
+        logger.exception("API error while loading emergency history preview: %s", exc)
+    except Exception:
+        history_failed = True
+        logger.exception("Unexpected error while loading emergency history preview")
+
     result_text = (
         "Emergency apply success\n"
         f"request_id={data.get('request_id')}\n"
@@ -411,6 +432,9 @@ def submit_emergency_change(
         f"resulting_version={data.get('resulting_version')}\n"
         f"noop={data.get('noop')}"
     )
+    if history_failed:
+        return result_text, [html.Div("履歴取得に失敗しました")]
+    assert history_rows is not None
     return result_text, _build_history_preview(history_rows)
 
 

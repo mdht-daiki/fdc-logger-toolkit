@@ -143,6 +143,11 @@ URL 契約トラッキング（Discussion #94）:
 - Request JSON（必須/任意）
   - 必須: `chart_id`(int), `changed_by`(string), `changed_by_role`(string), `change_payload`(string, JSON)
   - 任意: `reason`(string|null)
+- 認証・認可境界（重要）
+  - `changed_by` / `changed_by_role` は監査メモ用途として受け付ける（必須の入力契約は維持）
+  - 認可判定はサーバ側で認証トークン/セッションのクレームから確定した actor/role のみを使用する
+  - 役割確定に利用するクレーム（例: `sub`, `roles`, `scope`）はサーバ側設定で固定し、入力 JSON の role 値は認可根拠に使わない
+  - サーバ側で確定した actor/role は監査ログへ記録し、必要に応じて入力値との差分も監査可能にする
 - Success Response JSON
   - `{"ok": true, "data": {"request_id": int, "status": "applied", "resulting_version": int, "noop": bool}}`
 - Error Response JSON（envelope）
@@ -160,6 +165,11 @@ URL 契約トラッキング（Discussion #94）:
 - Request JSON（必須/任意）
   - 必須: `ratified_by`(string), `ratified_by_role`(string)
   - 任意: `ratification_comment`(string|null), `related_pr`(string|null)
+- 認証・認可境界（重要）
+  - `ratified_by` / `ratified_by_role` は監査メモ用途として受け付ける（必須の入力契約は維持）
+  - 認可判定はサーバ側で認証トークン/セッションのクレームから確定した actor/role のみを使用する
+  - 役割確定に利用するクレーム（例: `sub`, `roles`, `scope`）はサーバ側設定で固定し、入力 JSON の role 値は認可根拠に使わない
+  - サーバ側で確定した actor/role は監査ログへ記録し、必要に応じて入力値との差分も監査可能にする
 - Success Response JSON
   - `{"ok": true, "data": {"request_id": int, "status": "ratified"}}`
 - Error Response JSON（envelope）

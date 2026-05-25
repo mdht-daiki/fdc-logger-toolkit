@@ -381,14 +381,10 @@ def submit_emergency_change(
     try:
         safe_base_url = validate_base_url(base_url)[0]
     except APIError as exc:
-        return _format_api_error("Emergency apply failed", exc), [
-            html.Div("履歴取得に失敗しました")
-        ]
+        return _format_api_error("Emergency apply failed", exc), [html.Div("履歴が未取得です")]
     except Exception:
         logger.exception("Unexpected error while validating base URL for emergency apply")
-        return "Unexpected error while submitting emergency change", [
-            html.Div("履歴取得に失敗しました")
-        ]
+        return "Unexpected error while submitting emergency change", [html.Div("履歴が未取得です")]
 
     try:
         data = create_emergency_change(
@@ -402,14 +398,10 @@ def submit_emergency_change(
             },
         )
     except APIError as exc:
-        return _format_api_error("Emergency apply failed", exc), [
-            html.Div("履歴取得に失敗しました")
-        ]
+        return _format_api_error("Emergency apply failed", exc), [html.Div("履歴が未取得です")]
     except Exception:
         logger.exception("Unexpected error while submitting emergency change")
-        return "Unexpected error while submitting emergency change", [
-            html.Div("履歴取得に失敗しました")
-        ]
+        return "Unexpected error while submitting emergency change", [html.Div("履歴が未取得です")]
 
     history_rows: list[dict[str, Any]] | None = None
     history_failed = False

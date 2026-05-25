@@ -81,6 +81,32 @@ def _insert_chart(
         con.close()
 
 
+def _count_emergency_changes_for_chart(chart_id: int) -> int:
+    """指定 chart_id の緊急変更件数を返す。"""
+    con = _connect(MAIN_DB)
+    try:
+        count = con.execute(
+            "SELECT COUNT(*) FROM GovernanceEmergencyChanges WHERE chart_id = ?",
+            (chart_id,),
+        ).fetchone()[0]
+        return int(count)
+    finally:
+        con.close()
+
+
+def _count_ratifications_for_ec(ec_id: int) -> int:
+    """指定 ec_id の追認件数を返す。"""
+    con = _connect(MAIN_DB)
+    try:
+        count = con.execute(
+            "SELECT COUNT(*) FROM GovernanceRatifications WHERE ec_id = ?",
+            (ec_id,),
+        ).fetchone()[0]
+        return int(count)
+    finally:
+        con.close()
+
+
 def test_governance_normal_flow_e2e(client: TestClient) -> None:
     """
     通常フロー E2E: create -> approve -> apply
@@ -240,12 +266,15 @@ def test_governance_emergency_apply_forbidden_role_returns_403(client: TestClien
         "reason": "forbidden apply check",
         "change_payload": '{"warn_low": 19.0}',
     }
+    before_count = _count_emergency_changes_for_chart(chart_id)
     response = client.post("/governance/emergency-changes", json=payload)
+    after_count = _count_emergency_changes_for_chart(chart_id)
 
     assert response.status_code == 403
     body = response.json()
     assert body["ok"] is False
     assert body["error"]["code"] == "FORBIDDEN"
+    assert after_count == before_count
 
 
 def test_governance_emergency_ratify_forbidden_role_returns_403(client: TestClient) -> None:
@@ -269,15 +298,18 @@ def test_governance_emergency_ratify_forbidden_role_returns_403(client: TestClie
         "ratified_by_role": "viewer",
         "related_pr": "https://github.com/mdht-daiki/fdc-logger-toolkit/pull/1001",
     }
+    before_count = _count_ratifications_for_ec(emergency_id)
     response = client.post(
         f"/governance/emergency-changes/{emergency_id}/ratify",
         json=ratify_payload,
     )
+    after_count = _count_ratifications_for_ec(emergency_id)
 
     assert response.status_code == 403
     body = response.json()
     assert body["ok"] is False
     assert body["error"]["code"] == "FORBIDDEN"
+    assert after_count == before_count
 
 
 def test_governance_read_endpoints_non_regression(client: TestClient) -> None:

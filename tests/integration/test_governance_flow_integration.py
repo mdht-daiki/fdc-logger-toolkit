@@ -81,6 +81,32 @@ def _insert_chart(
         con.close()
 
 
+def _count_emergency_changes_for_chart(chart_id: int) -> int:
+    """指定 chart_id の緊急変更件数を返す。"""
+    con = _connect(MAIN_DB)
+    try:
+        count = con.execute(
+            "SELECT COUNT(*) FROM GovernanceEmergencyChanges WHERE chart_id = ?",
+            (chart_id,),
+        ).fetchone()[0]
+        return int(count)
+    finally:
+        con.close()
+
+
+def _count_ratifications_for_ec(ec_id: int) -> int:
+    """指定 ec_id の追認件数を返す。"""
+    con = _connect(MAIN_DB)
+    try:
+        count = con.execute(
+            "SELECT COUNT(*) FROM GovernanceRatifications WHERE ec_id = ?",
+            (ec_id,),
+        ).fetchone()[0]
+        return int(count)
+    finally:
+        con.close()
+
+
 def test_governance_normal_flow_e2e(client: TestClient) -> None:
     """
     通常フロー E2E: create -> approve -> apply
@@ -226,6 +252,64 @@ def test_governance_duplicate_ratify_blocked(client: TestClient) -> None:
         json=ratify_payload,
     )
     assert response.status_code == 409
+
+
+def test_governance_emergency_apply_forbidden_role_returns_403(client: TestClient) -> None:
+    """緊急変更で非許可ロールが 403 になることを確認。"""
+    chart_set_id = _insert_chart_set("emergency_forbidden_apply")
+    chart_id = _insert_chart(chart_set_id)
+
+    payload = {
+        "chart_id": chart_id,
+        "changed_by": "viewer_user",
+        "changed_by_role": "viewer",
+        "reason": "forbidden apply check",
+        "change_payload": '{"warn_low": 19.0}',
+    }
+    before_count = _count_emergency_changes_for_chart(chart_id)
+    response = client.post("/governance/emergency-changes", json=payload)
+    after_count = _count_emergency_changes_for_chart(chart_id)
+
+    assert response.status_code == 403
+    body = response.json()
+    assert body["ok"] is False
+    assert body["error"]["code"] == "FORBIDDEN"
+    assert after_count == before_count
+
+
+def test_governance_emergency_ratify_forbidden_role_returns_403(client: TestClient) -> None:
+    """追認で非許可ロールが 403 になることを確認。"""
+    chart_set_id = _insert_chart_set("emergency_forbidden_ratify")
+    chart_id = _insert_chart(chart_set_id)
+
+    create_payload = {
+        "chart_id": chart_id,
+        "changed_by": "duty_engineer",
+        "changed_by_role": "engineer",
+        "reason": "ratify forbidden check",
+        "change_payload": '{"warn_low": 17.0}',
+    }
+    create_response = client.post("/governance/emergency-changes", json=create_payload)
+    assert create_response.status_code == 200
+    emergency_id = create_response.json()["data"]["request_id"]
+
+    ratify_payload = {
+        "ratified_by": "viewer_user",
+        "ratified_by_role": "viewer",
+        "related_pr": "https://github.com/mdht-daiki/fdc-logger-toolkit/pull/1001",
+    }
+    before_count = _count_ratifications_for_ec(emergency_id)
+    response = client.post(
+        f"/governance/emergency-changes/{emergency_id}/ratify",
+        json=ratify_payload,
+    )
+    after_count = _count_ratifications_for_ec(emergency_id)
+
+    assert response.status_code == 403
+    body = response.json()
+    assert body["ok"] is False
+    assert body["error"]["code"] == "FORBIDDEN"
+    assert after_count == before_count
 
 
 def test_governance_read_endpoints_non_regression(client: TestClient) -> None:

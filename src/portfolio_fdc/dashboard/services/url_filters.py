@@ -7,7 +7,9 @@ class UrlFilterService:
     def sync_filters_from_url(self, search: str) -> tuple[str, str, str, str]:
         tab = self._get_query_value(search, "tab")
         tab_value = (
-            tab if tab in {"charts", "active", "history", "judge", "emergency"} else "charts"
+            tab
+            if tab in {"charts", "active", "history", "judge", "emergency", "change_requests"}
+            else "charts"
         )
         return (
             tab_value,

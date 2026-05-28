@@ -4,11 +4,16 @@ import logging
 import os
 from typing import Any
 
+import dash_ag_grid as dag
 from dash import Dash, Input, Output, State, dcc, html
 
 from .api_client import (
     APIError,
+    apply_change_request,
+    approve_change_request,
+    create_change_request,
     create_emergency_change,
+    get_change_requests,
     get_charts,
     get_charts_history,
     get_process_waveform_preview,
@@ -19,6 +24,7 @@ from .base_url import DEFAULT_DB_API_BASE_URL, validate_base_url
 from .controller import DashboardController, DashboardDependencies
 from .tab_renderers import (
     render_active_tab,
+    render_change_requests_tab,
     render_charts_tab,
     render_emergency_tab,
     render_history_tab,
@@ -37,6 +43,7 @@ def _build_controller() -> DashboardController:
         render_active_tab=_render_active_tab,
         render_history_tab=_render_history_tab,
         render_judge_tab=_render_judge_tab,
+        render_change_requests_tab=_render_change_requests_tab,
         render_emergency_tab=_render_emergency_tab,
     )
     return DashboardController(logger, deps)
@@ -77,6 +84,7 @@ _render_charts_tab = render_charts_tab
 _render_active_tab = render_active_tab
 _render_history_tab = render_history_tab
 _render_judge_tab = render_judge_tab
+_render_change_requests_tab = render_change_requests_tab
 _render_emergency_tab = render_emergency_tab
 
 
@@ -86,6 +94,16 @@ def _format_api_error(prefix: str, exc: APIError) -> str:
         suffix += f" [{exc.code}]"
     if exc.status_code is not None:
         suffix += f" (status={exc.status_code})"
+    if exc.details is not None:
+        if exc.status_code == 409 and isinstance(exc.details, dict):
+            current = exc.details.get("current")
+            if isinstance(current, dict):
+                current_parts = [f"{key}={value}" for key, value in current.items()]
+                suffix += f" current=({', '.join(current_parts)})"
+            else:
+                suffix += f" details={exc.details}"
+        else:
+            suffix += f" details={exc.details}"
     return f"{prefix}: {exc.message}{suffix}"
 
 
@@ -211,6 +229,7 @@ app.layout = html.Div(
                     dcc.Tab(label="Active", value="active"),
                     dcc.Tab(label="History", value="history"),
                     dcc.Tab(label="Judge", value="judge"),
+                    dcc.Tab(label="Change Requests", value="change_requests"),
                     dcc.Tab(label="Emergency", value="emergency"),
                 ],
             ),
@@ -488,6 +507,375 @@ def submit_emergency_ratify(
         f"request_id={data.get('request_id')}\n"
         f"status={data.get('status')}"
     )
+
+
+def _format_change_request_row(row: dict[str, Any]) -> str:
+    return " | ".join(
+        [
+            f"request_id={row.get('id')}",
+            f"status={row.get('status')}",
+            f"chart_id={row.get('chart_id')}",
+            f"proposed_by={row.get('proposed_by')}",
+            f"proposed_at={row.get('proposed_at')}",
+            f"expected_version={row.get('expected_version')}",
+            f"idempotency_key={row.get('idempotency_key')}",
+        ]
+    )
+
+
+def _build_change_request_list_view(
+    rows: list[dict[str, Any]],
+    detail_request_id: str | None,
+) -> tuple[list[Any], list[Any]]:
+    if not rows:
+        return [html.Div("No change requests found")], [html.Div("No detail available")]
+
+    table_rows: list[dict[str, Any]] = []
+    detail_row: dict[str, Any] | None = None
+    selected_id = (detail_request_id or "").strip()
+    for row in rows:
+        if selected_id and str(row.get("id")) == selected_id:
+            detail_row = row
+        table_rows.append(
+            {
+                "id": row.get("id"),
+                "status": row.get("status"),
+                "chart_id": row.get("chart_id"),
+                "proposed_by": row.get("proposed_by"),
+                "proposed_at": parse_utc_millis(
+                    str(row.get("proposed_at")) if row.get("proposed_at") else None
+                ),
+                "expected_version": row.get("expected_version"),
+                "idempotency_key": row.get("idempotency_key"),
+            }
+        )
+
+    if detail_row is None:
+        detail_row = rows[0]
+
+    list_block = [
+        html.H5(f"Change Requests: {len(table_rows)} rows"),
+        html.Div(
+            [
+                html.Div(
+                    "Filters: status / chart_id / from_ts / to_ts / limit / offset",
+                    style={"marginBottom": "8px", "color": "#444"},
+                ),
+                html.Div(
+                    [
+                        html.Label("detail request_id"),
+                        dcc.Input(
+                            id="change-request-detail-request-id",
+                            type="text",
+                            value=selected_id,
+                            placeholder="optional request_id",
+                            style={"width": "100%"},
+                        ),
+                    ],
+                    style={"marginBottom": "8px"},
+                ),
+                dag.AgGrid(
+                    id="change-requests-table",
+                    rowData=table_rows,
+                    columnDefs=[
+                        {"headerName": "id", "field": "id"},
+                        {"headerName": "status", "field": "status"},
+                        {"headerName": "chart_id", "field": "chart_id"},
+                        {"headerName": "proposed_by", "field": "proposed_by"},
+                        {"headerName": "proposed_at", "field": "proposed_at"},
+                        {"headerName": "expected_version", "field": "expected_version"},
+                        {"headerName": "idempotency_key", "field": "idempotency_key"},
+                    ],
+                    defaultColDef={"resizable": True, "sortable": True, "filter": True},
+                    dashGridOptions={"pagination": True, "paginationPageSize": 10},
+                    style={"width": "100%", "overflowX": "auto"},
+                ),
+            ]
+        ),
+    ]
+    detail_block = [
+        html.H5("Selected Request Detail"),
+        html.Pre(
+            _format_change_request_row(detail_row),
+            style={"backgroundColor": "#f5f5f5", "padding": "8px"},
+        ),
+    ]
+    return list_block, detail_block
+
+
+@app.callback(
+    Output("change-request-create-result", "children"),
+    Input("change-request-create-btn", "n_clicks"),
+    State("base-url", "value"),
+    State("change-request-chart-id", "value"),
+    State("change-request-proposed-by", "value"),
+    State("change-request-change-payload", "value"),
+    State("change-request-expected-version", "value"),
+    State("change-request-idempotency-key", "value"),
+    prevent_initial_call=True,
+)
+def submit_change_request_create(
+    n_clicks: int,
+    base_url: str,
+    chart_id: str,
+    proposed_by: str,
+    change_payload: str,
+    expected_version: str,
+    idempotency_key: str,
+) -> str:
+    if not n_clicks:
+        return ""
+
+    parsed_chart_id, chart_err = _to_positive_int(chart_id, "chart_id")
+    if chart_err is not None:
+        return chart_err
+    parsed_expected_version, version_err = _to_positive_int(expected_version, "expected_version")
+    if version_err is not None:
+        return version_err
+
+    actor = (proposed_by or "").strip()
+    payload_text = (change_payload or "").strip()
+    key = (idempotency_key or "").strip()
+    if not actor:
+        return "proposed_by is required"
+    if not payload_text:
+        return "change_payload is required"
+    if not key:
+        return "idempotency_key is required"
+
+    try:
+        safe_base_url = validate_base_url(base_url)[0]
+        data = create_change_request(
+            safe_base_url,
+            {
+                "chart_id": parsed_chart_id,
+                "proposed_by": actor,
+                "change_payload": payload_text,
+                "expected_version": parsed_expected_version,
+                "idempotency_key": key,
+            },
+        )
+    except APIError as exc:
+        return _format_api_error("Change request create failed", exc)
+    except Exception:
+        logger.exception("Unexpected error while creating change request")
+        return "Unexpected error while creating change request"
+
+    return (
+        "Change request create success\n"
+        f"request_id={data.get('request_id')}\n"
+        f"status={data.get('status')}"
+    )
+
+
+@app.callback(
+    Output("change-request-approve-result", "children"),
+    Input("change-request-approve-btn", "n_clicks"),
+    State("base-url", "value"),
+    State("change-request-approve-request-id", "value"),
+    State("change-request-approved-by", "value"),
+    State("change-request-approved-by-role", "value"),
+    State("change-request-approve-comment", "value"),
+    prevent_initial_call=True,
+)
+def submit_change_request_approve(
+    n_clicks: int,
+    base_url: str,
+    request_id: str,
+    approved_by: str,
+    approved_by_role: str,
+    comment: str,
+) -> str:
+    if not n_clicks:
+        return ""
+
+    parsed_request_id, request_err = _to_positive_int(request_id, "request_id")
+    if request_err is not None:
+        return request_err
+    assert parsed_request_id is not None
+    actor = (approved_by or "").strip()
+    role = (approved_by_role or "").strip()
+    if not actor:
+        return "approved_by is required"
+    if not role:
+        return "approved_by_role is required"
+
+    try:
+        safe_base_url = validate_base_url(base_url)[0]
+        data = approve_change_request(
+            safe_base_url,
+            parsed_request_id,
+            {
+                "approved_by": actor,
+                "approved_by_role": role,
+                "comment": (comment or "").strip() or None,
+            },
+        )
+    except APIError as exc:
+        return _format_api_error("Change request approve failed", exc)
+    except Exception:
+        logger.exception("Unexpected error while approving change request")
+        return "Unexpected error while approving change request"
+
+    return (
+        "Change request approve success\n"
+        f"request_id={data.get('request_id')}\n"
+        f"status={data.get('status')}"
+    )
+
+
+@app.callback(
+    Output("change-request-apply-result", "children"),
+    Input("change-request-apply-btn", "n_clicks"),
+    State("base-url", "value"),
+    State("change-request-apply-request-id", "value"),
+    State("change-request-applied-by", "value"),
+    State("change-request-applied-by-role", "value"),
+    State("change-request-apply-reason", "value"),
+    prevent_initial_call=True,
+)
+def submit_change_request_apply(
+    n_clicks: int,
+    base_url: str,
+    request_id: str,
+    applied_by: str,
+    applied_by_role: str,
+    reason: str,
+) -> str:
+    if not n_clicks:
+        return ""
+
+    parsed_request_id, request_err = _to_positive_int(request_id, "request_id")
+    if request_err is not None:
+        return request_err
+    assert parsed_request_id is not None
+    actor = (applied_by or "").strip()
+    role = (applied_by_role or "").strip()
+    if not actor:
+        return "applied_by is required"
+    if not role:
+        return "applied_by_role is required"
+
+    try:
+        safe_base_url = validate_base_url(base_url)[0]
+        data = apply_change_request(
+            safe_base_url,
+            parsed_request_id,
+            {
+                "applied_by": actor,
+                "applied_by_role": role,
+                "reason": (reason or "").strip() or None,
+            },
+        )
+    except APIError as exc:
+        return _format_api_error("Change request apply failed", exc)
+    except Exception:
+        logger.exception("Unexpected error while applying change request")
+        return "Unexpected error while applying change request"
+
+    return (
+        "Change request apply success\n"
+        f"request_id={data.get('request_id')}\n"
+        f"status={data.get('status')}\n"
+        f"resulting_version={data.get('resulting_version')}\n"
+        f"noop={data.get('noop')}"
+    )
+
+
+@app.callback(
+    Output("change-request-query-result", "children"),
+    Output("change-request-list", "children"),
+    Output("change-request-detail", "children"),
+    Input("change-request-refresh-btn", "n_clicks"),
+    State("base-url", "value"),
+    State("change-request-status", "value"),
+    State("change-request-filter-chart-id", "value"),
+    State("change-request-from-ts", "value"),
+    State("change-request-to-ts", "value"),
+    State("change-request-limit", "value"),
+    State("change-request-offset", "value"),
+    State("change-request-detail-request-id", "value"),
+    prevent_initial_call=True,
+)
+def refresh_change_request_listing(
+    n_clicks: int,
+    base_url: str,
+    status: str,
+    chart_id: str,
+    from_ts: str,
+    to_ts: str,
+    limit: str,
+    offset: str,
+    detail_request_id: str,
+) -> tuple[str, list[Any], list[Any]]:
+    if not n_clicks:
+        return (
+            "",
+            [html.Div("Press Refresh to fetch change requests")],
+            [html.Div("No detail available")],
+        )
+
+    try:
+        safe_base_url = validate_base_url(base_url)[0]
+        params: dict[str, Any] = {}
+        if status:
+            params["status"] = status
+        parsed_chart_id, chart_err = _to_positive_int(chart_id, "chart_id")
+        if chart_err is None and chart_id:
+            params["chart_id"] = parsed_chart_id
+        elif chart_id:
+            return (
+                chart_err or "chart_id is invalid",
+                [html.Div("No rows loaded")],
+                [html.Div("No detail available")],
+            )
+
+        if (from_ts or "").strip():
+            params["from_ts"] = from_ts.strip()
+        if (to_ts or "").strip():
+            params["to_ts"] = to_ts.strip()
+
+        parsed_limit, limit_err = _to_positive_int(limit, "limit")
+        if limit_err is not None:
+            return limit_err, [html.Div("No rows loaded")], [html.Div("No detail available")]
+        params["limit"] = parsed_limit
+
+        offset_text = (offset or "").strip()
+        if offset_text:
+            try:
+                parsed_offset = int(offset_text)
+            except ValueError:
+                return (
+                    "offset must be integer",
+                    [html.Div("No rows loaded")],
+                    [html.Div("No detail available")],
+                )
+            if parsed_offset < 0:
+                return (
+                    "offset must be >= 0",
+                    [html.Div("No rows loaded")],
+                    [html.Div("No detail available")],
+                )
+            params["offset"] = parsed_offset
+        else:
+            params["offset"] = 0
+
+        rows = get_change_requests(safe_base_url, params=params)
+        list_block, detail_block = _build_change_request_list_view(rows, detail_request_id)
+        return f"Loaded {len(rows)} change request(s)", list_block, detail_block
+    except APIError as exc:
+        return (
+            _format_api_error("Change request list failed", exc),
+            [html.Div("No rows loaded")],
+            [html.Div("No detail available")],
+        )
+    except Exception:
+        logger.exception("Unexpected error while refreshing change request listing")
+        return (
+            "Unexpected error while loading change request listing",
+            [html.Div("No rows loaded")],
+            [html.Div("No detail available")],
+        )
 
 
 if __name__ == "__main__":

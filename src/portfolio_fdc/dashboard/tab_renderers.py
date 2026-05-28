@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 from urllib.parse import urlencode
 
@@ -8,6 +9,7 @@ from dash import dcc, html
 
 from .api_client import (
     get_active_charts,
+    get_change_requests,
     get_chart_points,
     get_charts,
     get_charts_history,
@@ -210,6 +212,294 @@ def render_history_tab(base_url: str, chart_id: str) -> html.Div:
                 defaultColDef={"resizable": True, "sortable": True, "filter": True},
                 dashGridOptions={"pagination": True, "paginationPageSize": 12},
                 style={"width": "100%", "overflowX": "auto"},
+            ),
+        ]
+    )
+
+
+def _build_change_request_detail(row: dict[str, Any]) -> html.Pre:
+    detail_payload = {
+        "id": row.get("id"),
+        "chart_id": row.get("chart_id"),
+        "status": row.get("status"),
+        "proposed_by": row.get("proposed_by"),
+        "proposed_at": parse_utc_millis(
+            str(row.get("proposed_at")) if row.get("proposed_at") else None
+        ),
+        "change_payload": row.get("change_payload"),
+        "expected_version": row.get("expected_version"),
+        "idempotency_key": row.get("idempotency_key"),
+    }
+    return html.Pre(
+        json.dumps(detail_payload, indent=2, ensure_ascii=False),
+        style={"backgroundColor": "#f5f5f5", "padding": "8px"},
+    )
+
+
+def _build_change_request_sections(
+    rows: list[dict[str, Any]],
+    detail_request_id: str | None = None,
+) -> tuple[list[Any], list[Any]]:
+    if not rows:
+        return [html.Div("No change requests found")], [html.Div("No detail available")]
+
+    selected_id = (detail_request_id or "").strip()
+    detail_row = rows[0]
+    if selected_id:
+        matched = [row for row in rows if str(row.get("id")) == selected_id]
+        if matched:
+            detail_row = matched[0]
+
+    table_rows = [
+        {
+            "id": row.get("id"),
+            "status": row.get("status"),
+            "chart_id": row.get("chart_id"),
+            "proposed_by": row.get("proposed_by"),
+            "proposed_at": parse_utc_millis(
+                str(row.get("proposed_at")) if row.get("proposed_at") else None
+            ),
+            "expected_version": row.get("expected_version"),
+            "idempotency_key": row.get("idempotency_key"),
+        }
+        for row in rows
+    ]
+
+    list_block = [
+        html.H5(f"Change Requests: {len(table_rows)} rows"),
+        dag.AgGrid(
+            id="change-requests-table",
+            rowData=table_rows,
+            columnDefs=(
+                [
+                    {"headerName": "id", "field": "id"},
+                    {"headerName": "status", "field": "status"},
+                    {"headerName": "chart_id", "field": "chart_id"},
+                    {"headerName": "proposed_by", "field": "proposed_by"},
+                    {"headerName": "proposed_at", "field": "proposed_at"},
+                    {"headerName": "expected_version", "field": "expected_version"},
+                    {"headerName": "idempotency_key", "field": "idempotency_key"},
+                ]
+                if table_rows
+                else []
+            ),
+            defaultColDef={"resizable": True, "sortable": True, "filter": True},
+            dashGridOptions={"pagination": True, "paginationPageSize": 10},
+            style={"width": "100%", "overflowX": "auto"},
+        ),
+    ]
+    detail_block = [html.H5("Selected Request Detail"), _build_change_request_detail(detail_row)]
+    return list_block, detail_block
+
+
+def render_change_requests_tab(base_url: str) -> html.Div:
+    rows = get_change_requests(base_url, params={"limit": 100, "offset": 0})
+    list_block, detail_block = _build_change_request_sections(rows)
+    return html.Div(
+        [
+            html.H4("Change Requests"),
+            html.Div(
+                "Create / approve / apply の通常変更フローを dashboard から操作します。"
+                "409/422/5xx の envelope をそのまま表示します。",
+                style={"marginBottom": "8px", "color": "#444"},
+            ),
+            html.Div(
+                [
+                    html.H5("Create Change Request"),
+                    html.Label("chart_id"),
+                    dcc.Input(
+                        id="change-request-chart-id", type="text", value="", style={"width": "100%"}
+                    ),
+                    html.Label("proposed_by"),
+                    dcc.Input(
+                        id="change-request-proposed-by",
+                        type="text",
+                        value="",
+                        placeholder="enter actor",
+                        style={"width": "100%"},
+                    ),
+                    html.Label("change_payload (JSON)"),
+                    dcc.Textarea(
+                        id="change-request-change-payload",
+                        value='{"warn_low": 20.0, "warn_high": 30.0}',
+                        style={"width": "100%", "height": "96px", "fontFamily": "Consolas"},
+                    ),
+                    html.Label("expected_version"),
+                    dcc.Input(
+                        id="change-request-expected-version",
+                        type="text",
+                        value="1",
+                        style={"width": "100%"},
+                    ),
+                    html.Label("idempotency_key"),
+                    dcc.Input(
+                        id="change-request-idempotency-key",
+                        type="text",
+                        value="",
+                        placeholder="unique key for retries",
+                        style={"width": "100%"},
+                    ),
+                    html.Button(
+                        "Create Change Request",
+                        id="change-request-create-btn",
+                        n_clicks=0,
+                        style={"marginTop": "8px"},
+                    ),
+                    html.Pre(
+                        id="change-request-create-result",
+                        style={"backgroundColor": "#f5f5f5", "padding": "8px", "marginTop": "8px"},
+                    ),
+                ],
+                style={"border": "1px solid #ddd", "padding": "10px", "marginBottom": "10px"},
+            ),
+            html.Div(
+                [
+                    html.H5("Change Request Filters / Detail"),
+                    html.Label("status"),
+                    dcc.Dropdown(
+                        id="change-request-status",
+                        options=[
+                            {"label": "pending", "value": "pending"},
+                            {"label": "approved", "value": "approved"},
+                            {"label": "applied", "value": "applied"},
+                            {"label": "apply_failed", "value": "apply_failed"},
+                            {"label": "rejected", "value": "rejected"},
+                        ],
+                        value=None,
+                        placeholder="all statuses",
+                        clearable=True,
+                        style={"width": "100%"},
+                    ),
+                    html.Label("chart_id"),
+                    dcc.Input(
+                        id="change-request-filter-chart-id",
+                        type="text",
+                        value="",
+                        style={"width": "100%"},
+                    ),
+                    html.Label("from_ts (optional)"),
+                    dcc.Input(
+                        id="change-request-from-ts", type="text", value="", style={"width": "100%"}
+                    ),
+                    html.Label("to_ts (optional)"),
+                    dcc.Input(
+                        id="change-request-to-ts", type="text", value="", style={"width": "100%"}
+                    ),
+                    html.Label("limit"),
+                    dcc.Input(
+                        id="change-request-limit", type="text", value="100", style={"width": "100%"}
+                    ),
+                    html.Label("offset"),
+                    dcc.Input(
+                        id="change-request-offset", type="text", value="0", style={"width": "100%"}
+                    ),
+                    html.Button(
+                        "Refresh Change Requests",
+                        id="change-request-refresh-btn",
+                        n_clicks=0,
+                        style={"marginTop": "8px"},
+                    ),
+                    html.Pre(
+                        id="change-request-query-result",
+                        children="Press Refresh to fetch change requests.",
+                        style={"backgroundColor": "#f5f5f5", "padding": "8px", "marginTop": "8px"},
+                    ),
+                    html.Div(id="change-request-list", children=list_block),
+                    html.Div(id="change-request-detail", children=detail_block),
+                ],
+                style={"border": "1px solid #ddd", "padding": "10px", "marginBottom": "10px"},
+            ),
+            html.Div(
+                [
+                    html.H5("Approve Change Request"),
+                    html.Label("request_id"),
+                    dcc.Input(
+                        id="change-request-approve-request-id",
+                        type="text",
+                        value="",
+                        style={"width": "100%"},
+                    ),
+                    html.Label("approved_by"),
+                    dcc.Input(
+                        id="change-request-approved-by",
+                        type="text",
+                        value="",
+                        style={"width": "100%"},
+                    ),
+                    html.Label("approved_by_role"),
+                    dcc.Input(
+                        id="change-request-approved-by-role",
+                        type="text",
+                        value="",
+                        style={"width": "100%"},
+                    ),
+                    html.Label("comment (optional)"),
+                    dcc.Input(
+                        id="change-request-approve-comment",
+                        type="text",
+                        value="",
+                        style={"width": "100%"},
+                    ),
+                    html.Button(
+                        "Approve Change Request",
+                        id="change-request-approve-btn",
+                        n_clicks=0,
+                        style={"marginTop": "8px"},
+                    ),
+                    html.Pre(
+                        id="change-request-approve-result",
+                        style={"backgroundColor": "#f5f5f5", "padding": "8px", "marginTop": "8px"},
+                    ),
+                ],
+                style={"border": "1px solid #ddd", "padding": "10px", "marginBottom": "10px"},
+            ),
+            html.Div(
+                [
+                    html.H5("Apply Change Request"),
+                    html.Label("request_id"),
+                    dcc.Input(
+                        id="change-request-apply-request-id",
+                        type="text",
+                        value="",
+                        style={"width": "100%"},
+                    ),
+                    html.Label("applied_by"),
+                    dcc.Input(
+                        id="change-request-applied-by",
+                        type="text",
+                        value="",
+                        style={"width": "100%"},
+                    ),
+                    html.Label("applied_by_role"),
+                    dcc.Input(
+                        id="change-request-applied-by-role",
+                        type="text",
+                        value="",
+                        style={"width": "100%"},
+                    ),
+                    html.Label("reason (optional)"),
+                    dcc.Input(
+                        id="change-request-apply-reason",
+                        type="text",
+                        value="",
+                        style={"width": "100%"},
+                    ),
+                    html.Button(
+                        "Apply Change Request",
+                        id="change-request-apply-btn",
+                        n_clicks=0,
+                        style={"marginTop": "8px"},
+                    ),
+                    html.Pre(
+                        id="change-request-apply-result",
+                        style={"backgroundColor": "#f5f5f5", "padding": "8px", "marginTop": "8px"},
+                    ),
+                ],
+                style={"border": "1px solid #ddd", "padding": "10px", "marginBottom": "10px"},
+            ),
+            html.Div(
+                f"target db_api: {base_url}",
+                style={"marginTop": "10px", "color": "#666", "fontSize": "0.9rem"},
             ),
         ]
     )

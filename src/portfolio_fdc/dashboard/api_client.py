@@ -23,6 +23,7 @@ class APIError(Exception):
     message: str
     code: str | None = None
     status_code: int | None = None
+    details: Any | None = None
 
 
 def parse_utc_millis(timestamp: str | None) -> str:
@@ -48,6 +49,7 @@ def parse_api_error(payload: dict[str, Any] | None, status_code: int) -> APIErro
         return APIError(
             message=f"API error (status={status_code})",
             status_code=status_code,
+            details=payload,
         )
 
     error = payload.get("error")
@@ -59,13 +61,16 @@ def parse_api_error(payload: dict[str, Any] | None, status_code: int) -> APIErro
                 message=message,
                 code=code if isinstance(code, str) else None,
                 status_code=status_code,
+                details=error.get("details"),
             )
 
     detail = payload.get("detail")
     if isinstance(detail, str) and detail:
-        return APIError(message=detail, status_code=status_code)
+        return APIError(message=detail, status_code=status_code, details=payload)
 
-    return APIError(message=f"API error (status={status_code})", status_code=status_code)
+    return APIError(
+        message=f"API error (status={status_code})", status_code=status_code, details=payload
+    )
 
 
 def _request_envelope(
@@ -87,6 +92,7 @@ def _request_envelope(
             raise APIError(
                 message=f"API error (status={response.status_code})",
                 status_code=response.status_code,
+                details=None,
             ) from None
 
     if response.status_code >= 400:
@@ -116,6 +122,7 @@ def _post_envelope(base_url: str, path: str, payload_obj: dict[str, Any]) -> Any
             raise APIError(
                 message=f"API error (status={response.status_code})",
                 status_code=response.status_code,
+                details=None,
             ) from None
 
     if response.status_code >= 400:
@@ -168,6 +175,15 @@ def get_charts_history(base_url: str, params: dict[str, Any] | None = None) -> l
     return data
 
 
+def get_change_requests(
+    base_url: str, params: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
+    data = _request_envelope(base_url, "/governance/change-requests", params=params)
+    if not isinstance(data, list):
+        _raise_invalid_shape("/governance/change-requests", "list", data)
+    return data
+
+
 def get_chart_points(
     base_url: str,
     chart_id: str,
@@ -215,6 +231,49 @@ def create_emergency_change(base_url: str, payload: dict[str, Any]) -> dict[str,
     data = _post_envelope(base_url, "/governance/emergency-changes", payload)
     if not isinstance(data, dict):
         _raise_invalid_shape("/governance/emergency-changes", "dict", data)
+    return data
+
+
+def create_change_request(base_url: str, payload: dict[str, Any]) -> dict[str, Any]:
+    data = _post_envelope(base_url, "/governance/change-requests", payload)
+    if not isinstance(data, dict):
+        _raise_invalid_shape("/governance/change-requests", "dict", data)
+    return data
+
+
+def approve_change_request(
+    base_url: str, request_id: int | str, payload: dict[str, Any]
+) -> dict[str, Any]:
+    encoded_request_id = _path_segment(str(request_id))
+    data = _post_envelope(
+        base_url,
+        f"/governance/change-requests/{encoded_request_id}/approve",
+        payload,
+    )
+    if not isinstance(data, dict):
+        _raise_invalid_shape(
+            f"/governance/change-requests/{encoded_request_id}/approve",
+            "dict",
+            data,
+        )
+    return data
+
+
+def apply_change_request(
+    base_url: str, request_id: int | str, payload: dict[str, Any]
+) -> dict[str, Any]:
+    encoded_request_id = _path_segment(str(request_id))
+    data = _post_envelope(
+        base_url,
+        f"/governance/change-requests/{encoded_request_id}/apply",
+        payload,
+    )
+    if not isinstance(data, dict):
+        _raise_invalid_shape(
+            f"/governance/change-requests/{encoded_request_id}/apply",
+            "dict",
+            data,
+        )
     return data
 
 

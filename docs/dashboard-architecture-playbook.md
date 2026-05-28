@@ -195,6 +195,20 @@ URL 契約トラッキング（Discussion #94）:
   - 正常: emergency apply 後に履歴が取得できる
   - 異常: 履歴取得失敗時でも apply 成功表示は維持し、履歴失敗メッセージを表示する
 
+  1. 通常変更 UI（change request / approve / apply）
+
+  - 用途
+    - dashboard から `GET /governance/change-requests` で一覧/詳細を表示し、`POST /governance/change-requests` / `POST /governance/change-requests/{id}/approve` / `POST /governance/change-requests/{id}/apply` を実行する
+  - 表示契約
+    - 一覧は `status`, `chart_id`, `proposed_at`, `expected_version`, `idempotency_key` を表示する
+    - 詳細は選択された request の `change_payload` を含むフル情報を表示する
+    - 409 conflict 時は current 情報または失敗理由をそのまま表示し、`expected_version` と `idempotency_key` の再確認を促す
+    - 422/4xx/5xx envelope はユーザー向けメッセージへ正規化して表示する
+  - テスト要件
+    - 作成 -> 承認 -> 適用の正常系を dashboard から通せること
+    - 409 conflict, 422 validation, 5xx の各エラー表示を確認すること
+    - 一覧/詳細の表示とフィルタ（status, chart_id, from_ts, to_ts, limit, offset）が動作すること
+
 ### Phase 3: Governed Activation Flow
 
 - draft set のレビュー連携

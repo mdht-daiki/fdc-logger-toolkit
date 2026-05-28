@@ -136,6 +136,27 @@ URL 契約トラッキング（Discussion #94）:
 - role/認可結果に応じた 403 表示
 - 実行結果と履歴（`/charts/history`）の確認導線
 
+#### Phase 2 Endpoint Contract Detail（Change Request 系）
+
+**Change Request Workflow Endpoints**（approval flow）
+
+1. `POST /governance/change-requests`
+   - Request JSON: `chart_id`(int), `proposed_by`(string), `change_payload`(string), `expected_version`(int), `idempotency_key`(string)
+   - 認可: dashboard/ops が利用可
+   - 役割: change request（申請）を作成
+
+2. `POST /governance/change-requests/{request_id}/approve`
+   - Request JSON: `approved_by`(string), `approved_by_role`(string), `comment`(string|null)
+   - 認可: dashboard/ops が利用可
+   - 役割: pending → approved ステータス遷移、承認決定の記録
+   - エラー: 409（既に承認済み）、422（無効な request_id）、5xx
+
+3. `POST /governance/change-requests/{request_id}/apply`
+   - Request JSON: `applied_by`(string), `applied_by_role`(string), `reason`(string|null)
+   - 認可: dashboard/ops が利用可
+   - 役割: approved → applied ステータス遷移、chart 反映実行、履歴記録
+   - エラー: 409（既に適用済み/状態不正）、422（バリデーション失敗）、5xx
+
 #### Phase 2 Endpoint Contract Detail（Emergency 系）
 
 1. `POST /governance/emergency-changes`
@@ -194,9 +215,7 @@ URL 契約トラッキング（Discussion #94）:
 - テスト要件
   - 正常: emergency apply 後に履歴が取得できる
   - 異常: 履歴取得失敗時でも apply 成功表示は維持し、履歴失敗メッセージを表示する
-
   1. 通常変更 UI（change request / approve / apply）
-
   - 用途
     - dashboard から `GET /governance/change-requests` で一覧/詳細を表示し、`POST /governance/change-requests` / `POST /governance/change-requests/{id}/approve` / `POST /governance/change-requests/{id}/apply` を実行する
   - 表示契約

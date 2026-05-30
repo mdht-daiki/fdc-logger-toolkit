@@ -12,9 +12,13 @@ from portfolio_fdc.dashboard.app import (
     app,
     load_data,
     move_to_active_by_chart_name,
+    refresh_change_request_listing,
     refresh_chart_name_options,
     render_active_drilldown,
     select_chart_from_table,
+    submit_change_request_apply,
+    submit_change_request_approve,
+    submit_change_request_create,
     sync_active_selected_base_url,
     sync_filters_from_url,
     validate_base_url,
@@ -234,6 +238,24 @@ def test_load_data_renders_emergency_tab_after_load_click(
     assert error == ""
 
 
+def test_load_data_renders_change_requests_tab_after_load_click(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _fake_render_change_requests_tab(*_args: Any, **_kwargs: Any) -> html.Div:
+        return html.Div("CHANGE_REQUESTS_RENDERED")
+
+    monkeypatch.setattr(
+        "portfolio_fdc.dashboard.app._render_change_requests_tab",
+        _fake_render_change_requests_tab,
+    )
+
+    content, error = load_data("change_requests", 1, "http://localhost:8000", "", "", "", None)
+
+    assert isinstance(content, html.Div)
+    assert content.children == "CHANGE_REQUESTS_RENDERED"
+    assert error == ""
+
+
 def test_validate_base_url_accepts_localhost() -> None:
     assert validate_base_url("http://localhost:8000")[0] == "http://localhost:8000"
 
@@ -359,6 +381,223 @@ def test_validate_base_url_returns_correct_hostname() -> None:
     assert validate_base_url("http://127.0.0.1:8000")[1] == "127.0.0.1"
 
 
+def test_submit_change_request_create_formats_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _fake_create_change_request(base_url: str, payload: dict[str, Any]) -> dict[str, Any]:
+        assert base_url == "http://localhost:8000"
+        assert payload["chart_id"] == 12
+        assert payload["proposed_by"] == "tester"
+        assert payload["expected_version"] == 1
+        assert payload["idempotency_key"] == "idem-1"
+        return {"request_id": 99, "status": "pending"}
+
+    monkeypatch.setattr(
+        "portfolio_fdc.dashboard.app.create_change_request", _fake_create_change_request
+    )
+
+    result = submit_change_request_create(
+        1,
+        "http://localhost:8000",
+        "12",
+        "tester",
+        '{"warn_low": 20.0}',
+        "1",
+        "idem-1",
+    )
+
+    assert "Change request create success" in result
+    assert "request_id=99" in result
+    assert "status=pending" in result
+
+
+def test_submit_change_request_create_surfaces_conflict_current_info(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "portfolio_fdc.dashboard.app.create_change_request",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            APIError(
+                message="idempotency_key already exists",
+                code="DUPLICATE_IDEMPOTENCY_KEY",
+                status_code=409,
+                details={"current": {"version": 3, "updated_at": "2026-05-29T00:00:00.000Z"}},
+            )
+        ),
+    )
+
+    result = submit_change_request_create(
+        1,
+        "http://localhost:8000",
+        "12",
+        "tester",
+        '{"warn_low": 20.0}',
+        "1",
+        "idem-1",
+    )
+
+    assert "Change request create failed" in result
+    assert "[DUPLICATE_IDEMPOTENCY_KEY]" in result
+    assert "status=409" in result
+    assert "current=(version=3, updated_at=2026-05-29T00:00:00.000Z)" in result
+
+
+def test_submit_change_request_approve_formats_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _fake_approve_change_request(
+        base_url: str, request_id: int, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        assert base_url == "http://localhost:8000"
+        assert request_id == 88
+        assert payload["approved_by"] == "ops"
+        assert payload["approved_by_role"] == "manager"
+        return {"request_id": 88, "status": "approved"}
+
+    monkeypatch.setattr(
+        "portfolio_fdc.dashboard.app.approve_change_request", _fake_approve_change_request
+    )
+
+    result = submit_change_request_approve(
+        1,
+        "http://localhost:8000",
+        "88",
+        "ops",
+        "manager",
+        "looks good",
+    )
+
+    assert "Change request approve success" in result
+    assert "request_id=88" in result
+    assert "status=approved" in result
+
+
+def test_submit_change_request_approve_surfaces_server_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "portfolio_fdc.dashboard.app.approve_change_request",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(APIError(message="boom", status_code=500)),
+    )
+
+    result = submit_change_request_approve(
+        1,
+        "http://localhost:8000",
+        "88",
+        "ops",
+        "manager",
+        "looks good",
+    )
+
+    assert "Change request approve failed" in result
+    assert "status=500" in result
+
+
+def test_submit_change_request_apply_formats_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _fake_apply_change_request(
+        base_url: str, request_id: int, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        assert base_url == "http://localhost:8000"
+        assert request_id == 77
+        assert payload["applied_by"] == "ops"
+        assert payload["applied_by_role"] == "operator"
+        return {"request_id": 77, "status": "applied", "resulting_version": 3, "noop": False}
+
+    monkeypatch.setattr(
+        "portfolio_fdc.dashboard.app.apply_change_request", _fake_apply_change_request
+    )
+
+    result = submit_change_request_apply(
+        1,
+        "http://localhost:8000",
+        "77",
+        "ops",
+        "operator",
+        "apply reason",
+    )
+
+    assert "Change request apply success" in result
+    assert "request_id=77" in result
+    assert "status=applied" in result
+    assert "resulting_version=3" in result
+
+
+def test_refresh_change_request_listing_surfaces_validation_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "portfolio_fdc.dashboard.app.get_change_requests",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            APIError(message="invalid filter", code="VALIDATION_ERROR", status_code=422)
+        ),
+    )
+
+    result_text, list_block, detail_block = refresh_change_request_listing(
+        1,
+        "http://localhost:8000",
+        "pending",
+        "21",
+        "",
+        "",
+        "10",
+        "0",
+        "11",
+    )
+
+    assert "Change request list failed" in result_text
+    assert "status=422" in result_text
+    assert isinstance(list_block, list)
+    assert isinstance(detail_block, list)
+
+
+def test_refresh_change_request_listing_renders_rows_and_detail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _fake_get_change_requests(
+        base_url: str, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        assert base_url == "http://localhost:8000"
+        assert params is not None
+        assert params["limit"] == 10
+        assert params["offset"] == 0
+        return [
+            {
+                "id": 11,
+                "chart_id": 21,
+                "status": "pending",
+                "proposed_by": "tester",
+                "proposed_at": "2026-05-29T00:00:00.000Z",
+                "change_payload": '{"warn_low": 20.0}',
+                "expected_version": 1,
+                "idempotency_key": "idem-11",
+            }
+        ]
+
+    monkeypatch.setattr(
+        "portfolio_fdc.dashboard.app.get_change_requests", _fake_get_change_requests
+    )
+
+    result_text, list_block, detail_block = refresh_change_request_listing(
+        1,
+        "http://localhost:8000",
+        "pending",
+        "21",
+        "",
+        "",
+        "10",
+        "0",
+        "11",
+    )
+
+    assert result_text == "Loaded 1 change request(s)"
+    assert isinstance(list_block, list)
+    assert isinstance(detail_block, list)
+    assert any(
+        getattr(child, "children", None) == "Change Requests: 1 rows" for child in list_block
+    )
+    assert any(
+        "request_id=11" in getattr(child, "children", "")
+        for child in detail_block
+        if hasattr(child, "children")
+    )
+
+
 def test_validate_base_url_ip_url_conversion(monkeypatch):
     # 非localhost外部URLのip_url変換（mockで固定IP返却）
     monkeypatch.delenv("PORTFOLIO_DB_API_ALLOWED_HOSTS", raising=False)
@@ -381,7 +620,7 @@ def test_validate_base_url_ip_url_conversion(monkeypatch):
 
 
 def test_sync_filters_from_url_accepts_valid_tabs() -> None:
-    for tab in ("charts", "active", "history", "judge", "emergency"):
+    for tab in ("charts", "active", "history", "judge", "change_requests", "emergency"):
         result_tab, _, _, _ = sync_filters_from_url(f"?tab={tab}")
         assert result_tab == tab
 

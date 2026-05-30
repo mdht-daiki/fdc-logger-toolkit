@@ -145,3 +145,54 @@ def test_render_emergency_tab_minimal():
     assert emergency_chart_id_input is not None, "Could not find emergency-chart-id"
     assert emergency_chart_id_input.id == "emergency-chart-id"
     assert emergency_chart_id_input.value == "C1"
+
+
+def test_render_change_requests_tab_minimal():
+    def _find_by_id(node: Any, target_id: str) -> Any:
+        node_id = getattr(node, "id", None)
+        if node_id == target_id:
+            return node
+
+        children = getattr(node, "children", None)
+        if children is None:
+            return None
+
+        if not isinstance(children, (list, tuple)):
+            children = [children]
+
+        for child in children:
+            found = _find_by_id(child, target_id)
+            if found is not None:
+                return found
+        return None
+
+    with patch(
+        "portfolio_fdc.dashboard.tab_renderers.get_change_requests"
+    ) as mock_get_change_requests:
+        mock_get_change_requests.return_value = [
+            {
+                "id": 11,
+                "chart_id": 21,
+                "status": "pending",
+                "proposed_by": "tester",
+                "proposed_at": "2026-05-29T00:00:00.000Z",
+                "change_payload": '{"warn_low": 20.0}',
+                "expected_version": 1,
+                "idempotency_key": "idem-11",
+            }
+        ]
+        div = tab_renderers.render_change_requests_tab("http://localhost:8000")
+
+    assert isinstance(div, html.Div)
+    assert div.children[0].children == "Change Requests"
+    mock_get_change_requests.assert_called_once_with(
+        "http://localhost:8000", params={"limit": 100, "offset": 0}
+    )
+
+    create_button = _find_by_id(div, "change-request-create-btn")
+    assert create_button is not None
+    assert create_button.children == "Create Change Request"
+
+    refresh_button = _find_by_id(div, "change-request-refresh-btn")
+    assert refresh_button is not None
+    assert refresh_button.children == "Refresh Change Requests"

@@ -14,27 +14,27 @@
 
 ## Endpoint Table
 
-| Method   | Path                                                | Area           | Status      | Consumer        | Tracking                | Notes                                        |
-| -------- | --------------------------------------------------- | -------------- | ----------- | --------------- | ----------------------- | -------------------------------------------- |
-| `POST`   | `/processes`                                        | ingest write   | implemented | ingest          | source: `db_api/app.py` | `ProcessInfo` を1件保存                      |
-| `DELETE` | `/processes/{process_id}`                           | ingest write   | implemented | ingest/ops      | source: `db_api/app.py` | 推奨削除 API                                 |
-| `DELETE` | `/processes`                                        | ingest write   | deprecated  | ingest/ops      | source: `db_api/app.py` | 旧互換 API。`/processes/{process_id}` へ移行 |
-| `POST`   | `/step_windows/bulk`                                | ingest write   | implemented | ingest          | source: `db_api/app.py` | `StepWindow` を一括保存                      |
-| `POST`   | `/parameters/bulk`                                  | ingest write   | implemented | ingest          | source: `db_api/app.py` | `Parameter` を一括保存                       |
-| `POST`   | `/aggregate/write`                                  | ingest write   | implemented | ingest          | source: `db_api/app.py` | Process/StepWindow/Parameter を原子的に保存  |
-| `GET`    | `/charts`                                           | dashboard read | implemented | dashboard/judge | source: `db_api/app.py` | chart 定義一覧                               |
-| `GET`    | `/charts/active`                                    | dashboard read | implemented | dashboard/judge | source: `db_api/app.py` | active chart set と閾値                      |
-| `GET`    | `/charts/history`                                   | dashboard read | implemented | dashboard/ops   | source: `db_api/app.py` | chart 変更履歴                               |
-| `GET`    | `/judge/results`                                    | dashboard read | implemented | dashboard       | Issue #132              | 判定結果一覧                                 |
-| `GET`    | `/judge/results/{result_id}`                        | dashboard read | implemented | dashboard       | Issue #133              | 判定詳細（トレース情報含む）                 |
-| `POST`   | `/governance/change-requests`                       | governance     | implemented | dashboard/ops   | source: `db_api/app.py` | 通常変更の申請作成                           |
-| `POST`   | `/governance/change-requests/{request_id}/approve`  | governance     | implemented | ops             | source: `db_api/app.py` | 変更申請の承認                               |
-| `POST`   | `/governance/change-requests/{request_id}/apply`    | governance     | implemented | ops             | source: `db_api/app.py` | 承認済み申請の反映                           |
-| `POST`   | `/governance/emergency-changes`                     | governance     | implemented | dashboard/ops   | source: `db_api/app.py` | 緊急変更の即時反映                           |
-| `POST`   | `/governance/emergency-changes/{request_id}/ratify` | governance     | implemented | ops             | source: `db_api/app.py` | 緊急変更の事後追認                           |
-| `GET`    | `/governance/change-requests`                       | governance     | implemented | ops/audit       | source: `db_api/app.py` | 変更申請の検索                               |
-| `GET`    | `/governance/audit-events`                          | governance     | implemented | ops/audit       | source: `db_api/app.py` | 監査イベントの検索                           |
-| `POST`   | `/governance/notifications/{event_id}/retry`        | governance     | implemented | ops             | source: `db_api/app.py` | 通知失敗時の再送                             |
+| Method   | Path                                                | Area           | Status      | Consumer            | Tracking                | Notes                                        |
+| -------- | --------------------------------------------------- | -------------- | ----------- | ------------------- | ----------------------- | -------------------------------------------- |
+| `POST`   | `/processes`                                        | ingest write   | implemented | ingest              | source: `db_api/app.py` | `ProcessInfo` を1件保存                      |
+| `DELETE` | `/processes/{process_id}`                           | ingest write   | implemented | ingest/ops          | source: `db_api/app.py` | 推奨削除 API                                 |
+| `DELETE` | `/processes`                                        | ingest write   | deprecated  | ingest/ops          | source: `db_api/app.py` | 旧互換 API。`/processes/{process_id}` へ移行 |
+| `POST`   | `/step_windows/bulk`                                | ingest write   | implemented | ingest              | source: `db_api/app.py` | `StepWindow` を一括保存                      |
+| `POST`   | `/parameters/bulk`                                  | ingest write   | implemented | ingest              | source: `db_api/app.py` | `Parameter` を一括保存                       |
+| `POST`   | `/aggregate/write`                                  | ingest write   | implemented | ingest              | source: `db_api/app.py` | Process/StepWindow/Parameter を原子的に保存  |
+| `GET`    | `/charts`                                           | dashboard read | implemented | dashboard/judge     | source: `db_api/app.py` | chart 定義一覧                               |
+| `GET`    | `/charts/active`                                    | dashboard read | implemented | dashboard/judge     | source: `db_api/app.py` | active chart set と閾値                      |
+| `GET`    | `/charts/history`                                   | dashboard read | implemented | dashboard/ops       | source: `db_api/app.py` | chart 変更履歴                               |
+| `GET`    | `/judge/results`                                    | dashboard read | implemented | dashboard           | Issue #132              | 判定結果一覧                                 |
+| `GET`    | `/judge/results/{result_id}`                        | dashboard read | implemented | dashboard           | Issue #133              | 判定詳細（トレース情報含む）                 |
+| `POST`   | `/governance/change-requests`                       | governance     | implemented | dashboard/ops       | source: `db_api/app.py` | 通常変更の申請作成                           |
+| `POST`   | `/governance/change-requests/{request_id}/approve`  | governance     | implemented | dashboard/ops       | source: `db_api/app.py` | 変更申請の承認                               |
+| `POST`   | `/governance/change-requests/{request_id}/apply`    | governance     | implemented | dashboard/ops       | source: `db_api/app.py` | 承認済み申請の反映                           |
+| `POST`   | `/governance/emergency-changes`                     | governance     | implemented | dashboard/ops       | source: `db_api/app.py` | 緊急変更の即時反映                           |
+| `POST`   | `/governance/emergency-changes/{request_id}/ratify` | governance     | implemented | ops                 | source: `db_api/app.py` | 緊急変更の事後追認                           |
+| `GET`    | `/governance/change-requests`                       | governance     | implemented | dashboard/ops/audit | source: `db_api/app.py` | 変更申請の検索                               |
+| `GET`    | `/governance/audit-events`                          | governance     | implemented | ops/audit           | source: `db_api/app.py` | 監査イベントの検索                           |
+| `POST`   | `/governance/notifications/{event_id}/retry`        | governance     | implemented | ops                 | source: `db_api/app.py` | 通知失敗時の再送                             |
 
 ## Notes
 
@@ -57,12 +57,12 @@
 モジュール境界（dashboard -> api のみ、dashboard -> judge 禁止、judge -> dashboard 禁止）を維持するため、
 各 consumer の許可範囲を以下で定義する。
 
-| Consumer  | Allowed Scope                                                                                                                                                                                                                                                                                        | Disallowed Scope                                                                                   |
-| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| ingest    | `POST /processes`, `POST /step_windows/bulk`, `POST /parameters/bulk`, `POST /aggregate/write`, `DELETE /processes/*`                                                                                                                                                                                | dashboard 向け read endpoint、governance endpoint                                                  |
-| judge     | `GET /charts`, `GET /charts/active`, judge 結果の write endpoint（実装時）                                                                                                                                                                                                                           | `GET /charts/history`（dashboard/ops 専用）、dashboard 専用集計 read endpoint、governance endpoint |
-| dashboard | `GET /charts*`, `GET /charts/history`, `GET /judge/results*`, `POST /governance/change-requests`, `POST /governance/emergency-changes`                                                                                                                                                               | `GET /governance/*`、governance approve/apply/ratify/retry endpoint、ingest write endpoint         |
-| ops/audit | `GET /governance/change-requests`, `GET /governance/audit-events`, `POST /governance/change-requests`, `POST /governance/change-requests/{id}/approve`, `POST /governance/change-requests/{id}/apply`, `POST /governance/emergency-changes/{id}/ratify`, `POST /governance/notifications/{id}/retry` | ingest の通常データ投入 endpoint                                                                   |
+| Consumer  | Allowed Scope                                                                                                                                                                                                                                                                                        | Disallowed Scope                                                                                                                                     |
+| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ingest    | `POST /processes`, `POST /step_windows/bulk`, `POST /parameters/bulk`, `POST /aggregate/write`, `DELETE /processes/*`                                                                                                                                                                                | dashboard 向け read endpoint、governance endpoint                                                                                                    |
+| judge     | `GET /charts`, `GET /charts/active`, judge 結果の write endpoint（実装時）                                                                                                                                                                                                                           | `GET /charts/history`（dashboard/ops 専用）、dashboard 専用集計 read endpoint、governance endpoint                                                   |
+| dashboard | `GET /charts*`, `GET /charts/history`, `GET /judge/results*`, `GET /governance/change-requests`, `POST /governance/change-requests`, `POST /governance/change-requests/{id}/approve`, `POST /governance/change-requests/{id}/apply`, `POST /governance/emergency-changes`                            | `GET /governance/audit-events`, `POST /governance/emergency-changes/{id}/ratify`, `POST /governance/notifications/{id}/retry`, ingest write endpoint |
+| ops/audit | `GET /governance/change-requests`, `GET /governance/audit-events`, `POST /governance/change-requests`, `POST /governance/change-requests/{id}/approve`, `POST /governance/change-requests/{id}/apply`, `POST /governance/emergency-changes/{id}/ratify`, `POST /governance/notifications/{id}/retry` | ingest の通常データ投入 endpoint                                                                                                                     |
 
 検証方針:
 

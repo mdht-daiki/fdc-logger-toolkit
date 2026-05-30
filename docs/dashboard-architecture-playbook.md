@@ -133,6 +133,7 @@ URL 契約トラッキング（Discussion #94）:
 
 - emergency change 実行 UI（`POST /governance/emergency-changes`）
 - emergency ratify UI（`POST /governance/emergency-changes/{request_id}/ratify`）
+- notification retry UI（`GET /governance/notifications/failed`, `POST /governance/notifications/{event_id}/retry`）
 - role/認可結果に応じた 403 表示
 - 実行結果と履歴（`/charts/history`）の確認導線
 
@@ -156,6 +157,19 @@ URL 契約トラッキング（Discussion #94）:
    - 認可: dashboard/ops が利用可
    - 役割: approved → applied ステータス遷移、chart 反映実行、履歴記録
    - エラー: 409（既に適用済み/状態不正）、422（バリデーション失敗）、5xx
+
+#### Phase 2 Endpoint Contract Detail（Notification Retry 系）
+
+1. `GET /governance/notifications/failed`
+  - Query: `event_id`(optional), `limit`(1..500), `offset`(>=0)
+  - 認可: dashboard/ops/audit が利用可
+  - 役割: failed 状態の通知レコードを一覧表示する
+
+2. `POST /governance/notifications/{event_id}/retry`
+  - Request JSON: `{}`（body なし運用）
+  - 認可: dashboard/ops が利用可
+  - 役割: failed 通知を pending に戻し、retry_count と next_retry_at を更新する
+  - エラー: 400（状態不正）, 404（対象なし）, 409（retry 上限/競合）, 5xx
 
 #### Phase 2 Endpoint Contract Detail（Emergency 系）
 

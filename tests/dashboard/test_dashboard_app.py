@@ -14,11 +14,13 @@ from portfolio_fdc.dashboard.app import (
     move_to_active_by_chart_name,
     refresh_change_request_listing,
     refresh_chart_name_options,
+    refresh_failed_notifications,
     render_active_drilldown,
     select_chart_from_table,
     submit_change_request_apply,
     submit_change_request_approve,
     submit_change_request_create,
+    submit_notification_retry,
     sync_active_selected_base_url,
     sync_filters_from_url,
     validate_base_url,
@@ -253,6 +255,24 @@ def test_load_data_renders_change_requests_tab_after_load_click(
 
     assert isinstance(content, html.Div)
     assert content.children == "CHANGE_REQUESTS_RENDERED"
+    assert error == ""
+
+
+def test_load_data_renders_notification_retry_tab_after_load_click(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _fake_render_notification_retry_tab(*_args: Any, **_kwargs: Any) -> html.Div:
+        return html.Div("NOTIFICATION_RETRY_RENDERED")
+
+    monkeypatch.setattr(
+        "portfolio_fdc.dashboard.app._render_notification_retry_tab",
+        _fake_render_notification_retry_tab,
+    )
+
+    content, error = load_data("notification_retry", 1, "http://localhost:8000", "", "", "", None)
+
+    assert isinstance(content, html.Div)
+    assert content.children == "NOTIFICATION_RETRY_RENDERED"
     assert error == ""
 
 
@@ -598,6 +618,82 @@ def test_refresh_change_request_listing_renders_rows_and_detail(
     )
 
 
+def test_refresh_failed_notifications_renders_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _fake_get_failed_notifications(
+        base_url: str, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        assert base_url == "http://localhost:8000"
+        assert params is not None
+        assert params["limit"] == 10
+        assert params["offset"] == 0
+        return [
+            {
+                "event_id": 101,
+                "status": "failed",
+                "retry_count": 2,
+                "next_retry_at": "2026-05-31T00:10:00.000Z",
+                "last_attempt_at": "2026-05-31T00:05:00.000Z",
+                "last_error": "smtp timeout",
+            }
+        ]
+
+    monkeypatch.setattr(
+        "portfolio_fdc.dashboard.app.get_failed_notifications", _fake_get_failed_notifications
+    )
+
+    result_text, rows = refresh_failed_notifications(
+        1,
+        "http://localhost:8000",
+        "",
+        "10",
+        "0",
+    )
+
+    assert result_text == "Loaded 1 failed notification(s)"
+    assert len(rows) == 1
+    assert rows[0]["event_id"] == 101
+    assert rows[0]["status"] == "failed"
+
+
+def test_submit_notification_retry_formats_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _fake_retry_notification(base_url: str, event_id: int) -> dict[str, Any]:
+        assert base_url == "http://localhost:8000"
+        assert event_id == 101
+        return {
+            "event_id": 101,
+            "status": "pending",
+            "retry_count": 2,
+            "next_retry_at": "2026-05-31T00:10:00.000Z",
+        }
+
+    monkeypatch.setattr("portfolio_fdc.dashboard.app.retry_notification", _fake_retry_notification)
+
+    result = submit_notification_retry(1, "http://localhost:8000", "101")
+
+    assert "Notification retry success" in result
+    assert "event_id=101" in result
+    assert "status=pending" in result
+    assert "retry_count=2" in result
+
+
+def test_submit_notification_retry_surfaces_api_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "portfolio_fdc.dashboard.app.retry_notification",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            APIError(message="only failed notification can be retried", status_code=400)
+        ),
+    )
+
+    result = submit_notification_retry(1, "http://localhost:8000", "101")
+
+    assert "Notification retry failed" in result
+    assert "status=400" in result
+
+
 def test_validate_base_url_ip_url_conversion(monkeypatch):
     # 非localhost外部URLのip_url変換（mockで固定IP返却）
     monkeypatch.delenv("PORTFOLIO_DB_API_ALLOWED_HOSTS", raising=False)
@@ -620,7 +716,15 @@ def test_validate_base_url_ip_url_conversion(monkeypatch):
 
 
 def test_sync_filters_from_url_accepts_valid_tabs() -> None:
-    for tab in ("charts", "active", "history", "judge", "change_requests", "emergency"):
+    for tab in (
+        "charts",
+        "active",
+        "history",
+        "judge",
+        "change_requests",
+        "emergency",
+        "notification_retry",
+    ):
         result_tab, _, _, _ = sync_filters_from_url(f"?tab={tab}")
         assert result_tab == tab
 

@@ -8,7 +8,16 @@ class UrlFilterService:
         tab = self._get_query_value(search, "tab")
         tab_value = (
             tab
-            if tab in {"charts", "active", "history", "judge", "emergency", "change_requests"}
+            if tab
+            in {
+                "charts",
+                "active",
+                "history",
+                "judge",
+                "emergency",
+                "change_requests",
+                "notification_retry",
+            }
             else "charts"
         )
         return (

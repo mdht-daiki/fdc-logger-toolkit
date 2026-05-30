@@ -47,6 +47,8 @@ class TabLoadService:
                 return self._deps.render_emergency_tab(safe_base_url, effective_chart_id), ""
             if active_tab == "change_requests":
                 return self._deps.render_change_requests_tab(safe_base_url), ""
+            if active_tab == "notification_retry":
+                return self._deps.render_notification_retry_tab(safe_base_url), ""
             return self._deps.render_judge_tab(
                 safe_base_url,
                 recipe_id,

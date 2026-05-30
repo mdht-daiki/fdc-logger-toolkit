@@ -184,6 +184,15 @@ def get_change_requests(
     return data
 
 
+def get_failed_notifications(
+    base_url: str, params: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
+    data = _request_envelope(base_url, "/governance/notifications/failed", params=params)
+    if not isinstance(data, list):
+        _raise_invalid_shape("/governance/notifications/failed", "list", data)
+    return data
+
+
 def get_chart_points(
     base_url: str,
     chart_id: str,
@@ -291,6 +300,18 @@ def ratify_emergency_change(
     if not isinstance(data, dict):
         _raise_invalid_shape(
             f"/governance/emergency-changes/{encoded_request_id}/ratify",
+            "dict",
+            data,
+        )
+    return data
+
+
+def retry_notification(base_url: str, event_id: int | str) -> dict[str, Any]:
+    encoded_event_id = _path_segment(str(event_id))
+    data = _post_envelope(base_url, f"/governance/notifications/{encoded_event_id}/retry", {})
+    if not isinstance(data, dict):
+        _raise_invalid_shape(
+            f"/governance/notifications/{encoded_event_id}/retry",
             "dict",
             data,
         )

@@ -20,3 +20,4 @@ class DashboardDependencies:
     render_judge_tab: TabRenderer
     render_change_requests_tab: TabRenderer
     render_emergency_tab: TabRenderer
+    render_notification_retry_tab: TabRenderer

@@ -259,3 +259,77 @@ def test_post_notifications_retry_returns_409_when_retry_limit_exceeded(
         assert retry_count == seeded_retry_count
     finally:
         _delete_seeded_notification_records(event_id, correlation_id)
+
+
+def test_post_notifications_retry_accepts_empty_json_object(
+    client: TestClient,
+) -> None:
+    correlation_id = f"notif-retry-empty-body-{uuid4().hex[:8]}"
+    event_id = _insert_audit_event_for_outbox(correlation_id)
+    _insert_outbox(event_id=event_id, status="failed", retry_count=1, last_error="smtp timeout")
+
+    try:
+        res = client.post(f"/governance/notifications/{event_id}/retry", json={})
+
+        assert res.status_code == 200
+        body = res.json()
+        assert body["ok"] is True
+        assert body["data"]["event_id"] == event_id
+        assert body["data"]["status"] == "pending"
+        assert body["data"]["retry_count"] == 2
+    finally:
+        _delete_seeded_notification_records(event_id, correlation_id)
+
+
+def test_get_failed_notifications_returns_only_failed_rows(client: TestClient) -> None:
+    failed_correlation_id = f"notif-failed-list-{uuid4().hex[:8]}"
+    pending_correlation_id = f"notif-pending-list-{uuid4().hex[:8]}"
+
+    failed_event_id = _insert_audit_event_for_outbox(failed_correlation_id)
+    pending_event_id = _insert_audit_event_for_outbox(pending_correlation_id)
+    _insert_outbox(
+        event_id=failed_event_id,
+        status="failed",
+        retry_count=1,
+        last_error="smtp timeout",
+    )
+    _insert_outbox(event_id=pending_event_id, status="pending", retry_count=1)
+
+    try:
+        res = client.get("/governance/notifications/failed?limit=100&offset=0")
+        assert res.status_code == 200
+        body = res.json()
+        assert body["ok"] is True
+        rows = body["data"]
+        assert isinstance(rows, list)
+        assert any(int(row["event_id"]) == failed_event_id for row in rows)
+        assert not any(int(row["event_id"]) == pending_event_id for row in rows)
+    finally:
+        _delete_seeded_notification_records(failed_event_id, failed_correlation_id)
+        _delete_seeded_notification_records(pending_event_id, pending_correlation_id)
+
+
+def test_get_failed_notifications_filters_by_event_id(client: TestClient) -> None:
+    correlation_id = f"notif-failed-filter-{uuid4().hex[:8]}"
+    event_id = _insert_audit_event_for_outbox(correlation_id)
+    _insert_outbox(
+        event_id=event_id,
+        status="failed",
+        retry_count=2,
+        last_error="http 503",
+    )
+
+    try:
+        res = client.get(f"/governance/notifications/failed?event_id={event_id}&limit=10&offset=0")
+        assert res.status_code == 200
+        body = res.json()
+        assert body["ok"] is True
+        rows = body["data"]
+        assert len(rows) == 1
+        row = rows[0]
+        assert int(row["event_id"]) == event_id
+        assert row["status"] == "failed"
+        assert row["retry_count"] == 2
+        assert row["last_error"] == "http 503"
+    finally:
+        _delete_seeded_notification_records(event_id, correlation_id)

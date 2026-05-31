@@ -13,6 +13,7 @@ from .api_client import (
     get_chart_points,
     get_charts,
     get_charts_history,
+    get_failed_notifications,
     get_judge_result,
     get_judge_results,
     parse_utc_millis,
@@ -784,5 +785,119 @@ def render_emergency_tab(base_url: str, chart_id: str) -> html.Div:
             _build_emergency_change_form(chart_id),
             _build_ratify_form(),
             *_build_history_block(base_url),
+        ]
+    )
+
+
+def render_notification_retry_tab(base_url: str) -> html.Div:
+    rows = get_failed_notifications(base_url, params={"limit": 100, "offset": 0})
+    table_rows = [
+        {
+            "event_id": row.get("event_id"),
+            "status": row.get("status"),
+            "retry_count": row.get("retry_count"),
+            "next_retry_at": parse_utc_millis(
+                str(row.get("next_retry_at")) if row.get("next_retry_at") else None
+            ),
+            "last_attempt_at": parse_utc_millis(
+                str(row.get("last_attempt_at")) if row.get("last_attempt_at") else None
+            ),
+            "last_error": row.get("last_error"),
+        }
+        for row in rows
+    ]
+
+    return html.Div(
+        [
+            html.H4("Notification Retry"),
+            html.Div(
+                "failed 通知レコードを確認し、event_id 指定で再送します。"
+                "4xx/5xx envelope をそのまま表示します。",
+                style={"marginBottom": "8px", "color": "#444"},
+            ),
+            html.Div(
+                [
+                    html.H5("Failed Notification List"),
+                    html.Label("event_id filter (optional)"),
+                    dcc.Input(
+                        id="notification-filter-event-id",
+                        type="text",
+                        value="",
+                        style={"width": "100%"},
+                    ),
+                    html.Label("limit"),
+                    dcc.Input(
+                        id="notification-filter-limit",
+                        type="text",
+                        value="100",
+                        style={"width": "100%"},
+                    ),
+                    html.Label("offset"),
+                    dcc.Input(
+                        id="notification-filter-offset",
+                        type="text",
+                        value="0",
+                        style={"width": "100%"},
+                    ),
+                    html.Button(
+                        "Refresh Failed Notifications",
+                        id="notification-refresh-btn",
+                        n_clicks=0,
+                        style={"marginTop": "8px"},
+                    ),
+                    html.Pre(
+                        id="notification-query-result",
+                        children="Press Refresh to fetch failed notifications.",
+                        style={"backgroundColor": "#f5f5f5", "padding": "8px", "marginTop": "8px"},
+                    ),
+                    dag.AgGrid(
+                        id="notification-failed-table",
+                        rowData=table_rows,
+                        columnDefs=(
+                            [
+                                {"headerName": "event_id", "field": "event_id"},
+                                {"headerName": "status", "field": "status"},
+                                {"headerName": "retry_count", "field": "retry_count"},
+                                {"headerName": "next_retry_at", "field": "next_retry_at"},
+                                {"headerName": "last_attempt_at", "field": "last_attempt_at"},
+                                {"headerName": "last_error", "field": "last_error"},
+                            ]
+                            if table_rows
+                            else []
+                        ),
+                        defaultColDef={"resizable": True, "sortable": True, "filter": True},
+                        dashGridOptions={"pagination": True, "paginationPageSize": 10},
+                        style={"width": "100%", "overflowX": "auto"},
+                    ),
+                ],
+                style={"border": "1px solid #ddd", "padding": "10px", "marginBottom": "10px"},
+            ),
+            html.Div(
+                [
+                    html.H5("Retry Failed Notification"),
+                    html.Label("event_id"),
+                    dcc.Input(
+                        id="notification-retry-event-id",
+                        type="text",
+                        value="",
+                        style={"width": "100%"},
+                    ),
+                    html.Button(
+                        "Retry Notification",
+                        id="notification-retry-btn",
+                        n_clicks=0,
+                        style={"marginTop": "8px"},
+                    ),
+                    html.Pre(
+                        id="notification-retry-result",
+                        style={"backgroundColor": "#f5f5f5", "padding": "8px", "marginTop": "8px"},
+                    ),
+                ],
+                style={"border": "1px solid #ddd", "padding": "10px", "marginBottom": "10px"},
+            ),
+            html.Div(
+                f"target db_api: {base_url}",
+                style={"marginTop": "10px", "color": "#666", "fontSize": "0.9rem"},
+            ),
         ]
     )

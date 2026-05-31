@@ -16,9 +16,11 @@ from .api_client import (
     get_change_requests,
     get_charts,
     get_charts_history,
+    get_failed_notifications,
     get_process_waveform_preview,
     parse_utc_millis,
     ratify_emergency_change,
+    retry_notification,
 )
 from .base_url import DEFAULT_DB_API_BASE_URL, validate_base_url
 from .controller import DashboardController, DashboardDependencies
@@ -29,6 +31,7 @@ from .tab_renderers import (
     render_emergency_tab,
     render_history_tab,
     render_judge_tab,
+    render_notification_retry_tab,
 )
 
 logger = logging.getLogger(__name__)
@@ -45,6 +48,7 @@ def _build_controller() -> DashboardController:
         render_judge_tab=_render_judge_tab,
         render_change_requests_tab=_render_change_requests_tab,
         render_emergency_tab=_render_emergency_tab,
+        render_notification_retry_tab=_render_notification_retry_tab,
     )
     return DashboardController(logger, deps)
 
@@ -86,6 +90,7 @@ _render_history_tab = render_history_tab
 _render_judge_tab = render_judge_tab
 _render_change_requests_tab = render_change_requests_tab
 _render_emergency_tab = render_emergency_tab
+_render_notification_retry_tab = render_notification_retry_tab
 
 
 def _format_api_error(prefix: str, exc: APIError) -> str:
@@ -231,6 +236,7 @@ app.layout = html.Div(
                     dcc.Tab(label="Judge", value="judge"),
                     dcc.Tab(label="Change Requests", value="change_requests"),
                     dcc.Tab(label="Emergency", value="emergency"),
+                    dcc.Tab(label="Notification Retry", value="notification_retry"),
                 ],
             ),
             className="dashboard-tabs-wrap",
@@ -876,6 +882,115 @@ def refresh_change_request_listing(
             [html.Div("No rows loaded")],
             [html.Div("No detail available")],
         )
+
+
+@app.callback(
+    Output("notification-query-result", "children"),
+    Output("notification-failed-table", "rowData"),
+    Input("notification-refresh-btn", "n_clicks"),
+    State("base-url", "value"),
+    State("notification-filter-event-id", "value"),
+    State("notification-filter-limit", "value"),
+    State("notification-filter-offset", "value"),
+    prevent_initial_call=True,
+)
+def refresh_failed_notifications(
+    n_clicks: int,
+    base_url: str,
+    event_id: str,
+    limit: str,
+    offset: str,
+) -> tuple[str, list[dict[str, Any]]]:
+    if not n_clicks:
+        return "", []
+
+    try:
+        safe_base_url = validate_base_url(base_url)[0]
+        params: dict[str, Any] = {}
+
+        parsed_event_id, event_err = _to_positive_int(event_id, "event_id")
+        if event_id and event_err is not None:
+            return event_err, []
+        if event_id and parsed_event_id is not None:
+            params["event_id"] = parsed_event_id
+
+        parsed_limit, limit_err = _to_positive_int(limit, "limit")
+        if limit_err is not None:
+            return limit_err, []
+        params["limit"] = parsed_limit
+
+        offset_text = (offset or "").strip()
+        if offset_text:
+            try:
+                parsed_offset = int(offset_text)
+            except ValueError:
+                return "offset must be integer", []
+            if parsed_offset < 0:
+                return "offset must be >= 0", []
+            params["offset"] = parsed_offset
+        else:
+            params["offset"] = 0
+
+        rows = get_failed_notifications(safe_base_url, params=params)
+        table_rows = [
+            {
+                "event_id": row.get("event_id"),
+                "status": row.get("status"),
+                "retry_count": row.get("retry_count"),
+                "next_retry_at": parse_utc_millis(
+                    str(row.get("next_retry_at")) if row.get("next_retry_at") else None
+                ),
+                "last_attempt_at": parse_utc_millis(
+                    str(row.get("last_attempt_at")) if row.get("last_attempt_at") else None
+                ),
+                "last_error": row.get("last_error"),
+            }
+            for row in rows
+        ]
+        return f"Loaded {len(table_rows)} failed notification(s)", table_rows
+    except APIError as exc:
+        return _format_api_error("Notification list failed", exc), []
+    except Exception:
+        logger.exception("Unexpected error while refreshing failed notifications")
+        return "Unexpected error while loading failed notifications", []
+
+
+@app.callback(
+    Output("notification-retry-result", "children"),
+    Input("notification-retry-btn", "n_clicks"),
+    State("base-url", "value"),
+    State("notification-retry-event-id", "value"),
+    prevent_initial_call=True,
+)
+def submit_notification_retry(
+    n_clicks: int,
+    base_url: str,
+    event_id: str,
+) -> str:
+    if not n_clicks:
+        return ""
+
+    parsed_event_id, event_err = _to_positive_int(event_id, "event_id")
+    if event_err is not None:
+        return event_err
+    assert parsed_event_id is not None
+
+    try:
+        safe_base_url = validate_base_url(base_url)[0]
+        data = retry_notification(safe_base_url, parsed_event_id)
+    except APIError as exc:
+        return _format_api_error("Notification retry failed", exc)
+    except Exception:
+        logger.exception("Unexpected error while retrying notification")
+        return "Unexpected error while retrying notification"
+
+    return (
+        "Notification retry success\n"
+        f"event_id={data.get('event_id')}\n"
+        f"status={data.get('status')}\n"
+        f"retry_count={data.get('retry_count')}\n"
+        f"next_retry_at={data.get('next_retry_at')}"
+    )
 
 
 if __name__ == "__main__":

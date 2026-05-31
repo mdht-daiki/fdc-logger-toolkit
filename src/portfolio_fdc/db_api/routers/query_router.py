@@ -356,3 +356,62 @@ class QueryRouter:
                 raise_api_error(operation="GET /governance/audit-events", error=e)
             finally:
                 con.close()
+
+        @self.router.get("/governance/notifications/failed")
+        def get_failed_governance_notifications(
+            event_id: int | None = Query(default=None, ge=1),
+            limit: int = Query(default=100, ge=1, le=500),
+            offset: int = Query(default=0, ge=0),
+        ):
+            con = _connect_readonly(MAIN_DB)
+            try:
+                sql = """
+                    SELECT
+                        outbox.id,
+                        outbox.event_id,
+                        outbox.status,
+                        outbox.retry_count,
+                        outbox.next_retry_at,
+                        outbox.last_attempt_at,
+                        outbox.last_error,
+                        ae.event_type,
+                        ae.occurred_at,
+                        ae.actor,
+                        ae.actor_role,
+                        ae.correlation_id
+                    FROM GovernanceNotificationOutbox AS outbox
+                    LEFT JOIN GovernanceAuditEvents AS ae
+                        ON ae.id = outbox.event_id
+                    WHERE outbox.status = 'failed'
+                """
+                params: list[object] = []
+                if event_id is not None:
+                    sql += " AND outbox.event_id = ?"
+                    params.append(event_id)
+
+                sql += " ORDER BY outbox.last_attempt_at DESC, outbox.id DESC LIMIT ? OFFSET ?"
+                params.extend((limit, offset))
+
+                rows = con.execute(sql, params).fetchall()
+                data = [
+                    {
+                        "outbox_id": int(row[0]),
+                        "event_id": int(row[1]),
+                        "status": str(row[2]),
+                        "retry_count": int(row[3]),
+                        "next_retry_at": row[4],
+                        "last_attempt_at": row[5],
+                        "last_error": row[6],
+                        "event_type": row[7],
+                        "occurred_at": row[8],
+                        "actor": row[9],
+                        "actor_role": row[10],
+                        "correlation_id": row[11],
+                    }
+                    for row in rows
+                ]
+                return {"ok": True, "data": data}
+            except Exception as e:
+                raise_api_error(operation="GET /governance/notifications/failed", error=e)
+            finally:
+                con.close()

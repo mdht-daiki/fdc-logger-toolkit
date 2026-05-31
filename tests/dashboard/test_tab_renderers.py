@@ -6,6 +6,25 @@ from dash import html
 from portfolio_fdc.dashboard import tab_renderers
 
 
+def _find_by_id(node: Any, target_id: str) -> Any:
+    node_id = getattr(node, "id", None)
+    if node_id == target_id:
+        return node
+
+    children = getattr(node, "children", None)
+    if children is None:
+        return None
+
+    if not isinstance(children, (list, tuple)):
+        children = [children]
+
+    for child in children:
+        found = _find_by_id(child, target_id)
+        if found is not None:
+            return found
+    return None
+
+
 # --- render_charts_tab ---
 def test_render_charts_tab_minimal():
     with patch("portfolio_fdc.dashboard.tab_renderers.get_charts") as mock_get_charts:
@@ -117,24 +136,6 @@ def test_render_judge_tab_minimal():
 
 
 def test_render_emergency_tab_minimal():
-    def _find_by_id(node: Any, target_id: str) -> Any:
-        node_id = getattr(node, "id", None)
-        if node_id == target_id:
-            return node
-
-        children = getattr(node, "children", None)
-        if children is None:
-            return None
-
-        if not isinstance(children, (list, tuple)):
-            children = [children]
-
-        for child in children:
-            found = _find_by_id(child, target_id)
-            if found is not None:
-                return found
-        return None
-
     div = tab_renderers.render_emergency_tab("http://localhost:8000", "C1")
     assert isinstance(div, html.Div)
     assert div.children[0].children == "Emergency Change / Ratify"
@@ -148,24 +149,6 @@ def test_render_emergency_tab_minimal():
 
 
 def test_render_change_requests_tab_minimal():
-    def _find_by_id(node: Any, target_id: str) -> Any:
-        node_id = getattr(node, "id", None)
-        if node_id == target_id:
-            return node
-
-        children = getattr(node, "children", None)
-        if children is None:
-            return None
-
-        if not isinstance(children, (list, tuple)):
-            children = [children]
-
-        for child in children:
-            found = _find_by_id(child, target_id)
-            if found is not None:
-                return found
-        return None
-
     with patch(
         "portfolio_fdc.dashboard.tab_renderers.get_change_requests"
     ) as mock_get_change_requests:
@@ -196,3 +179,34 @@ def test_render_change_requests_tab_minimal():
     refresh_button = _find_by_id(div, "change-request-refresh-btn")
     assert refresh_button is not None
     assert refresh_button.children == "Refresh Change Requests"
+
+
+def test_render_notification_retry_tab_minimal():
+    with patch(
+        "portfolio_fdc.dashboard.tab_renderers.get_failed_notifications"
+    ) as mock_get_failed_notifications:
+        mock_get_failed_notifications.return_value = [
+            {
+                "event_id": 101,
+                "status": "failed",
+                "retry_count": 1,
+                "next_retry_at": "2026-05-31T00:10:00.000Z",
+                "last_attempt_at": "2026-05-31T00:05:00.000Z",
+                "last_error": "smtp timeout",
+            }
+        ]
+        div = tab_renderers.render_notification_retry_tab("http://localhost:8000")
+
+    assert isinstance(div, html.Div)
+    assert div.children[0].children == "Notification Retry"
+    mock_get_failed_notifications.assert_called_once_with(
+        "http://localhost:8000", params={"limit": 100, "offset": 0}
+    )
+
+    refresh_button = _find_by_id(div, "notification-refresh-btn")
+    assert refresh_button is not None
+    assert refresh_button.children == "Refresh Failed Notifications"
+
+    retry_button = _find_by_id(div, "notification-retry-btn")
+    assert retry_button is not None
+    assert retry_button.children == "Retry Notification"

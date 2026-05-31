@@ -214,6 +214,7 @@ make demo-dashboard
 
 - `http://localhost:8050` を開く
 - Change Requests / Emergency タブでフォーム入力から payload preview を確認
+- 初見向けの操作手順は `docs/dashboard-user-guide.md` を参照
 
 `db_api` をまだ起動していない場合:
 

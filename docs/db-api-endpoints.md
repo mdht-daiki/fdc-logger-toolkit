@@ -47,7 +47,7 @@
 - API の timestamp 正規化は UTC ISO 8601 ミリ秒固定で、マイクロ秒以下は切り捨てとする。
 - `GET /charts/history` の `from_ts` / `to_ts` は timezone-aware datetime のみ受け付ける。
 - `GET /charts/history` の `chart_id` フィルタは現在 `ChartsV2` に存在する chart にのみ有効で、削除済み chart 履歴の `chart_id` 解決は行わない。
-- `GET /charts/history` は `is_emergency`（bool）フィルタを受け付け、`true` の場合は緊急変更履歴のみ返す。
+- `GET /charts/history` は `is_emergency`（bool）フィルタを受け付ける。`true` は緊急変更履歴のみ、`false` は通常変更履歴のみを返す。省略時は両方を返す。
 
 ## Read-only Endpoint Access Pattern
 

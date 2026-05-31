@@ -325,8 +325,12 @@ def _init_schema(db_path: Path) -> None:
                 "ALTER TABLE ChartsHistory "
                 "ADD COLUMN is_emergency INTEGER NOT NULL DEFAULT 0 CHECK (is_emergency IN (0, 1))"
             )
-        except sqlite3.OperationalError:
-            pass  # column already exists – migration already applied
+        except sqlite3.OperationalError as exc:
+            message = str(exc).lower()
+            if "duplicate column" in message or "already exists" in message:
+                pass  # column already exists – migration already applied
+            else:
+                raise
 
         con.execute(
             """

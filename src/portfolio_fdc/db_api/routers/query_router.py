@@ -149,6 +149,7 @@ class QueryRouter:
                 max_length=CHARTS_FILTER_MAX_LENGTH,
                 pattern=CHARTS_FILTER_PATTERN,
             ),
+            is_emergency: bool | None = Query(default=None),
             from_ts: datetime | None = Query(default=None),  # noqa: B008
             to_ts: datetime | None = Query(default=None),  # noqa: B008
             limit: int = Query(default=100, ge=1, le=500),
@@ -160,6 +161,7 @@ class QueryRouter:
                 chart_pk=chart_pk,
                 chart_set_id=chart_set_id,
                 change_source=change_source,
+                is_emergency=is_emergency,
                 from_ts=normalize_query_datetime(from_ts),
                 to_ts=normalize_query_datetime(to_ts),
                 limit=limit,

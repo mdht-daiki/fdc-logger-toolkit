@@ -232,7 +232,9 @@ URL 契約トラッキング（Discussion #94）:
 - 用途
   - apply 実行後に `change_source`/`changed_by`/`changed_at` を確認する
 - Response JSON
-  - `{"ok": true, "data": [{"history_id": ..., "chart_id": ..., "change_source": ..., "changed_by": ..., "changed_at": ...}]}`
+  - `{"ok": true, "data": [{"history_id": ..., "chart_id": ..., "change_source": ..., "is_emergency": bool, "changed_by": ..., "changed_at": ...}]}`
+- Query
+  - `is_emergency=true/false` で緊急変更履歴のみ/通常変更履歴のみを絞り込める
 - Error Response JSON（envelope）
   - 共通: `{"ok": false, "error": {"code": string, "message": string, "details": object}}`
   - 想定 status: `400`, `403`, `500`

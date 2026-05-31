@@ -251,6 +251,26 @@ def _count_chart_history(chart_id: int) -> int:
         con.close()
 
 
+def _find_latest_history_is_emergency(chart_id: int) -> int:
+    con = _connect(MAIN_DB)
+    try:
+        row = con.execute(
+            """
+            SELECT is_emergency
+            FROM ChartsHistory
+            WHERE chart_id = ?
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (chart_id,),
+        ).fetchone()
+        if row is None:
+            raise RuntimeError("history not found")
+        return int(row[0])
+    finally:
+        con.close()
+
+
 def _update_chart_version(chart_id: int, version: int) -> None:
     con = _connect(MAIN_DB)
     try:
@@ -696,6 +716,7 @@ def test_post_apply_change_requests_success_with_threshold_change(
         assert body["data"]["status"] == "applied"
         assert _find_change_request_status(request_id) == "applied"
         assert _count_chart_history(chart_id) == before_history + 1
+        assert _find_latest_history_is_emergency(chart_id) == 0
         assert body["data"]["resulting_version"] > previous_version
     finally:
         con = _connect(MAIN_DB)

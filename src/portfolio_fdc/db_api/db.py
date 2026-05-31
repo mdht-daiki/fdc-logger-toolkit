@@ -288,6 +288,7 @@ def _init_schema(db_path: Path) -> None:
                 change_reason TEXT,
                 change_source TEXT,
                 chart_id INTEGER,
+                is_emergency INTEGER NOT NULL DEFAULT 0 CHECK (is_emergency IN (0, 1)),
                 FOREIGN KEY(chart_set_id) REFERENCES ChartSet(chart_set_id)
             );
             """
@@ -316,6 +317,32 @@ def _init_schema(db_path: Path) -> None:
             )
         except sqlite3.OperationalError:
             pass  # column already exists – migration already applied
+
+        # Migration: add is_emergency flag and backfill emergency rows for
+        # existing databases that represented emergency only by change_source.
+        try:
+            con.execute(
+                "ALTER TABLE ChartsHistory "
+                "ADD COLUMN is_emergency INTEGER NOT NULL DEFAULT 0 CHECK (is_emergency IN (0, 1))"
+            )
+        except sqlite3.OperationalError:
+            pass  # column already exists – migration already applied
+
+        con.execute(
+            """
+            UPDATE ChartsHistory
+            SET is_emergency = 1
+            WHERE change_source = 'emergency_manual'
+              AND (is_emergency IS NULL OR is_emergency = 0)
+            """
+        )
+        con.execute(
+            """
+            UPDATE ChartsHistory
+            SET is_emergency = 0
+            WHERE is_emergency IS NULL
+            """
+        )
         con.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_charts_v2_lookup

@@ -309,8 +309,9 @@ class GovernanceRouter:
                                 step_no, feature_type,
                                 old_warn_low, old_warn_high, old_crit_low, old_crit_high,
                                 new_warn_low, new_warn_high, new_crit_low, new_crit_high,
-                                changed_at, changed_by, change_reason, change_source, chart_id
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                changed_at, changed_by, change_reason, change_source, chart_id,
+                                is_emergency
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             """,
                             (
                                 chart_set_id,
@@ -333,6 +334,7 @@ class GovernanceRouter:
                                 payload.reason,
                                 "emergency_manual",
                                 chart_id,
+                                1,
                             ),
                         )
 
@@ -879,10 +881,11 @@ class GovernanceRouter:
                                     step_no, feature_type,
                                     old_warn_low, old_warn_high, old_crit_low, old_crit_high,
                                     new_warn_low, new_warn_high, new_crit_low, new_crit_high,
-                                    changed_at, changed_by, change_reason, change_source, chart_id
+                                    changed_at, changed_by, change_reason, change_source, chart_id,
+                                    is_emergency
                                 ) VALUES (
                                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                                 )
                                 """,
                                 (
@@ -906,6 +909,7 @@ class GovernanceRouter:
                                     payload.reason,
                                     "governance_apply",
                                     chart_id,
+                                    0,
                                 ),
                             )
 

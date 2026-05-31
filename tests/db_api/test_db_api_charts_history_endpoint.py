@@ -5,6 +5,7 @@ import sqlite3
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -84,8 +85,8 @@ def _insert_chart_and_history(chart_set_id: int, suffix: str, base: datetime) ->
                     step_no, feature_type, old_warn_low, old_warn_high,
                     old_crit_low, old_crit_high, new_warn_low, new_warn_high,
                     new_crit_low, new_crit_high, changed_at, changed_by,
-                    change_reason, change_source, chart_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    change_reason, change_source, chart_id, is_emergency
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     chart_set_id,
@@ -108,6 +109,7 @@ def _insert_chart_and_history(chart_set_id: int, suffix: str, base: datetime) ->
                     f"reason-{index}",
                     change_source,
                     chart_pk,
+                    1 if change_source == "emergency_manual" else 0,
                 ),
             )
 
@@ -179,6 +181,7 @@ def test_get_charts_history_returns_contract_fields(
         "chart_id",
         "chart_set_id",
         "change_source",
+        "is_emergency",
         "change_reason",
         "before",
         "after",
@@ -190,6 +193,7 @@ def test_get_charts_history_returns_contract_fields(
         assert re.fullmatch(r"HIS_\d+", row["history_id"])
         assert row["chart_id"] == seeded.chart_id
         assert row["chart_set_id"] == seeded.chart_set_id
+        assert isinstance(row["is_emergency"], bool)
         assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z", row["changed_at"])
 
     first = data[0]
@@ -253,6 +257,161 @@ def test_get_charts_history_supports_chart_id_and_change_source_filters(
     assert len(rows) == 60
     assert all(item["chart_id"] == seeded.chart_id for item in rows)
     assert all(item["change_source"] == "normal_pr" for item in rows)
+
+
+def test_get_charts_history_supports_is_emergency_filter(
+    client: TestClient,
+    seeded_charts_history_context: SeededChartsHistoryContext,
+) -> None:
+    seeded = seeded_charts_history_context
+
+    emergency_res = client.get(
+        "/charts/history",
+        params={
+            "chart_id": seeded.chart_id,
+            "is_emergency": "true",
+            "limit": 500,
+        },
+    )
+    non_emergency_res = client.get(
+        "/charts/history",
+        params={
+            "chart_id": seeded.chart_id,
+            "is_emergency": "false",
+            "limit": 500,
+        },
+    )
+
+    assert emergency_res.status_code == 200
+    assert non_emergency_res.status_code == 200
+
+    emergency_rows = emergency_res.json()["data"]
+    non_emergency_rows = non_emergency_res.json()["data"]
+
+    assert len(emergency_rows) == 60
+    assert len(non_emergency_rows) == 60
+    assert all(item["is_emergency"] is True for item in emergency_rows)
+    assert all(item["is_emergency"] is False for item in non_emergency_rows)
+
+
+def test_init_schema_migrates_is_emergency_from_change_source(tmp_path: Path) -> None:
+    db_path = tmp_path / "legacy_main.db"
+    con = sqlite3.connect(db_path.as_posix())
+    try:
+        con.execute(
+            """
+            CREATE TABLE ChartsHistory (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                chart_set_id INTEGER NOT NULL,
+                tool_id TEXT NOT NULL,
+                chamber_id TEXT NOT NULL,
+                recipe_id TEXT NOT NULL,
+                parameter TEXT NOT NULL,
+                step_no INTEGER NOT NULL,
+                feature_type TEXT NOT NULL,
+                old_warn_low REAL,
+                old_warn_high REAL,
+                old_crit_low REAL,
+                old_crit_high REAL,
+                new_warn_low REAL,
+                new_warn_high REAL,
+                new_crit_low REAL,
+                new_crit_high REAL,
+                changed_at TEXT NOT NULL,
+                changed_by TEXT,
+                change_reason TEXT,
+                change_source TEXT,
+                chart_id INTEGER
+            )
+            """
+        )
+        con.execute(
+            """
+            INSERT INTO ChartsHistory(
+                chart_set_id, tool_id, chamber_id, recipe_id, parameter,
+                step_no, feature_type, old_warn_low, old_warn_high,
+                old_crit_low, old_crit_high, new_warn_low, new_warn_high,
+                new_crit_low, new_crit_high, changed_at, changed_by,
+                change_reason, change_source, chart_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                1,
+                "TOOL1",
+                "CH1",
+                "R1",
+                "param",
+                1,
+                "mean",
+                1.0,
+                2.0,
+                0.8,
+                2.2,
+                1.1,
+                2.1,
+                0.9,
+                2.3,
+                "2026-05-01T00:00:00.000Z",
+                "tester",
+                "legacy emergency row",
+                "emergency_manual",
+                10,
+            ),
+        )
+        con.execute(
+            """
+            INSERT INTO ChartsHistory(
+                chart_set_id, tool_id, chamber_id, recipe_id, parameter,
+                step_no, feature_type, old_warn_low, old_warn_high,
+                old_crit_low, old_crit_high, new_warn_low, new_warn_high,
+                new_crit_low, new_crit_high, changed_at, changed_by,
+                change_reason, change_source, chart_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                1,
+                "TOOL1",
+                "CH1",
+                "R1",
+                "param",
+                1,
+                "mean",
+                1.0,
+                2.0,
+                0.8,
+                2.2,
+                1.1,
+                2.1,
+                0.9,
+                2.3,
+                "2026-05-01T00:01:00.000Z",
+                "tester",
+                "legacy normal row",
+                "normal_pr",
+                11,
+            ),
+        )
+        con.commit()
+    finally:
+        con.close()
+
+    _init_schema(db_path)
+
+    verify = sqlite3.connect(db_path.as_posix())
+    try:
+        columns = verify.execute("PRAGMA table_info(ChartsHistory)").fetchall()
+        assert any(str(col[1]) == "is_emergency" for col in columns)
+
+        rows = verify.execute(
+            """
+            SELECT change_source, is_emergency
+            FROM ChartsHistory
+            ORDER BY id ASC
+            """
+        ).fetchall()
+        assert rows == [("emergency_manual", 1), ("normal_pr", 0)]
+    finally:
+        verify.close()
 
 
 def test_get_charts_history_applies_default_limit_with_chart_id_filter(

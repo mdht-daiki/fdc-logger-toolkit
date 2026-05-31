@@ -137,6 +137,40 @@ URL 契約トラッキング（Discussion #94）:
 - role/認可結果に応じた 403 表示
 - 実行結果と履歴（`/charts/history`）の確認導線
 
+### Tab Role Boundary and Visibility Policy（Issue #222）
+
+対象ロールは Engineer / Ops / Audit の 3 つとし、タブ単位で以下を固定する。
+
+- 表示制御モード定義
+  - `hidden`: タブを表示しない
+  - `readonly`: 閲覧のみ許可（更新系ボタン・送信操作は無効化）
+  - `execute`: 閲覧 + 操作を許可
+
+| Tab                  | Primary Actor | Secondary Actor | Prohibited Actor | Engineer | Ops      | Audit    |
+| -------------------- | ------------- | --------------- | ---------------- | -------- | -------- | -------- |
+| `charts`             | Engineer      | Ops             | Audit            | readonly | readonly | hidden   |
+| `active`             | Engineer      | Ops             | Audit            | readonly | readonly | hidden   |
+| `history`            | Ops           | Engineer        | Audit            | readonly | readonly | hidden   |
+| `judge`              | Engineer      | Ops             | Audit            | readonly | readonly | hidden   |
+| `change_requests`    | Engineer      | Ops             | Audit            | execute  | execute  | hidden   |
+| `emergency`          | Engineer      | Ops             | Audit            | execute  | execute  | hidden   |
+| `notification_retry` | Ops           | Audit           | Engineer         | hidden   | execute  | readonly |
+
+運用ルール:
+
+1. Prohibited Actor はタブ自体を `hidden` とする。
+2. `readonly` ロールはフォーム送信・再送・承認・適用など状態変更操作を実行できない。
+3. `execute` ロールでも最終認可は db_api 側で判定し、権限外は 403 envelope を表示する。
+
+### New Tab Onboarding Checklist（Issue #222）
+
+新規タブ（例: governed activation flow）を追加する場合、次を同一 PR で満たす。
+
+1. Primary/Secondary/Prohibited を定義し、`hidden/readonly/execute` を各ロールに割り当てる。
+2. タブが利用する endpoint を列挙し、`docs/db-api-endpoints.md` の Consumer 範囲と矛盾しないことを確認する。
+3. 更新系操作を含む場合、`readonly` ロールの操作無効化と 403 表示方針を明記する。
+4. 仕様変更がある場合は `docs/decision-log.md` を同一 PR で更新する。
+
 #### Phase 2 Endpoint Contract Detail（Change Request 系）
 
 **Change Request Workflow Endpoints**（approval flow）

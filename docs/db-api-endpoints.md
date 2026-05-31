@@ -71,6 +71,25 @@
 1. import 境界は `import-linter` で pre-commit と CI の両方で機械検出する（Issue #108 対応）。
 2. endpoint 権限は API スキーマ実装時にテスト（認可・認証）で検証する。
 
+## Dashboard Tab Access Baseline（Issue #222）
+
+`dashboard` のタブ表示制御は endpoint の Consumer 範囲に従う。
+
+| Dashboard Tab         | Main Endpoint Group                                                                                         | Access Baseline |
+| --------------------- | ----------------------------------------------------------------------------------------------------------- | --------------- |
+| `charts`              | `GET /charts`                                                                                               | Engineer/Ops: readonly, Audit: hidden |
+| `active`              | `GET /charts/active`                                                                                        | Engineer/Ops: readonly, Audit: hidden |
+| `history`             | `GET /charts/history`                                                                                       | Engineer/Ops: readonly, Audit: hidden |
+| `judge`               | `GET /judge/results*`                                                                                       | Engineer/Ops: readonly, Audit: hidden |
+| `change_requests`     | `GET/POST /governance/change-requests*`                                                                     | Engineer/Ops: execute, Audit: hidden |
+| `emergency`           | `POST /governance/emergency-changes`                                                                        | Engineer/Ops: execute, Audit: hidden |
+| `notification_retry`  | `GET /governance/notifications/failed`, `POST /governance/notifications/{event_id}/retry`                 | Ops: execute, Audit: readonly, Engineer: hidden |
+
+補足:
+
+1. `readonly` は閲覧のみ許可し、更新系操作は UI で無効化する。
+2. `execute` の最終可否は API 側認可で判定し、権限外は 403 を返す。
+
 ## Must-Test Cases for API Contract
 
 しきい値更新 API を実装する際、以下のケースを最小必須テストとする.

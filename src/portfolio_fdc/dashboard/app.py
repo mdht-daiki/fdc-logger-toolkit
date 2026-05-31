@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 from typing import Any
@@ -123,6 +124,64 @@ def _to_positive_int(raw: str, field_name: str) -> tuple[int | None, str | None]
     if parsed <= 0:
         return None, f"{field_name} must be >= 1"
     return parsed, None
+
+
+def _to_optional_float(raw: str, field_name: str) -> tuple[float | None, str | None]:
+    value = (raw or "").strip()
+    if not value:
+        return None, None
+    try:
+        return float(value), None
+    except ValueError:
+        return None, f"{field_name} must be numeric"
+
+
+def _build_change_payload_text(
+    warn_low: str,
+    warn_high: str,
+    crit_low: str,
+    crit_high: str,
+    raw_payload: str,
+) -> tuple[str | None, str | None]:
+    warn_low_val, warn_low_err = _to_optional_float(warn_low, "warn_low")
+    if warn_low_err is not None:
+        return None, warn_low_err
+    warn_high_val, warn_high_err = _to_optional_float(warn_high, "warn_high")
+    if warn_high_err is not None:
+        return None, warn_high_err
+    crit_low_val, crit_low_err = _to_optional_float(crit_low, "crit_low")
+    if crit_low_err is not None:
+        return None, crit_low_err
+    crit_high_val, crit_high_err = _to_optional_float(crit_high, "crit_high")
+    if crit_high_err is not None:
+        return None, crit_high_err
+
+    threshold_payload: dict[str, float] = {}
+    if warn_low_val is not None:
+        threshold_payload["warn_low"] = warn_low_val
+    if warn_high_val is not None:
+        threshold_payload["warn_high"] = warn_high_val
+    if crit_low_val is not None:
+        threshold_payload["crit_low"] = crit_low_val
+    if crit_high_val is not None:
+        threshold_payload["crit_high"] = crit_high_val
+
+    # Prefer structured threshold fields. Raw JSON remains as an optional fallback.
+    if threshold_payload:
+        return json.dumps(threshold_payload, ensure_ascii=False), None
+
+    raw_text = (raw_payload or "").strip()
+    if not raw_text:
+        return None, "at least one threshold field or change_payload JSON is required"
+    try:
+        parsed = json.loads(raw_text)
+    except json.JSONDecodeError:
+        return None, "change_payload must be valid JSON"
+    if not isinstance(parsed, dict):
+        return None, "change_payload must be JSON object"
+    if not parsed:
+        return None, "change_payload must not be empty"
+    return raw_text, None
 
 
 def _build_history_preview(rows: list[dict[str, Any]]) -> list[Any]:
@@ -366,6 +425,35 @@ def render_active_drilldown(
 
 
 @app.callback(
+    Output("emergency-payload-preview", "children"),
+    Input("emergency-warn-low", "value"),
+    Input("emergency-warn-high", "value"),
+    Input("emergency-crit-low", "value"),
+    Input("emergency-crit-high", "value"),
+    Input("emergency-change-payload", "value"),
+    prevent_initial_call=False,
+)
+def preview_emergency_payload(
+    warn_low: str,
+    warn_high: str,
+    crit_low: str,
+    crit_high: str,
+    raw_payload: str,
+) -> str:
+    payload_text, err = _build_change_payload_text(
+        warn_low,
+        warn_high,
+        crit_low,
+        crit_high,
+        raw_payload,
+    )
+    if err is not None:
+        return f"payload preview unavailable: {err}"
+    assert payload_text is not None
+    return payload_text
+
+
+@app.callback(
     Output("emergency-action-result", "children"),
     Output("emergency-history-preview", "children"),
     Input("emergency-submit-btn", "n_clicks"),
@@ -375,6 +463,10 @@ def render_active_drilldown(
     State("emergency-changed-by-role", "value"),
     State("emergency-reason", "value"),
     State("emergency-change-payload", "value"),
+    State("emergency-warn-low", "value"),
+    State("emergency-warn-high", "value"),
+    State("emergency-crit-low", "value"),
+    State("emergency-crit-high", "value"),
     prevent_initial_call=True,
 )
 def submit_emergency_change(
@@ -384,7 +476,11 @@ def submit_emergency_change(
     changed_by: str,
     changed_by_role: str,
     reason: str,
-    change_payload: str,
+    change_payload: str = "",
+    warn_low: str = "",
+    warn_high: str = "",
+    crit_low: str = "",
+    crit_high: str = "",
 ) -> tuple[str, list[Any]]:
     if not n_clicks:
         return "", [html.Div("Apply 実行後に履歴を表示します。")]
@@ -395,13 +491,21 @@ def submit_emergency_change(
 
     actor = (changed_by or "").strip()
     role = (changed_by_role or "").strip()
-    payload_text = (change_payload or "").strip()
     if not actor:
         return "changed_by is required", [html.Div("Apply 実行後に履歴を表示します。")]
     if not role:
         return "changed_by_role is required", [html.Div("Apply 実行後に履歴を表示します。")]
-    if not payload_text:
-        return "change_payload is required", [html.Div("Apply 実行後に履歴を表示します。")]
+
+    payload_text, payload_err = _build_change_payload_text(
+        warn_low,
+        warn_high,
+        crit_low,
+        crit_high,
+        change_payload,
+    )
+    if payload_err is not None:
+        return payload_err, [html.Div("Apply 実行後に履歴を表示します。")]
+    assert payload_text is not None
 
     try:
         safe_base_url = validate_base_url(base_url)[0]
@@ -610,6 +714,35 @@ def _build_change_request_list_view(
 
 
 @app.callback(
+    Output("change-request-payload-preview", "children"),
+    Input("change-request-warn-low", "value"),
+    Input("change-request-warn-high", "value"),
+    Input("change-request-crit-low", "value"),
+    Input("change-request-crit-high", "value"),
+    Input("change-request-change-payload", "value"),
+    prevent_initial_call=False,
+)
+def preview_change_request_payload(
+    warn_low: str,
+    warn_high: str,
+    crit_low: str,
+    crit_high: str,
+    raw_payload: str,
+) -> str:
+    payload_text, err = _build_change_payload_text(
+        warn_low,
+        warn_high,
+        crit_low,
+        crit_high,
+        raw_payload,
+    )
+    if err is not None:
+        return f"payload preview unavailable: {err}"
+    assert payload_text is not None
+    return payload_text
+
+
+@app.callback(
     Output("change-request-create-result", "children"),
     Input("change-request-create-btn", "n_clicks"),
     State("base-url", "value"),
@@ -618,6 +751,10 @@ def _build_change_request_list_view(
     State("change-request-change-payload", "value"),
     State("change-request-expected-version", "value"),
     State("change-request-idempotency-key", "value"),
+    State("change-request-warn-low", "value"),
+    State("change-request-warn-high", "value"),
+    State("change-request-crit-low", "value"),
+    State("change-request-crit-high", "value"),
     prevent_initial_call=True,
 )
 def submit_change_request_create(
@@ -625,9 +762,13 @@ def submit_change_request_create(
     base_url: str,
     chart_id: str,
     proposed_by: str,
-    change_payload: str,
-    expected_version: str,
-    idempotency_key: str,
+    change_payload: str = "",
+    expected_version: str = "",
+    idempotency_key: str = "",
+    warn_low: str = "",
+    warn_high: str = "",
+    crit_low: str = "",
+    crit_high: str = "",
 ) -> str:
     if not n_clicks:
         return ""
@@ -640,14 +781,22 @@ def submit_change_request_create(
         return version_err
 
     actor = (proposed_by or "").strip()
-    payload_text = (change_payload or "").strip()
     key = (idempotency_key or "").strip()
     if not actor:
         return "proposed_by is required"
-    if not payload_text:
-        return "change_payload is required"
     if not key:
         return "idempotency_key is required"
+
+    payload_text, payload_err = _build_change_payload_text(
+        warn_low,
+        warn_high,
+        crit_low,
+        crit_high,
+        change_payload,
+    )
+    if payload_err is not None:
+        return payload_err
+    assert payload_text is not None
 
     try:
         safe_base_url = validate_base_url(base_url)[0]

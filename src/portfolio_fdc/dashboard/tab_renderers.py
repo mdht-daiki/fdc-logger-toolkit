@@ -319,11 +319,54 @@ def render_change_requests_tab(base_url: str) -> html.Div:
                         placeholder="enter actor",
                         style={"width": "100%"},
                     ),
-                    html.Label("change_payload (JSON)"),
+                    html.Label("threshold fields (preferred)"),
+                    html.Div(
+                        [
+                            html.Label("warn_low"),
+                            dcc.Input(
+                                id="change-request-warn-low",
+                                type="text",
+                                value="20.0",
+                                style={"width": "100%"},
+                            ),
+                            html.Label("warn_high"),
+                            dcc.Input(
+                                id="change-request-warn-high",
+                                type="text",
+                                value="30.0",
+                                style={"width": "100%"},
+                            ),
+                            html.Label("crit_low (optional)"),
+                            dcc.Input(
+                                id="change-request-crit-low",
+                                type="text",
+                                value="",
+                                style={"width": "100%"},
+                            ),
+                            html.Label("crit_high (optional)"),
+                            dcc.Input(
+                                id="change-request-crit-high",
+                                type="text",
+                                value="",
+                                style={"width": "100%"},
+                            ),
+                        ],
+                        style={
+                            "padding": "8px",
+                            "border": "1px dashed #bbb",
+                            "marginBottom": "8px",
+                        },
+                    ),
+                    html.Label("advanced change_payload JSON (optional)"),
                     dcc.Textarea(
                         id="change-request-change-payload",
-                        value='{"warn_low": 20.0, "warn_high": 30.0}',
+                        value="",
                         style={"width": "100%", "height": "96px", "fontFamily": "Consolas"},
+                    ),
+                    html.Pre(
+                        id="change-request-payload-preview",
+                        children="payload preview will appear here",
+                        style={"backgroundColor": "#f5f5f5", "padding": "8px", "marginTop": "8px"},
                     ),
                     html.Label("expected_version"),
                     dcc.Input(
@@ -683,11 +726,54 @@ def _build_emergency_change_form(chart_id: str) -> html.Div:
                 value="",
                 style={"width": "100%"},
             ),
-            html.Label("change_payload (JSON)"),
+            html.Label("threshold fields (preferred)"),
+            html.Div(
+                [
+                    html.Label("warn_low (optional)"),
+                    dcc.Input(
+                        id="emergency-warn-low",
+                        type="text",
+                        value="",
+                        style={"width": "100%"},
+                    ),
+                    html.Label("warn_high (optional)"),
+                    dcc.Input(
+                        id="emergency-warn-high",
+                        type="text",
+                        value="1.9",
+                        style={"width": "100%"},
+                    ),
+                    html.Label("crit_low (optional)"),
+                    dcc.Input(
+                        id="emergency-crit-low",
+                        type="text",
+                        value="",
+                        style={"width": "100%"},
+                    ),
+                    html.Label("crit_high (optional)"),
+                    dcc.Input(
+                        id="emergency-crit-high",
+                        type="text",
+                        value="2.0",
+                        style={"width": "100%"},
+                    ),
+                ],
+                style={
+                    "padding": "8px",
+                    "border": "1px dashed #bbb",
+                    "marginBottom": "8px",
+                },
+            ),
+            html.Label("advanced change_payload JSON (optional)"),
             dcc.Textarea(
                 id="emergency-change-payload",
-                value='{"warn_high": 1.9, "crit_high": 2.0}',
+                value="",
                 style={"width": "100%", "height": "96px", "fontFamily": "Consolas"},
+            ),
+            html.Pre(
+                id="emergency-payload-preview",
+                children="payload preview will appear here",
+                style={"backgroundColor": "#f5f5f5", "padding": "8px", "marginTop": "8px"},
             ),
             html.Button(
                 "Apply Emergency Change",

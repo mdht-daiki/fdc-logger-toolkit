@@ -75,15 +75,16 @@
 
 `dashboard` のタブ表示制御は endpoint の Consumer 範囲に従う。
 
-| Dashboard Tab         | Main Endpoint Group                                                                                         | Access Baseline |
-| --------------------- | ----------------------------------------------------------------------------------------------------------- | --------------- |
-| `charts`              | `GET /charts`                                                                                               | Engineer/Ops: readonly, Audit: hidden |
-| `active`              | `GET /charts/active`                                                                                        | Engineer/Ops: readonly, Audit: hidden |
-| `history`             | `GET /charts/history`                                                                                       | Engineer/Ops: readonly, Audit: hidden |
-| `judge`               | `GET /judge/results*`                                                                                       | Engineer/Ops: readonly, Audit: hidden |
-| `change_requests`     | `GET/POST /governance/change-requests*`                                                                     | Engineer/Ops: execute, Audit: hidden |
-| `emergency`           | `POST /governance/emergency-changes`                                                                        | Engineer/Ops: execute, Audit: hidden |
-| `notification_retry`  | `GET /governance/notifications/failed`, `POST /governance/notifications/{event_id}/retry`                 | Ops: execute, Audit: readonly, Engineer: hidden |
+| Dashboard Tab        | Main Endpoint Group                                                                       | Access Baseline                                 |
+| -------------------- | ----------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| `charts`             | `GET /charts`                                                                             | Engineer/Ops: readonly, Audit: hidden           |
+| `active`             | `GET /charts/active`                                                                      | Engineer/Ops: readonly, Audit: hidden           |
+| `history`            | `GET /charts/history`                                                                     | Engineer/Ops: readonly, Audit: hidden           |
+| `judge`              | `GET /judge/results*`                                                                     | Engineer/Ops: readonly, Audit: hidden           |
+| `change_requests`     | `GET/POST /governance/change-requests*`                                                   | Engineer/Ops: execute, Audit: hidden            |
+| `emergency:apply`     | `POST /governance/emergency-changes`                                                      | Engineer: execute, Ops: readonly, Audit: hidden |
+| `emergency:ratify`    | `POST /governance/emergency-changes/{request_id}/ratify`                                  | Ops: execute, Audit: readonly, Engineer: hidden |
+| `notification_retry` | `GET /governance/notifications/failed`, `POST /governance/notifications/{event_id}/retry` | Ops: execute, Audit: readonly, Engineer: hidden |
 
 補足:
 

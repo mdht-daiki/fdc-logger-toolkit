@@ -16,7 +16,8 @@ Phase 2 実装後、dashboard タブごとの利用主体と表示制御方針�
 3. Prohibited Actor はタブを表示しない。
 4. `readonly` は閲覧のみとし、更新系操作を実行不可にする。
 5. `execute` でも最終認可は API 側判定を正本とする（権限外は 403）。
-6. 新規タブ追加時は同一 PR で playbook と endpoint catalog と decision log の整合更新を必須にする。
+6. `emergency` タブは action-level に分割し、`emergency:apply` は Engineer 主導、`emergency:ratify` は Ops 主導とする。
+7. 新規タブ追加時は同一 PR で playbook と endpoint catalog と decision log の整合更新を必須にする。
 
 ### Why
 

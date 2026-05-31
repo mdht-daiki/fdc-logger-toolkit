@@ -153,7 +153,8 @@ URL 契約トラッキング（Discussion #94）:
 | `history`            | Ops           | Engineer        | Audit            | readonly | readonly | hidden   |
 | `judge`              | Engineer      | Ops             | Audit            | readonly | readonly | hidden   |
 | `change_requests`    | Engineer      | Ops             | Audit            | execute  | execute  | hidden   |
-| `emergency`          | Engineer      | Ops             | Audit            | execute  | execute  | hidden   |
+| `emergency:apply`    | Engineer      | Ops             | Audit            | execute  | readonly | hidden   |
+| `emergency:ratify`   | Ops           | Audit           | Engineer         | hidden   | execute  | readonly |
 | `notification_retry` | Ops           | Audit           | Engineer         | hidden   | execute  | readonly |
 
 運用ルール:

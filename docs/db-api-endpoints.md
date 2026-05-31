@@ -47,6 +47,7 @@
 - API の timestamp 正規化は UTC ISO 8601 ミリ秒固定で、マイクロ秒以下は切り捨てとする。
 - `GET /charts/history` の `from_ts` / `to_ts` は timezone-aware datetime のみ受け付ける。
 - `GET /charts/history` の `chart_id` フィルタは現在 `ChartsV2` に存在する chart にのみ有効で、削除済み chart 履歴の `chart_id` 解決は行わない。
+- `GET /charts/history` は `is_emergency`（bool）フィルタを受け付ける。`true` は緊急変更履歴のみ、`false` は通常変更履歴のみを返す。省略時は両方を返す。
 
 ## Read-only Endpoint Access Pattern
 
@@ -99,7 +100,7 @@
 #### POST /governance/emergency-changes (即時反映)
 
 1. 正常系: `reason` は任意（後追い可）とし、即座に ChartsV2 を更新し version を 1 増加させる
-2. 成功時に ChartsHistory に 1 件追加される（`change_source='emergency_manual'`）
+2. 成功時に ChartsHistory に 1 件追加される（`change_source='emergency_manual'`, `is_emergency=true`）
 3. AuditEvents に `emergency_changed` タイプのイベントが記録される
 4. NotificationOutbox に `pending` 状態で登録され、通知ポーラー対象になる
 5. 空 payload（`{}`）やタイポのみの payload は 422 を返す

@@ -38,6 +38,7 @@ class ChartsHistoryQueryCriteria:
     chart_pk: int | None = None
     chart_set_id: int | None = None
     change_source: str | None = None
+    is_emergency: bool | None = None
     from_ts: str | None = None
     to_ts: str | None = None
     limit: int = 100
@@ -113,6 +114,7 @@ class ChartHistoryView:
     chart_id: str | None
     chart_set_id: int
     change_source: str | None
+    is_emergency: bool
     change_reason: str | None
     before: ChartThresholdSnapshot
     after: ChartThresholdSnapshot
@@ -159,6 +161,7 @@ class ChartRepository:
             h.chart_set_id,
             h.chart_id,
             h.change_source,
+            h.is_emergency,
             h.change_reason,
             h.old_warn_low,
             h.old_warn_high,
@@ -422,6 +425,12 @@ class ChartRepository:
             params,
         )
         self._append_filter_condition(
+            None if criteria.is_emergency is None else int(criteria.is_emergency),
+            "h.is_emergency = ?",
+            where_clauses,
+            params,
+        )
+        self._append_filter_condition(
             criteria.from_ts,
             "julianday(h.changed_at) >= julianday(?)",
             where_clauses,
@@ -546,6 +555,7 @@ class ChartRepository:
             chart_set_id,
             chart_pk,
             change_source,
+            is_emergency,
             change_reason,
             old_warn_low,
             old_warn_high,
@@ -564,6 +574,7 @@ class ChartRepository:
             chart_id=None if chart_pk is None else f"CHART_{int(chart_pk)}",
             chart_set_id=int(chart_set_id),
             change_source=None if change_source is None else str(change_source),
+            is_emergency=bool(is_emergency),
             change_reason=None if change_reason is None else str(change_reason),
             before=ChartThresholdSnapshot(
                 warning_lcl=_to_float_or_none(old_warn_low),

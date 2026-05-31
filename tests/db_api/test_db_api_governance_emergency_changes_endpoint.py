@@ -93,12 +93,12 @@ def _find_chart_row(
         con.close()
 
 
-def _find_latest_history_row(chart_id: int) -> tuple[str, str | None, str]:
+def _find_latest_history_row(chart_id: int) -> tuple[str, str | None, str, int]:
     con = _connect(MAIN_DB)
     try:
         row = con.execute(
             """
-            SELECT change_source, change_reason, changed_by
+            SELECT change_source, change_reason, changed_by, is_emergency
             FROM ChartsHistory
             WHERE chart_id = ?
             ORDER BY id DESC
@@ -108,7 +108,7 @@ def _find_latest_history_row(chart_id: int) -> tuple[str, str | None, str]:
         ).fetchone()
         if row is None:
             raise RuntimeError("history not found")
-        return (str(row[0]), None if row[1] is None else str(row[1]), str(row[2]))
+        return (str(row[0]), None if row[1] is None else str(row[1]), str(row[2]), int(row[3]))
     finally:
         con.close()
 
@@ -343,6 +343,7 @@ def test_post_emergency_changes_success_updates_chart_and_writes_audit(
         "emergency_manual",
         "incident mitigation",
         "ops-user",
+        1,
     )
     assert _find_emergency_audit_event_type(ec_id) == "emergency_changed"
     assert _find_notification_outbox_status(ec_id) == ("pending", 0)
@@ -709,10 +710,11 @@ def test_post_emergency_changes_accepts_missing_reason(
     _, _, _, _, _, _, update_reason, _ = _find_chart_row(chart_id)
     assert update_reason is None
 
-    change_source, change_reason, changed_by = _find_latest_history_row(chart_id)
+    change_source, change_reason, changed_by, is_emergency = _find_latest_history_row(chart_id)
     assert change_source == "emergency_manual"
     assert change_reason is None
     assert changed_by == "ops-user"
+    assert is_emergency == 1
 
     stored_reason = _find_latest_emergency_change_reason_by_chart(chart_id)
     assert stored_reason == ""

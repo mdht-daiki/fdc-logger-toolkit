@@ -276,6 +276,7 @@ def test_post_notifications_retry_accepts_empty_json_object(
         assert body["ok"] is True
         assert body["data"]["event_id"] == event_id
         assert body["data"]["status"] == "pending"
+        assert body["data"]["retry_count"] == 2
     finally:
         _delete_seeded_notification_records(event_id, correlation_id)
 

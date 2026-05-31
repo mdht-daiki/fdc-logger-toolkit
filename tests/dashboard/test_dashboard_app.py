@@ -694,6 +694,45 @@ def test_submit_notification_retry_surfaces_api_error(
     assert "status=400" in result
 
 
+def test_refresh_failed_notifications_surfaces_server_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "portfolio_fdc.dashboard.app.get_failed_notifications",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            APIError(message="db unavailable", status_code=500)
+        ),
+    )
+
+    result_text, rows = refresh_failed_notifications(
+        1,
+        "http://localhost:8000",
+        "",
+        "10",
+        "0",
+    )
+
+    assert "Notification list failed" in result_text
+    assert "status=500" in result_text
+    assert rows == []
+
+
+def test_submit_notification_retry_surfaces_server_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "portfolio_fdc.dashboard.app.retry_notification",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            APIError(message="timeout while committing retry", status_code=500)
+        ),
+    )
+
+    result = submit_notification_retry(1, "http://localhost:8000", "101")
+
+    assert "Notification retry failed" in result
+    assert "status=500" in result
+
+
 def test_validate_base_url_ip_url_conversion(monkeypatch):
     # 非localhost外部URLのip_url変換（mockで固定IP返却）
     monkeypatch.delenv("PORTFOLIO_DB_API_ALLOWED_HOSTS", raising=False)

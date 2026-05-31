@@ -16,13 +16,18 @@
 
 現在の公開版で「デモ可能」な範囲を明示します。
 
-| Area      | Status | Portfolio Scope |
-| --------- | ------ | --------------- |
-| db_api    | Ready  | SQLite gateway, governance endpoints, read/write API |
-| dashboard | Ready  | chart/judge/governance UI（change request / emergency / retry） |
-| ingest    | Ready  | synthetic data -> scrape/aggregate -> DB 反映 |
-| judge     | Partial | `run_once` ベース。通知/MES 連携は段階対応中 |
-| ops docs  | Partial | runbook/rollback/checklist は継続整備中 |
+| Area      | Status  | Portfolio Scope                                                 |
+| --------- | ------- | --------------------------------------------------------------- |
+| db_api    | Ready   | SQLite gateway, governance endpoints, read/write API            |
+| dashboard | Ready   | chart/judge/governance UI（change request / emergency / retry） |
+| ingest    | Ready   | synthetic data -> scrape/aggregate -> DB 反映                   |
+| judge     | Partial | `run_once` ベース。通知/MES 連携は段階対応中                    |
+| ops docs  | Partial | runbook/rollback/checklist は継続整備中                         |
+
+注記:
+
+- `Ready` は「ポートフォリオのローカルデモ導線で再現できる範囲」を示します。
+- `db_api` / `dashboard` の endpoint 詳細は `docs/db-api-endpoints.md` を参照してください。
 
 ---
 
@@ -248,18 +253,17 @@ $env:PORTFOLIO_DB_DIR = "E:/work/python/logger/data/db"
 python -m portfolio_fdc.db_api.app
 ```
 
-現時点の実装スコープ（PR を小さく保つため）:
+現時点の実装スコープ（ポートフォリオデモ）:
 
-- `aggregate` 連携エンドポイントのみ実装
+- `aggregate` 連携 endpoint
   - `POST /aggregate/write`（推奨）
   - `POST /processes`
   - `DELETE /processes/{process_id}`（推奨）
-  - `DELETE /processes`（互換用、2026-06-30 まで併存予定）
+  - `DELETE /processes`（互換）
   - `POST /step_windows/bulk`
   - `POST /parameters/bulk`
-- 先送りしたエンドポイント（charts/judge/chart_sets/charts_v2）は
-  `src/portfolio_fdc/db_api/app.py.backup_non_aggregate_endpoints.py` に退避
-- 退避ファイルは `.gitignore` でレビュー対象外
+- dashboard/judge/governance の read/write endpoint（change request / emergency / retry を含む）
+- 主要 endpoint 一覧と consumer 範囲は `docs/db-api-endpoints.md` を正本として参照
 
 ### 2) 疑似 logger CSV を生成
 

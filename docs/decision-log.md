@@ -1,5 +1,36 @@
 # Decision Log
 
+## 2026-05-31: `#222` dashboard タブ役割境界（Engineer/Ops/Audit）を確定
+
+日付基準: JST
+
+### Context
+
+Phase 2 実装後、dashboard タブごとの利用主体と表示制御方針が暗黙運用になっており、
+新規タブ追加時に同じ基準で判断できない状態だった。
+
+### Decision
+
+1. 既存 7 タブ（`charts` / `active` / `history` / `judge` / `change_requests` / `emergency` / `notification_retry`）の Primary/Secondary/Prohibited を固定する。
+2. 表示制御モードを `hidden` / `readonly` / `execute` の 3 段階で定義する。
+3. Prohibited Actor はタブを表示しない。
+4. `readonly` は閲覧のみとし、更新系操作を実行不可にする。
+5. `execute` でも最終認可は API 側判定を正本とする（権限外は 403）。
+6. `emergency` タブは action-level に分割し、`emergency:apply` は Engineer 主導、`emergency:ratify` は Ops 主導とする。
+7. 新規タブ追加時は同一 PR で playbook と endpoint catalog と decision log の整合更新を必須にする。
+
+### Why
+
+1. 役割境界を文書契約化し、運用依存の判断揺れをなくすため。
+2. API Consumer 範囲と UI 表示制御を対応付け、責務境界の齟齬を減らすため。
+3. 将来の Phase 3 タブ追加時のレビューチェックを定型化するため。
+
+### Consequence
+
+1. `docs/dashboard-architecture-playbook.md` にタブごとの役割境界マトリクスと onboarding checklist を追加する。
+2. `docs/db-api-endpoints.md` に endpoint Consumer と dashboard タブ表示制御の対応表を追加する。
+3. 以後の dashboard 新規タブ PR は #222 のチェックリストを満たすことを受け入れ条件に含める。
+
 ## 2026-05-11: `#143` emergency-changes/ratify - 実装前論点 B/B/A/A/B を確定
 
 日付基準: JST

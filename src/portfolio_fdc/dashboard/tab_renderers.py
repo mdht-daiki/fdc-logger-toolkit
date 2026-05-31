@@ -293,6 +293,53 @@ def _build_change_request_sections(
     return list_block, detail_block
 
 
+def build_threshold_inputs(
+    prefix: str,
+    warn_low_default: str = "20.0",
+    warn_high_default: str = "30.0",
+    crit_low_default: str = "",
+    crit_high_default: str = "",
+) -> html.Div:
+    shared_input_style = {"width": "100%"}
+    return html.Div(
+        [
+            html.Label("warn_low"),
+            dcc.Input(
+                id=f"{prefix}-warn-low",
+                type="text",
+                value=warn_low_default,
+                style=shared_input_style,
+            ),
+            html.Label("warn_high"),
+            dcc.Input(
+                id=f"{prefix}-warn-high",
+                type="text",
+                value=warn_high_default,
+                style=shared_input_style,
+            ),
+            html.Label("crit_low (optional)"),
+            dcc.Input(
+                id=f"{prefix}-crit-low",
+                type="text",
+                value=crit_low_default,
+                style=shared_input_style,
+            ),
+            html.Label("crit_high (optional)"),
+            dcc.Input(
+                id=f"{prefix}-crit-high",
+                type="text",
+                value=crit_high_default,
+                style=shared_input_style,
+            ),
+        ],
+        style={
+            "padding": "8px",
+            "border": "1px dashed #bbb",
+            "marginBottom": "8px",
+        },
+    )
+
+
 def render_change_requests_tab(base_url: str) -> html.Div:
     rows = get_change_requests(base_url, params={"limit": 100, "offset": 0})
     list_block, detail_block = _build_change_request_sections(rows)
@@ -320,43 +367,7 @@ def render_change_requests_tab(base_url: str) -> html.Div:
                         style={"width": "100%"},
                     ),
                     html.Label("threshold fields (preferred)"),
-                    html.Div(
-                        [
-                            html.Label("warn_low"),
-                            dcc.Input(
-                                id="change-request-warn-low",
-                                type="text",
-                                value="20.0",
-                                style={"width": "100%"},
-                            ),
-                            html.Label("warn_high"),
-                            dcc.Input(
-                                id="change-request-warn-high",
-                                type="text",
-                                value="30.0",
-                                style={"width": "100%"},
-                            ),
-                            html.Label("crit_low (optional)"),
-                            dcc.Input(
-                                id="change-request-crit-low",
-                                type="text",
-                                value="",
-                                style={"width": "100%"},
-                            ),
-                            html.Label("crit_high (optional)"),
-                            dcc.Input(
-                                id="change-request-crit-high",
-                                type="text",
-                                value="",
-                                style={"width": "100%"},
-                            ),
-                        ],
-                        style={
-                            "padding": "8px",
-                            "border": "1px dashed #bbb",
-                            "marginBottom": "8px",
-                        },
-                    ),
+                    build_threshold_inputs("change-request"),
                     html.Label("advanced change_payload JSON (optional)"),
                     dcc.Textarea(
                         id="change-request-change-payload",
@@ -727,42 +738,12 @@ def _build_emergency_change_form(chart_id: str) -> html.Div:
                 style={"width": "100%"},
             ),
             html.Label("threshold fields (preferred)"),
-            html.Div(
-                [
-                    html.Label("warn_low (optional)"),
-                    dcc.Input(
-                        id="emergency-warn-low",
-                        type="text",
-                        value="",
-                        style={"width": "100%"},
-                    ),
-                    html.Label("warn_high (optional)"),
-                    dcc.Input(
-                        id="emergency-warn-high",
-                        type="text",
-                        value="1.9",
-                        style={"width": "100%"},
-                    ),
-                    html.Label("crit_low (optional)"),
-                    dcc.Input(
-                        id="emergency-crit-low",
-                        type="text",
-                        value="",
-                        style={"width": "100%"},
-                    ),
-                    html.Label("crit_high (optional)"),
-                    dcc.Input(
-                        id="emergency-crit-high",
-                        type="text",
-                        value="2.0",
-                        style={"width": "100%"},
-                    ),
-                ],
-                style={
-                    "padding": "8px",
-                    "border": "1px dashed #bbb",
-                    "marginBottom": "8px",
-                },
+            build_threshold_inputs(
+                "emergency",
+                warn_low_default="",
+                warn_high_default="1.9",
+                crit_low_default="",
+                crit_high_default="2.0",
             ),
             html.Label("advanced change_payload JSON (optional)"),
             dcc.Textarea(

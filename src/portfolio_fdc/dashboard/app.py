@@ -166,22 +166,22 @@ def _build_change_payload_text(
     if crit_high_val is not None:
         threshold_payload["crit_high"] = crit_high_val
 
-    # Prefer structured threshold fields. Raw JSON remains as an optional fallback.
+    raw_text = (raw_payload or "").strip()
+    if raw_text:
+        try:
+            parsed = json.loads(raw_text)
+        except json.JSONDecodeError:
+            return None, "change_payload must be valid JSON"
+        if not isinstance(parsed, dict):
+            return None, "change_payload must be JSON object"
+        if not parsed:
+            return None, "change_payload must not be empty"
+        return raw_text, None
+
     if threshold_payload:
         return json.dumps(threshold_payload, ensure_ascii=False), None
 
-    raw_text = (raw_payload or "").strip()
-    if not raw_text:
-        return None, "at least one threshold field or change_payload JSON is required"
-    try:
-        parsed = json.loads(raw_text)
-    except json.JSONDecodeError:
-        return None, "change_payload must be valid JSON"
-    if not isinstance(parsed, dict):
-        return None, "change_payload must be JSON object"
-    if not parsed:
-        return None, "change_payload must not be empty"
-    return raw_text, None
+    return None, "at least one threshold field or change_payload JSON is required"
 
 
 def _build_history_preview(rows: list[dict[str, Any]]) -> list[Any]:

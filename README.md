@@ -1,5 +1,7 @@
 # FDC Logger Toolkit (Portfolio Edition)
 
+[![CI](https://github.com/mdht-daiki/fdc-logger-toolkit/actions/workflows/ci.yml/badge.svg)](https://github.com/mdht-daiki/fdc-logger-toolkit/actions/workflows/ci.yml)
+
 製造装置ログを対象にした、ポートフォリオ向け FDC (Fault Detection & Classification) ツールキットです。
 
 このプロジェクトは社内監視ツールを再構成した公開版で、機密情報や固有ロジックは削除し、以下に置き換えています。
@@ -7,6 +9,20 @@
 - 疑似 logger データ生成機能
 - 設定ファイルベースのマッピング/ルール
 - ローカル SQLite パイプライン
+
+---
+
+## Portfolio Scope Snapshot
+
+現在の公開版で「デモ可能」な範囲を明示します。
+
+| Area      | Status | Portfolio Scope |
+| --------- | ------ | --------------- |
+| db_api    | Ready  | SQLite gateway, governance endpoints, read/write API |
+| dashboard | Ready  | chart/judge/governance UI（change request / emergency / retry） |
+| ingest    | Ready  | synthetic data -> scrape/aggregate -> DB 反映 |
+| judge     | Partial | `run_once` ベース。通知/MES 連携は段階対応中 |
+| ops docs  | Partial | runbook/rollback/checklist は継続整備中 |
 
 ---
 
@@ -165,6 +181,53 @@ pre-commit install
 
 ## クイックスタート（ローカル）
 
+### 0) 最短デモ（3ステップ）
+
+`db_api` を起動した状態で、次の 3 ステップで dashboard まで確認できます。
+
+1. サンプルデータ生成 + 1サイクル投入
+
+```powershell
+.\tasks.ps1 demo-data
+```
+
+```bash
+make demo-data
+```
+
+2. dashboard 起動
+
+```powershell
+.\tasks.ps1 demo-dashboard
+```
+
+```bash
+make demo-dashboard
+```
+
+3. ブラウザで確認
+
+- `http://localhost:8050` を開く
+- Change Requests / Emergency タブでフォーム入力から payload preview を確認
+
+`db_api` をまだ起動していない場合:
+
+```powershell
+.\tasks.ps1 demo-db-api
+```
+
+```bash
+make demo-db-api
+```
+
+トラブル時の最小復旧:
+
+1. `PORTFOLIO_DB_DIR` が不整合なら unset して再起動
+2. `data/db/main.db` をバックアップ退避後に再生成
+3. `.\tasks.ps1 install`（または `make install-dev`）を再実行
+
+---
+
 ### 1) db_api を起動
 
 ```bash
@@ -278,10 +341,13 @@ make all
 
 Pull Request では以下の通過が必要です。
 
-- Ruff（lint + format）
-- MyPy（型チェック）
-- Pytest
+- Ruff（lint + format check）
+- MyPy（`src` 型チェック）
+- Import Linter（モジュール境界）
+- Pytest（回帰）
 - （任意）CodeRabbit review
+
+CI 定義: `.github/workflows/ci.yml`
 
 ---
 

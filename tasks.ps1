@@ -1,6 +1,6 @@
 ﻿param(
   [Parameter(Position=0)]
-  [ValidateSet("help","venv","install","precommit","fmt","lint","type","test","test-fast","test-slow","test-db-api-aggregate","check","aggregate-dry-run","clean","cleanup-retention","vacuum-db","judge-run-once")]
+  [ValidateSet("help","venv","install","precommit","fmt","lint","type","test","test-fast","test-slow","test-db-api-aggregate","check","aggregate-dry-run","clean","cleanup-retention","vacuum-db","judge-run-once","demo-db-api","demo-data","demo-dashboard")]
   [string]$Task = "help"
   ,
   [string]$AggInput = "data/scrape/scrape_TOOL_A.csv"
@@ -70,6 +70,9 @@ switch ($Task) {
     Write-Host "  .\tasks.ps1 cleanup-retention - delete retention-expired data (daily task)"
     Write-Host "  .\tasks.ps1 vacuum-db - VACUUM SQLite database (weekly task)"
     Write-Host "  .\tasks.ps1 judge-run-once - execute one judge cycle (scheduler entry point)"
+    Write-Host "  .\tasks.ps1 demo-db-api - start db_api for portfolio demo"
+    Write-Host "  .\tasks.ps1 demo-data - generate sample data and run one pipeline cycle"
+    Write-Host "  .\tasks.ps1 demo-dashboard - start dashboard (http://localhost:8050)"
   }
 
   "venv" {
@@ -155,6 +158,23 @@ switch ($Task) {
 
     & $Py @JudgeArgs | Out-Host
     exit $LASTEXITCODE
+  }
+
+  "demo-db-api" {
+    Ensure-DevInstall
+    & $Py -m portfolio_fdc.db_api.app | Out-Host
+  }
+
+  "demo-data" {
+    Ensure-DevInstall
+    $RawPath = "data/raw/logger_raw_demo.csv"
+    & $Py -m portfolio_fdc.tools.generate_logger_csv --out $RawPath --seconds 7200 --scenario mix | Out-Host
+    & $Py -m portfolio_fdc.main.run_once --tool TOOL_A --raw $RawPath --db-api http://localhost:8000 | Out-Host
+  }
+
+  "demo-dashboard" {
+    Ensure-DevInstall
+    & $Py -m portfolio_fdc.dashboard.app | Out-Host
   }
 
   "clean" {

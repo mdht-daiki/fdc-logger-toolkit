@@ -161,15 +161,25 @@ URL 契約トラッキング（Discussion #94）:
 #### Phase 2 Endpoint Contract Detail（Notification Retry 系）
 
 1. `GET /governance/notifications/failed`
-  - Query: `event_id`(optional), `limit`(1..500), `offset`(>=0)
-  - 認可: dashboard/ops/audit が利用可
-  - 役割: failed 状態の通知レコードを一覧表示する
+
+- Query: `event_id`(optional), `limit`(1..500), `offset`(>=0)
+- 認可: dashboard/ops/audit が利用可
+- 役割: failed 状態の通知レコードを一覧表示する
 
 2. `POST /governance/notifications/{event_id}/retry`
-  - Request JSON: `{}`（body なし運用）
-  - 認可: dashboard/ops が利用可
-  - 役割: failed 通知を pending に戻し、retry_count と next_retry_at を更新する
-  - エラー: 400（状態不正）, 404（対象なし）, 409（retry 上限/競合）, 5xx
+
+- Request body: 省略可。body がない場合は `{}` と同等に扱う
+- 認可: dashboard/ops が利用可
+- 役割: failed 通知を pending に戻し、retry_count と next_retry_at を更新する
+- エラー: 400（状態不正）, 404（対象なし）, 409（retry 上限/競合）, 5xx
+- HTTP example
+  - `curl -X POST http://localhost:8000/governance/notifications/123/retry`
+- 互換例（空オブジェクトも受理）
+  - `curl -X POST http://localhost:8000/governance/notifications/123/retry -H "Content-Type: application/json" -d '{}'`
+- 契約テスト期待値
+  - 受理: body なし POST
+  - 受理: 空 JSON オブジェクト `{}`
+  - 拒否しない: 未使用フィールドを含む body は認可/状態判定対象にせず無視する
 
 #### Phase 2 Endpoint Contract Detail（Emergency 系）
 

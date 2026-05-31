@@ -949,7 +949,7 @@ def refresh_failed_notifications(
         ]
         return f"Loaded {len(table_rows)} failed notification(s)", table_rows
     except APIError as exc:
-        return _format_api_error("Failed notification list failed", exc), []
+        return _format_api_error("Notification list failed", exc), []
     except Exception:
         logger.exception("Unexpected error while refreshing failed notifications")
         return "Unexpected error while loading failed notifications", []

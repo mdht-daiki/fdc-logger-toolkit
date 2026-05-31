@@ -261,6 +261,25 @@ def test_post_notifications_retry_returns_409_when_retry_limit_exceeded(
         _delete_seeded_notification_records(event_id, correlation_id)
 
 
+def test_post_notifications_retry_accepts_empty_json_object(
+    client: TestClient,
+) -> None:
+    correlation_id = f"notif-retry-empty-body-{uuid4().hex[:8]}"
+    event_id = _insert_audit_event_for_outbox(correlation_id)
+    _insert_outbox(event_id=event_id, status="failed", retry_count=1, last_error="smtp timeout")
+
+    try:
+        res = client.post(f"/governance/notifications/{event_id}/retry", json={})
+
+        assert res.status_code == 200
+        body = res.json()
+        assert body["ok"] is True
+        assert body["data"]["event_id"] == event_id
+        assert body["data"]["status"] == "pending"
+    finally:
+        _delete_seeded_notification_records(event_id, correlation_id)
+
+
 def test_get_failed_notifications_returns_only_failed_rows(client: TestClient) -> None:
     failed_correlation_id = f"notif-failed-list-{uuid4().hex[:8]}"
     pending_correlation_id = f"notif-pending-list-{uuid4().hex[:8]}"
@@ -307,7 +326,7 @@ def test_get_failed_notifications_filters_by_event_id(client: TestClient) -> Non
         rows = body["data"]
         assert len(rows) == 1
         row = rows[0]
-        assert row["event_id"] == event_id
+        assert int(row["event_id"]) == event_id
         assert row["status"] == "failed"
         assert row["retry_count"] == 2
         assert row["last_error"] == "http 503"

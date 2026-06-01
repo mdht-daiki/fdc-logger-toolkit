@@ -57,7 +57,7 @@
 
 ## 5分で触る最小操作
 
-## 1. チャートを確認する（Charts）
+### 1. チャートを確認する（Charts）
 
 1. `Charts` タブを開く
 2. `Load` を押す
@@ -68,7 +68,7 @@
 - 一覧に `warning` / `critical` の範囲が見える
 - `open` リンクで `Active` タブへ遷移できる
 
-## 2. Active で点と生波形を確認する
+### 2. Active で点と生波形を確認する
 
 1. `Active` タブを開く
 2. 上段グラフの点を1つクリックする
@@ -79,7 +79,7 @@
 - `Focused chart` が表示される
 - 下段グラフに対象点の波形が描画される
 
-## 3. 通常変更を試す（Change Requests）
+### 3. 通常変更を試す（Change Requests）
 
 1. `Change Requests` タブを開く
 2. `Create Change Request` で以下を入力する
@@ -98,7 +98,7 @@
 - `advanced change_payload JSON` は上級者向けです。
 - raw JSON を入力した場合は、threshold fields より raw JSON が優先されます。
 
-## 4. 緊急変更を試す（Emergency）
+### 4. 緊急変更を試す（Emergency）
 
 1. `Emergency` タブを開く
 2. `Emergency Change` で以下を入力する
@@ -113,7 +113,7 @@
 - 結果欄に `request_id` や `resulting_version` が表示される
 - 下部 `History Preview` に履歴反映が出る
 
-## 5. 失敗通知を再送する（Notification Retry）
+### 5. 失敗通知を再送する（Notification Retry）
 
 1. `Notification Retry` タブを開く
 2. `Refresh Failed Notifications` を押す

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -62,14 +61,9 @@ def run_once(
     if dry_run:
         argv.append("--dry-run")
 
-    original_argv = sys.argv
-    try:
-        sys.argv = argv
-        aggregate.main()
-    finally:
-        sys.argv = original_argv
+    aggregate.main(argv[1:])
 
-    return RunOnceSummary(scraped_rows=int(len(scrape_df)), scrape_output_csv=out_csv.as_posix())
+    return RunOnceSummary(scraped_rows=len(scrape_df), scrape_output_csv=out_csv.as_posix())
 
 
 def main() -> None:

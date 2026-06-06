@@ -1,5 +1,78 @@
 # #141 Definition of Done
 
+---
+
+## Portfolio 公開前チェックリスト（PR用）
+
+このセクションは、公開直前の PR でそのままコピペして使うためのテンプレートです。
+
+### 1) 公開情報
+
+- [ ] リポジトリ名・説明文がポートフォリオ向けになっている
+- [ ] README 冒頭に 30 秒サマリがある
+- [ ] README に最短デモ手順（5 分以内）がある
+- [ ] README にスクリーンショットがあり、表示崩れがない
+- [ ] ライセンス（`LICENSE`）が存在し、`pyproject.toml` と整合している
+
+### 2) 実行性・再現性
+
+- [ ] 新規環境で `./tasks.ps1 install` または `make install-dev` が通る
+- [ ] `db_api` が起動できる（`./tasks.ps1 demo-db-api`）
+- [ ] `demo-data` が成功し、DB にデータ投入できる
+- [ ] `dashboard` が起動し、`http://localhost:8050` で画面確認できる
+- [ ] 主要ページ遷移とフォーム送信（change request/emergency/retry）を確認した
+
+### 3) 品質ゲート
+
+- [ ] `ruff check .` が通る
+- [ ] `mypy src` が通る
+- [ ] `pytest` または最低 `tests/integration/test_smoke.py` が通る
+- [ ] CI がグリーン（必須ジョブ全通過）
+
+### 4) アーキテクチャ/ガバナンス整合
+
+- [ ] モジュール境界に反する依存を追加していない（import-linter で確認）
+- [ ] しきい値/ガバナンス変更がある場合、監査可能性（source/reason/history）を担保
+- [ ] モジュール境界を変更した場合、`docs/architecture.md` を更新
+- [ ] ガバナンス運用変更がある場合、`docs/decision-log.md` を更新
+
+### 5) PR 記載事項
+
+- [ ] 目的（なぜこの変更が必要か）を 3 行以内で記載
+- [ ] 変更範囲（ingest/dashboard/judge/api/docs/tests）を明記
+- [ ] 検証コマンドと結果を記載
+- [ ] リスクとロールバック手順を記載
+- [ ] 画面変更がある場合、Before/After スクショを添付
+
+### PR 本文テンプレート（公開前チェック用）
+
+```md
+## Summary
+-
+
+## Scope
+- ingest:
+- dashboard:
+- judge:
+- api:
+- docs/tests:
+
+## Validation
+- [ ] ruff check .
+- [ ] mypy src
+- [ ] pytest
+- [ ] demo-data
+- [ ] demo-dashboard
+
+## Risks / Rollback
+- Risk:
+- Rollback:
+
+## Screenshots
+- Before:
+- After:
+```
+
 ## POST/GET /governance/change-requests 実装
 
 ### 🔧 設計確定（実装前に合意）

@@ -621,7 +621,7 @@ def delete_process(db_api: str, process_id: str) -> None:
     api_delete(db_api, f"/processes/{process_id}")
 
 
-def main():
+def main(argv: list[str] | None = None):
     """入力CSVを集約し、プロセス切り出し・詳細保存・特徴量計算・DB登録を実行する。"""
     ap = argparse.ArgumentParser()
     ap.add_argument(
@@ -637,7 +637,7 @@ def main():
         action="store_true",
         help="DB APIへはPOSTせず、ローカル処理（切り出し/CSV保存/特徴量計算）のみ実行する",
     )
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
     cfg = load_yaml(Path(args.config)).get("tools", {})
     df = pd.read_csv(args.input)
     ensure_cols(df, ["timestamp", "tool_id", "chamber_id"])
@@ -650,7 +650,7 @@ def main():
     for (tool_id, chamber_id), g in df.groupby(["tool_id", "chamber_id"]):
         if tool_id not in cfg:
             # unknown tool: fallback edge on dc_bias if exists
-            local = {
+            local: dict[str, Any] = {
                 "mode": "edge",
                 "key_channels": {"dc_bias": "dc_bias"},
                 "edge": {
@@ -664,7 +664,7 @@ def main():
             local = cfg[tool_id]
         mode = local.get("mode", "edge")
         g2 = g.copy()
-        key_channels = local.get("key_channels", {})
+        key_channels: dict[str, Any] = local.get("key_channels", {})
         required = [key_channels.get("dc_bias")]
         if mode == "steppeak":
             required.append(key_channels.get("cl2_flow"))

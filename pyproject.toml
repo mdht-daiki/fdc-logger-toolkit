@@ -3,7 +3,15 @@ name = "portfolio-fdc"
 version = "0.1.0"
 description = "Portfolio-friendly FDC toolkit (logger stream → segmentation → features → SPC dashboard)"
 readme = "README.md"
+license = { file = "LICENSE" }
 requires-python = ">=3.11"
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Framework :: FastAPI",
+  "License :: OSI Approved :: MIT License",
+  "Topic :: Scientific/Engineering",
+]
 # Runtime requirement: SQLite >= 3.38 is required.
 # chart_repository.py uses datetime(h.changed_at) comparisons that rely on
 # SQLite's ISO 8601 datetime parsing, which was stabilised in 3.38 (2022-02-22).

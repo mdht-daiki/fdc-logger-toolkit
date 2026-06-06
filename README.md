@@ -10,6 +10,30 @@
 - 設定ファイルベースのマッピング/ルール
 - ローカル SQLite パイプライン
 
+## 採用担当向け 30秒サマリ
+
+- 何を作ったか: 製造ログの取り込み・特徴量化・判定・可視化を、Python 単一リポジトリで再現できる FDC ミニ基盤
+- どこを重視したか: モジュール境界（import-linter で強制）、SQLite 並行書き込み制御、しきい値変更の監査可能性
+- すぐ確認できる点: `db_api` + `dashboard` + `main.run_once` の最短デモ導線、`pytest` と CI による回帰チェック
+
+## 5分デモ導線（評価者向け）
+
+1. `./tasks.ps1 install`（Windows）または `make install-dev`（Mac/Linux）
+2. `./tasks.ps1 demo-db-api` で API 起動
+3. 別ターミナルで `./tasks.ps1 demo-data`
+4. 別ターミナルで `./tasks.ps1 demo-dashboard`
+5. `http://localhost:8050` で SPC チャートとガバナンス UI を確認
+
+## スクリーンショット
+
+### SPC Active チャート画面
+
+![SPC Active](images/Active.png)
+
+### ガバナンス 画面
+
+![SPC Charts](images/Charts.png)
+
 ---
 
 ## Portfolio Scope Snapshot
@@ -179,6 +203,14 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -U pip
 pip install -e ".[dev]"
+pre-commit install
+```
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -U pip
+python -m pip install -e ".[dev]"
 pre-commit install
 ```
 
